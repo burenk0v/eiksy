@@ -47,6 +47,10 @@ jobs:
         shell: bash
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |

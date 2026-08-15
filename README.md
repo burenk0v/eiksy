@@ -28,6 +28,12 @@ go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
 
 ### Local workflows
 
+Install frontend dependencies once before running frontend build commands directly:
+
+```bash
+cd frontend && npm ci
+```
+
 Run the frontend-backed desktop app in development mode:
 
 ```bash
