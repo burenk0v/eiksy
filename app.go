@@ -56,9 +56,7 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	if storeErr != nil {
-		a.service.EmitLog("error", "Settings could not be loaded from disk; running with defaults. Original file renamed to *.fail.")
-	} else if store == nil {
-		a.service.EmitLog("warn", "Disk store unavailable; session data will not persist across restarts.")
+		a.service.EmitLog("error", "Disk store could not be initialized; running with in-memory defaults.")
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
 	}
