@@ -1,7 +1,7 @@
 package settings
 
 type WindowLayout struct {
-	SidebarWidth int `json:"sidebarWidth"`
+	SidebarWidth   int `json:"sidebarWidth"`
 	AssistantWidth int `json:"assistantWidth"`
 }
 

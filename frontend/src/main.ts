@@ -201,7 +201,7 @@ function render(state: ShellState) {
         </div>
     `;
 
-    for (const button of app.querySelectorAll<HTMLButtonElement>('[data-open-profile]')) {
+    app.querySelectorAll<HTMLButtonElement>('[data-open-profile]').forEach((button) => {
         button.addEventListener('click', async () => {
             const profileID = button.dataset.openProfile;
             if (!profileID) {
@@ -211,9 +211,9 @@ function render(state: ShellState) {
             await LaunchSession(profileID);
             await bootstrap();
         });
-    }
+    });
 
-    for (const button of app.querySelectorAll<HTMLButtonElement>('[data-close-session]')) {
+    app.querySelectorAll<HTMLButtonElement>('[data-close-session]').forEach((button) => {
         button.addEventListener('click', async () => {
             const sessionID = button.dataset.closeSession;
             if (!sessionID) {
@@ -223,7 +223,7 @@ function render(state: ShellState) {
             await CloseSession(sessionID);
             await bootstrap();
         });
-    }
+    });
 }
 
 function renderProfile(profile: SessionProfile) {

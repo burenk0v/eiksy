@@ -14,18 +14,18 @@ import (
 )
 
 type ShellState struct {
-	Protocols           []protocols.Descriptor            `json:"protocols"`
-	SessionProfiles     []sessions.Profile                `json:"sessionProfiles"`
-	ActiveSessions      []RuntimeSessionView              `json:"activeSessions"`
-	SessionHistory      []sessions.HistoryEntry           `json:"sessionHistory"`
-	CredentialProviders []credentials.ProviderDescriptor  `json:"credentialProviders"`
-	AI                  ai.WorkspaceState                 `json:"ai"`
-	Workspace           WorkspaceView                     `json:"workspace"`
-	Settings            settings.AppSettings              `json:"settings"`
+	Protocols           []protocols.Descriptor           `json:"protocols"`
+	SessionProfiles     []sessions.Profile               `json:"sessionProfiles"`
+	ActiveSessions      []RuntimeSessionView             `json:"activeSessions"`
+	SessionHistory      []sessions.HistoryEntry          `json:"sessionHistory"`
+	CredentialProviders []credentials.ProviderDescriptor `json:"credentialProviders"`
+	AI                  ai.WorkspaceState                `json:"ai"`
+	Workspace           WorkspaceView                    `json:"workspace"`
+	Settings            settings.AppSettings             `json:"settings"`
 }
 
 type WorkspaceView struct {
-	Layout      workspace.Layout  `json:"layout"`
+	Layout       workspace.Layout  `json:"layout"`
 	RecentEvents []workspace.Event `json:"recentEvents"`
 }
 

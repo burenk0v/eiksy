@@ -15,13 +15,13 @@ func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:            "opsy",
-		Width:            1440,
-		Height:           900,
-		MinWidth:         1200,
-		MinHeight:        700,
-		DisableResize:    false,
-		Frameless:        false,
+		Title:                    "opsy",
+		Width:                    1440,
+		Height:                   900,
+		MinWidth:                 1200,
+		MinHeight:                700,
+		DisableResize:            false,
+		Frameless:                false,
 		EnableDefaultContextMenu: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
