@@ -144,8 +144,8 @@ func NewStore() *Store {
 		},
 		aiState: ai.WorkspaceState{
 			Providers: []ai.ProviderDescriptor{
-				{ID: "ollama-local", Name: "Local Model", Class: ai.ProviderClassLocal, Model: "llama3.1", Configured: true},
-				{ID: "corp-openai", Name: "Corporate OpenAI", Class: ai.ProviderClassOpenAICompatible, Model: "gpt-4.1-mini", Endpoint: "https://api.example.internal/v1", Configured: false},
+				{ID: "llama-cpp-local", Name: "Qwen3 8B Local", Class: ai.ProviderClassLocal, Model: "Qwen3 8B (Q4_K_M)", Status: "download required", Selected: true, Configured: false},
+				{ID: "openai-compatible-cloud", Name: "OpenAI-compatible Cloud", Class: ai.ProviderClassOpenAICompatible, Model: "Remote model", Status: "token required", Endpoint: "https://api.example.internal/v1", Configured: false},
 			},
 			ContextPolicy: ai.ContextPolicy{
 				SendTerminalSelection: true,
@@ -246,6 +246,13 @@ func (s *Store) AIState() ai.WorkspaceState {
 	defer s.mu.RUnlock()
 
 	return s.aiState
+}
+
+func (s *Store) UpdateAIState(state ai.WorkspaceState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.aiState = state
 }
 
 func (s *Store) Settings() settings.AppSettings {

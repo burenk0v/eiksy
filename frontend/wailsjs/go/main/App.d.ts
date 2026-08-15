@@ -4,6 +4,14 @@ import {app} from '../models';
 
 export function CloseSession(arg1:string):Promise<void>;
 
+export function DownloadLocalModel():Promise<void>;
+
 export function GetShellState():Promise<app.ShellState>;
 
 export function LaunchSession(arg1:string):Promise<app.RuntimeSessionView>;
+
+export function SaveCloudProvider(arg1:string,arg2:string):Promise<void>;
+
+export function SelectAIProvider(arg1:string):Promise<void>;
+
+export function StartLocalModel():Promise<void>;

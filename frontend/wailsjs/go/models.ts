@@ -36,6 +36,10 @@ export namespace ai {
 	    class: string;
 	    model: string;
 	    endpoint?: string;
+	    localPath?: string;
+	    command?: string;
+	    status: string;
+	    selected: boolean;
 	    configured: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -49,6 +53,10 @@ export namespace ai {
 	        this.class = source["class"];
 	        this.model = source["model"];
 	        this.endpoint = source["endpoint"];
+	        this.localPath = source["localPath"];
+	        this.command = source["command"];
+	        this.status = source["status"];
+	        this.selected = source["selected"];
 	        this.configured = source["configured"];
 	    }
 	}
@@ -456,4 +464,3 @@ export namespace workspace {
 	}
 
 }
-
