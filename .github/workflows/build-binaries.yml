@@ -21,8 +21,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes
 
   build:
     name: Build ${{ matrix.platform }}
@@ -98,4 +98,4 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.artifact_path }}#${{ matrix.output_name }}" --clobber
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.artifact_path }}#${{ matrix.output_name }}" --repo "$GITHUB_REPOSITORY" --clobber
