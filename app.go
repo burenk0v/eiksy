@@ -5,8 +5,15 @@ import (
 	"log"
 
 	"opsy/internal/app"
+	"opsy/internal/domain/sessions"
+	sftpdomain "opsy/internal/domain/sftp"
 	"opsy/internal/llm"
+	sftpmanager "opsy/internal/sftp"
+	sshmanager "opsy/internal/ssh"
+	"opsy/internal/storage/disk"
 	"opsy/internal/storage/memory"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // App wires the Wails bridge to backend services.
@@ -17,53 +24,123 @@ type App struct {
 
 // NewApp creates the root application instance.
 func NewApp() *App {
-	store := memory.NewStore()
-	localManager, err := llm.NewManager()
-	var service *app.Service
-	if err != nil {
-		log.Printf("local model manager unavailable: %v", err)
-		service = app.NewService(store, nil)
-	} else {
-		service = app.NewService(store, localManager)
-	}
-
-	return &App{
-		service: service,
-	}
+	return &App{}
 }
 
 // startup is called when the app starts.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	store, err := disk.NewStore()
+	if err != nil {
+		log.Printf("disk store unavailable, falling back to memory store: %v", err)
+		store = nil
+	}
+
+	localManager, err := llm.NewManager()
+	if err != nil {
+		log.Printf("local model manager unavailable: %v", err)
+	}
+
+	if store != nil {
+		a.service = app.NewService(store, localManager, sshmanager.NewManager(), sftpmanager.NewManager())
+	} else {
+		a.service = app.NewService(memory.NewStore(), localManager, sshmanager.NewManager(), sftpmanager.NewManager())
+	}
+	a.service.SetRuntimeContext(ctx, func(eventName string, data ...interface{}) {
+		runtime.EventsEmit(ctx, eventName, data...)
+	})
 }
 
 // GetShellState returns the full backend-owned application state for the UI shell.
 func (a *App) GetShellState() app.ShellState {
-	return a.service.GetShellState()
+	return a.currentService().GetShellState()
 }
 
 // LaunchSession opens a new runtime tab from a saved session profile.
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) {
-	return a.service.LaunchSession(profileID)
+	return a.currentService().LaunchSession(profileID)
 }
 
 // CloseSession closes an active runtime tab.
 func (a *App) CloseSession(sessionID string) error {
-	return a.service.CloseSession(sessionID)
+	return a.currentService().CloseSession(sessionID)
+}
+
+func (a *App) CreateSessionProfile(profile sessions.Profile) error {
+	return a.currentService().CreateSessionProfile(profile)
+}
+
+func (a *App) DeleteSessionProfile(id string) error {
+	return a.currentService().DeleteSessionProfile(id)
+}
+
+func (a *App) ConnectSSH(tabID, profileID string) error {
+	return a.currentService().ConnectSSH(a.ctx, tabID, profileID)
+}
+
+func (a *App) SendSSHInput(tabID, data string) error {
+	return a.currentService().SendSSHInput(tabID, data)
+}
+
+func (a *App) ResizeTerminal(tabID string, cols, rows int) error {
+	return a.currentService().ResizeTerminal(tabID, cols, rows)
+}
+
+func (a *App) DisconnectSSH(tabID string) error {
+	return a.currentService().DisconnectSSH(tabID)
+}
+
+func (a *App) ListSFTPFiles(tabID, path string) ([]sftpdomain.FileEntry, error) {
+	return a.currentService().ListSFTPFiles(tabID, path)
+}
+
+func (a *App) NavigateSFTP(tabID, path string) ([]sftpdomain.FileEntry, error) {
+	return a.currentService().NavigateSFTP(tabID, path)
+}
+
+func (a *App) OpenSessionWindow() error {
+	return nil
 }
 
 func (a *App) SelectAIProvider(providerID string) error {
-	return a.service.SelectAIProvider(providerID)
+	return a.currentService().SelectAIProvider(providerID)
 }
 
 func (a *App) SaveCloudProvider(endpoint string, token string) error {
-	return a.service.SaveCloudProvider(endpoint, token)
+	return a.currentService().SaveCloudProvider(endpoint, token)
 }
 
 func (a *App) DownloadLocalModel() error {
-	return a.service.DownloadLocalModel(a.ctx)
+	return a.currentService().DownloadLocalModel(a.ctx)
+}
+
+func (a *App) DownloadLocalModelWithProgress() error {
+	err := a.currentService().DownloadLocalModelWithProgress(a.ctx, func(downloaded, total int64) {
+		percent := 0.0
+		if total > 0 {
+			percent = float64(downloaded) / float64(total) * 100
+		}
+		runtime.EventsEmit(a.ctx, "model:progress", map[string]interface{}{
+			"downloaded": downloaded,
+			"total":      total,
+			"percent":    percent,
+		})
+	})
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "model:error", map[string]string{"error": err.Error()})
+		return err
+	}
+	return nil
 }
 
 func (a *App) StartLocalModel() error {
-	return a.service.StartLocalModel(a.ctx)
+	return a.currentService().StartLocalModel(a.ctx)
+}
+
+func (a *App) currentService() *app.Service {
+	if a.service == nil {
+		a.service = app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())
+	}
+	return a.service
 }

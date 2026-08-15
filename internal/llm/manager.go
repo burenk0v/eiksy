@@ -18,6 +18,7 @@ import (
 
 const (
 	defaultModelURL    = "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf?download=true"
+	defaultOpsyDir     = ".opsy"
 	defaultModelDir    = "models"
 	defaultModelFile   = "Qwen_Qwen3-8B-Q4_K_M.gguf"
 	defaultHost        = "127.0.0.1"
@@ -36,13 +37,21 @@ type Manager struct {
 	serverCmd  *exec.Cmd
 }
 
-func NewManager() (*Manager, error) {
-	configDir, err := os.UserConfigDir()
+func OpsyDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("resolve user config dir: %w", err)
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+	return filepath.Join(homeDir, defaultOpsyDir), nil
+}
+
+func NewManager() (*Manager, error) {
+	opsyDir, err := OpsyDir()
+	if err != nil {
+		return nil, err
 	}
 
-	modelPath := filepath.Join(configDir, "opsy", defaultModelDir, defaultModelFile)
+	modelPath := filepath.Join(opsyDir, defaultModelDir, defaultModelFile)
 	llamaBin := strings.TrimSpace(os.Getenv("OPSY_LLAMA_CPP_BIN"))
 	if llamaBin == "" {
 		llamaBin = "llama-server"
@@ -63,7 +72,14 @@ func (m *Manager) ModelPath() string {
 }
 
 func (m *Manager) DownloadQwen3Model(ctx context.Context) (string, error) {
+	return m.DownloadQwen3ModelWithProgress(ctx, nil)
+}
+
+func (m *Manager) DownloadQwen3ModelWithProgress(ctx context.Context, progressFn func(downloaded, total int64)) (string, error) {
 	if info, err := os.Stat(m.modelPath); err == nil && info.Size() > 0 {
+		if progressFn != nil {
+			progressFn(info.Size(), info.Size())
+		}
 		return m.modelPath, nil
 	}
 
@@ -92,7 +108,12 @@ func (m *Manager) DownloadQwen3Model(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("create temporary model file: %w", err)
 	}
 
-	_, copyErr := io.Copy(file, resp.Body)
+	writer := io.Writer(file)
+	if progressFn != nil {
+		writer = io.MultiWriter(file, &progressWriter{total: resp.ContentLength, fn: progressFn})
+	}
+
+	_, copyErr := io.Copy(writer, resp.Body)
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
@@ -106,6 +127,12 @@ func (m *Manager) DownloadQwen3Model(ctx context.Context) (string, error) {
 	if err := os.Rename(tmpPath, m.modelPath); err != nil {
 		_ = os.Remove(tmpPath)
 		return "", fmt.Errorf("move qwen3 8b model into place: %w", err)
+	}
+
+	if progressFn != nil {
+		if info, err := os.Stat(m.modelPath); err == nil {
+			progressFn(info.Size(), maxInt64(resp.ContentLength, info.Size()))
+		}
 	}
 
 	return m.modelPath, nil
@@ -183,4 +210,24 @@ func (m *Manager) waitForPort() error {
 	}
 
 	return fmt.Errorf("llama.cpp server did not become ready on %s", address)
+}
+
+type progressWriter struct {
+	downloaded int64
+	total      int64
+	fn         func(downloaded, total int64)
+}
+
+func (p *progressWriter) Write(data []byte) (int, error) {
+	n := len(data)
+	p.downloaded += int64(n)
+	p.fn(p.downloaded, p.total)
+	return n, nil
+}
+
+func maxInt64(left, right int64) int64 {
+	if left > right {
+		return left
+	}
+	return right
 }

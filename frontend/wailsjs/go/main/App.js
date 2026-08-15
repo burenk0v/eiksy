@@ -6,8 +6,28 @@ export function CloseSession(arg1) {
   return window['go']['main']['App']['CloseSession'](arg1);
 }
 
+export function ConnectSSH(arg1, arg2) {
+  return window['go']['main']['App']['ConnectSSH'](arg1, arg2);
+}
+
+export function CreateSessionProfile(arg1) {
+  return window['go']['main']['App']['CreateSessionProfile'](arg1);
+}
+
+export function DeleteSessionProfile(arg1) {
+  return window['go']['main']['App']['DeleteSessionProfile'](arg1);
+}
+
+export function DisconnectSSH(arg1) {
+  return window['go']['main']['App']['DisconnectSSH'](arg1);
+}
+
 export function DownloadLocalModel() {
   return window['go']['main']['App']['DownloadLocalModel']();
+}
+
+export function DownloadLocalModelWithProgress() {
+  return window['go']['main']['App']['DownloadLocalModelWithProgress']();
 }
 
 export function GetShellState() {
@@ -18,12 +38,32 @@ export function LaunchSession(arg1) {
   return window['go']['main']['App']['LaunchSession'](arg1);
 }
 
+export function ListSFTPFiles(arg1, arg2) {
+  return window['go']['main']['App']['ListSFTPFiles'](arg1, arg2);
+}
+
+export function NavigateSFTP(arg1, arg2) {
+  return window['go']['main']['App']['NavigateSFTP'](arg1, arg2);
+}
+
+export function OpenSessionWindow() {
+  return window['go']['main']['App']['OpenSessionWindow']();
+}
+
+export function ResizeTerminal(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
+}
+
 export function SaveCloudProvider(arg1, arg2) {
   return window['go']['main']['App']['SaveCloudProvider'](arg1, arg2);
 }
 
 export function SelectAIProvider(arg1) {
   return window['go']['main']['App']['SelectAIProvider'](arg1);
+}
+
+export function SendSSHInput(arg1, arg2) {
+  return window['go']['main']['App']['SendSSHInput'](arg1, arg2);
 }
 
 export function StartLocalModel() {

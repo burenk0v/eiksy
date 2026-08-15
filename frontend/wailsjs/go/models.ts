@@ -312,6 +312,7 @@ export namespace sessions {
 	    host: string;
 	    port: number;
 	    username: string;
+	    password?: string;
 	    secretRef?: string;
 	    options?: Record<string, string>;
 	    lastLaunchedAt?: string;
@@ -331,9 +332,38 @@ export namespace sessions {
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
+	        this.password = source["password"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
+	    }
+	}
+
+}
+
+
+export namespace sftp {
+	
+	export class FileEntry {
+	    name: string;
+	    path: string;
+	    isDir: boolean;
+	    size: number;
+	    modTime: string;
+	    mode: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.isDir = source["isDir"];
+	        this.size = source["size"];
+	        this.modTime = source["modTime"];
+	        this.mode = source["mode"];
 	    }
 	}
 
