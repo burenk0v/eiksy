@@ -7,6 +7,7 @@ import (
 
 	"opsy/internal/app"
 	"opsy/internal/domain/sessions"
+	"opsy/internal/domain/settings"
 	sftpdomain "opsy/internal/domain/sftp"
 	"opsy/internal/llm"
 	sftpmanager "opsy/internal/sftp"
@@ -34,9 +35,9 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
-	store, err := disk.NewStore()
-	if err != nil {
-		log.Printf("disk store unavailable, falling back to memory store: %v", err)
+	store, storeErr := disk.NewStore()
+	if storeErr != nil {
+		log.Printf("disk store unavailable, falling back to memory store: %v", storeErr)
 		store = nil
 	}
 
@@ -53,6 +54,14 @@ func (a *App) startup(ctx context.Context) {
 	a.service.SetRuntimeContext(ctx, func(eventName string, data ...interface{}) {
 		runtime.EventsEmit(ctx, eventName, data...)
 	})
+
+	if storeErr != nil {
+		a.service.EmitLog("error", "Settings could not be loaded from disk; running with defaults. Original file renamed to *.fail.")
+	} else if store == nil {
+		a.service.EmitLog("warn", "Disk store unavailable; session data will not persist across restarts.")
+	} else {
+		a.service.EmitLog("info", "Application started with disk storage.")
+	}
 }
 
 // GetShellState returns the full backend-owned application state for the UI shell.
@@ -116,6 +125,10 @@ func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 
 func (a *App) OpenSessionWindow() error {
 	return nil
+}
+
+func (a *App) UpdateSettings(input settings.AppSettings) error {
+	return a.currentService().UpdateSettings(input)
 }
 
 func (a *App) SelectAIProvider(providerID string) error {

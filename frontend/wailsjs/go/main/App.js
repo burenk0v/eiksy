@@ -85,3 +85,7 @@ export function StartLocalModel() {
 export function CancelModelDownload() {
   return window['go']['main']['App']['CancelModelDownload']();
 }
+
+export function UpdateSettings(arg1) {
+  return window['go']['main']['App']['UpdateSettings'](arg1);
+}

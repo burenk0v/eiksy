@@ -25,9 +25,10 @@ import {
     SendSSHInput,
     StartLocalModel,
     ResizeTerminal,
+    UpdateSettings,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
-import type { ai as aiModels, app as appModels, sessions, sftp as sftpModels } from '../wailsjs/go/models';
+import type { ai as aiModels, app as appModels, sessions, settings as settingsModels, sftp as sftpModels } from '../wailsjs/go/models';
 
 type ShellState = appModels.ShellState;
 type RuntimeSession = appModels.RuntimeSessionView;
@@ -81,8 +82,14 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light';
-type SettingsTab = 'ai' | 'sshconfig' | 'theme';
+type SettingsTab = 'ai' | 'sshconfig' | 'theme' | 'logs';
 type SessionModalTab = 'basic' | 'advanced';
+
+type LogEntry = {
+    level: string;
+    message: string;
+    time: string;
+};
 
 const THEME_KEY = 'opsy-theme';
 
@@ -114,6 +121,8 @@ class OpsyShell {
     private sshConfigDraft = '';
     private modelProgress: ModelProgressState = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
     private theme: Theme;
+    private logEntries: LogEntry[] = [];
+    private readonly MAX_LOG_ENTRIES = 200;
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY) as Theme | null;
@@ -157,6 +166,21 @@ class OpsyShell {
             this.modelProgress.error = data?.error ?? 'Model download failed';
             this.modelProgress.active = false;
             this.render();
+        });
+        EventsOn('app:log', (...payload: unknown[]) => {
+            const data = payload[0] as { level?: string; message?: string; time?: string } | undefined;
+            if (!data?.message) return;
+            this.logEntries.push({
+                level: data.level ?? 'info',
+                message: data.message,
+                time: data.time ?? new Date().toISOString(),
+            });
+            if (this.logEntries.length > this.MAX_LOG_ENTRIES) {
+                this.logEntries = this.logEntries.slice(-this.MAX_LOG_ENTRIES);
+            }
+            if (this.shellState?.settings.showLogPanel) {
+                this.render();
+            }
         });
     }
 
@@ -230,12 +254,14 @@ class OpsyShell {
                     </section>
                 </aside>
             </div>
+            ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
         `;
 
         this.bindEvents();
         this.attachActiveTerminal();
+        this.scrollLogPanelToBottom();
     }
 
     private bindEvents(): void {
@@ -279,10 +305,14 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-import-ssh-config]')?.addEventListener('click', async () => {
-            await this.runAction(async () => {
+            try {
                 await ImportSSHConfig(this.sshConfigDraft);
                 this.sshConfigDraft = '';
-            }, 'Unable to import SSH config');
+                await this.refresh('');
+            } catch (error) {
+                this.errorMessage = formatError('Unable to import SSH config', error);
+                this.render();
+            }
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-delete-profile]').forEach((button) => {
@@ -444,6 +474,30 @@ class OpsyShell {
             });
         });
 
+        root?.querySelectorAll<HTMLButtonElement>('[data-set-log-panel]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const show = button.dataset.setLogPanel === 'true';
+                if (!this.shellState) return;
+                const updated = { ...this.shellState.settings, showLogPanel: show } as unknown as settingsModels.AppSettings;
+                await this.runAction(async () => UpdateSettings(updated), 'Unable to save log panel setting');
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-set-log-level]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const level = button.dataset.setLogLevel ?? 'info';
+                if (!this.shellState) return;
+                const updated = { ...this.shellState.settings, logLevel: level } as unknown as settingsModels.AppSettings;
+                await this.runAction(async () => UpdateSettings(updated), 'Unable to save log level setting');
+            });
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
+            if (!this.shellState) return;
+            const updated = { ...this.shellState.settings, showLogPanel: false } as unknown as settingsModels.AppSettings;
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to hide log panel');
+        });
+
         root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
@@ -476,10 +530,15 @@ class OpsyShell {
             if (Object.keys(options).length > 0) {
                 profile.options = options;
             }
-            await this.runAction(async () => CreateSessionProfile(profile), 'Unable to save session profile');
-            this.showSessionModal = false;
-            this.sessionForm = this.defaultSessionForm();
-            await this.refresh('');
+            try {
+                await CreateSessionProfile(profile);
+                this.showSessionModal = false;
+                this.sessionForm = this.defaultSessionForm();
+                await this.refresh('');
+            } catch (error) {
+                this.errorMessage = formatError('Unable to save session profile', error);
+                this.render();
+            }
         });
     }
 
@@ -674,6 +733,36 @@ class OpsyShell {
         });
     }
 
+    private scrollLogPanelToBottom(): void {
+        const body = document.querySelector<HTMLDivElement>('#log-panel-body');
+        if (body) {
+            body.scrollTop = body.scrollHeight;
+        }
+    }
+
+    private renderLogPanel(): string {
+        const logLevelOrder: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+        const currentLevel = this.shellState?.settings.logLevel ?? 'info';
+        const currentOrder = logLevelOrder[currentLevel] ?? 1;
+        const filtered = this.logEntries.filter((e) => (logLevelOrder[e.level] ?? 1) >= currentOrder);
+        const entries = filtered.slice(-50);
+        const rows = entries.length > 0
+            ? entries.map((e) => {
+                const time = e.time ? new Date(e.time).toLocaleTimeString() : '';
+                return `<div class="log-entry log-level-${escapeHtml(e.level)}"><span class="log-time">${escapeHtml(time)}</span><span class="log-level">${escapeHtml(e.level.toUpperCase())}</span><span class="log-message">${escapeHtml(e.message)}</span></div>`;
+            }).join('')
+            : '<div class="log-empty">No log entries</div>';
+        return `
+            <div class="log-panel" id="log-panel">
+                <div class="log-panel-header">
+                    <span class="log-panel-title">Logs</span>
+                    <button class="icon-button" data-hide-log-panel title="Hide log panel">×</button>
+                </div>
+                <div class="log-panel-body" id="log-panel-body">${rows}</div>
+            </div>
+        `;
+    }
+
     private renderSessionProfiles(): string {
         if (!this.shellState || this.shellState.sessionProfiles.length === 0) {
             return '<div class="empty-state">No saved sessions yet.</div>';
@@ -860,6 +949,15 @@ class OpsyShell {
             { id: 'ai', label: 'AI' },
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'theme', label: 'Theme' },
+            { id: 'logs', label: 'Logs' },
+        ];
+        const currentLogLevel = this.shellState?.settings.logLevel ?? 'info';
+        const showLogPanel = this.shellState?.settings.showLogPanel ?? false;
+        const logLevels = [
+            { value: 'debug', label: 'Debug' },
+            { value: 'info', label: 'Info' },
+            { value: 'warn', label: 'Warning' },
+            { value: 'error', label: 'Error' },
         ];
         return `
             <div class="modal-overlay">
@@ -897,6 +995,22 @@ class OpsyShell {
                                 <div class="theme-switch">
                                     <button class="${this.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 Dark</button>
                                     <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'logs' ? 'active' : ''}">
+                            <div class="section-title">Log Panel</div>
+                            <div class="theme-toggle-row">
+                                <span>Show log panel</span>
+                                <div class="theme-switch">
+                                    <button class="${showLogPanel ? 'active' : ''}" data-set-log-panel="true">On</button>
+                                    <button class="${!showLogPanel ? 'active' : ''}" data-set-log-panel="false">Off</button>
+                                </div>
+                            </div>
+                            <div class="theme-toggle-row" style="margin-top:1rem;">
+                                <span>Log level</span>
+                                <div class="theme-switch">
+                                    ${logLevels.map((l) => `<button class="${currentLogLevel === l.value ? 'active' : ''}" data-set-log-level="${l.value}">${l.label}</button>`).join('')}
                                 </div>
                             </div>
                         </div>

@@ -63,6 +63,7 @@ type stateStore interface {
 	RuntimeTabs() []workspace.Tab
 	Events() []workspace.Event
 	UpdateAIState(ai.WorkspaceState)
+	UpdateSettings(settings.AppSettings) error
 	OpenRuntimeTab(workspace.Tab)
 	CloseRuntimeTab(string) bool
 	RecordLaunch(string)
@@ -114,6 +115,14 @@ func (s *Service) SetRuntimeContext(ctx context.Context, emitFn func(eventName s
 	}
 }
 
+func (s *Service) EmitLog(level, message string) {
+	s.emitFn("app:log", map[string]string{
+		"level":   level,
+		"message": message,
+		"time":    time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
 func (s *Service) GetShellState() ShellState {
 	tabs := s.store.RuntimeTabs()
 	activeSessions := make([]RuntimeSessionView, 0, len(tabs))
@@ -144,6 +153,7 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 
 	profile = normalizeProfile(profile)
 	if err := s.validateProfile(profile); err != nil {
+		s.EmitLog("warn", fmt.Sprintf("Session profile validation failed: %v", err))
 		return err
 	}
 	if profile.ID == "" {
@@ -153,7 +163,12 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 		profile.LastLaunchedAt = existing.LastLaunchedAt
 	}
 
-	return mutator.UpsertSessionProfile(profile)
+	if err := mutator.UpsertSessionProfile(profile); err != nil {
+		s.EmitLog("error", fmt.Sprintf("Failed to save session profile %q: %v", profile.Name, err))
+		return err
+	}
+	s.EmitLog("info", fmt.Sprintf("Session profile %q saved", profile.Name))
+	return nil
 }
 
 func (s *Service) DeleteSessionProfile(id string) error {
@@ -218,10 +233,13 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 		s.emitFn(fmt.Sprintf("terminal:output:%s", tabID), map[string]string{"data": data})
 	})
 	_ = s.updateTabStatus(tabID, "connecting")
+	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profile.Password, profile.Options); err != nil {
+		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
 		return err
 	}
+	s.EmitLog("info", fmt.Sprintf("SSH connected to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	return s.updateTabStatus(tabID, "connected")
 }
 
@@ -349,6 +367,27 @@ func (s *Service) SaveCloudProvider(endpoint, token string) error {
 	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Saved cloud AI provider %s.", state.Providers[index].Name))
 	s.store.UpdateAIState(state)
 	return nil
+}
+
+func (s *Service) UpdateSettings(updated settings.AppSettings) error {
+	current := s.store.Settings()
+	// Preserve fields that are not exposed in the update call.
+	if updated.Theme == "" {
+		updated.Theme = current.Theme
+	}
+	if updated.DefaultProtocol == "" {
+		updated.DefaultProtocol = current.DefaultProtocol
+	}
+	if updated.WindowLayout.SidebarWidth == 0 {
+		updated.WindowLayout.SidebarWidth = current.WindowLayout.SidebarWidth
+	}
+	if updated.WindowLayout.AssistantWidth == 0 {
+		updated.WindowLayout.AssistantWidth = current.WindowLayout.AssistantWidth
+	}
+	if updated.LogLevel == "" {
+		updated.LogLevel = current.LogLevel
+	}
+	return s.store.UpdateSettings(updated)
 }
 
 func (s *Service) DownloadLocalModel(ctx context.Context) error {
