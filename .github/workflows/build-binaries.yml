@@ -1,0 +1,71 @@
+name: Build desktop binaries
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux/amd64
+            output_name: opsy-linux-amd64
+            artifact_name: opsy-linux-amd64
+            artifact_path: build/bin/opsy-linux-amd64
+          - os: windows-latest
+            platform: windows/amd64
+            output_name: opsy-windows-amd64.exe
+            artifact_name: opsy-windows-amd64
+            artifact_path: build/bin/opsy-windows-amd64.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
+
+      - name: Add Go bin directory to PATH
+        shell: bash
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build Linux binary
+        if: runner.os == 'Linux'
+        shell: bash
+        run: wails build -clean -platform ${{ matrix.platform }} -tags webkit2_41 -o ${{ matrix.output_name }}
+
+      - name: Build Windows binary
+        if: runner.os == 'Windows'
+        shell: bash
+        run: wails build -clean -platform ${{ matrix.platform }} -o ${{ matrix.output_name }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
