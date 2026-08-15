@@ -337,9 +337,14 @@ func (s *Store) CloseRuntimeTab(sessionID string) bool {
 	return true
 }
 
-func (s *Store) RecordLaunch(profile sessions.Profile) {
+func (s *Store) RecordLaunch(profileID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	profile, ok := s.sessionProfiles[profileID]
+	if !ok {
+		return
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	profile.LastLaunchedAt = now

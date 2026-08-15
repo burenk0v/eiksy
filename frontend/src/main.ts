@@ -12,18 +12,17 @@ type AIProvider = aiModels.ProviderDescriptor;
 type ShellState = appModels.ShellState;
 
 const app = document.querySelector<HTMLDivElement>('#app');
-let transientError = '';
 
-async function bootstrap() {
+async function bootstrap(transientError = '') {
     if (!app) {
         return;
     }
 
     const state: ShellState = await GetShellState();
-    render(state);
+    render(state, transientError);
 }
 
-function render(state: ShellState) {
+function render(state: ShellState, transientError = '') {
     if (!app) {
         return;
     }
@@ -133,14 +132,14 @@ function render(state: ShellState) {
                 return;
             }
 
+            let nextError = '';
             try {
-                transientError = '';
                 await LaunchSession(profileID);
             } catch (error) {
-                transientError = formatError('Unable to launch session', error);
+                nextError = formatError('Unable to launch session', error);
             }
 
-            await bootstrap();
+            await bootstrap(nextError);
         });
     });
 
@@ -151,14 +150,14 @@ function render(state: ShellState) {
                 return;
             }
 
+            let nextError = '';
             try {
-                transientError = '';
                 await CloseSession(sessionID);
             } catch (error) {
-                transientError = formatError('Unable to close session', error);
+                nextError = formatError('Unable to close session', error);
             }
 
-            await bootstrap();
+            await bootstrap(nextError);
         });
     });
 }

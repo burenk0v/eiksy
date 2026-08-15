@@ -54,7 +54,7 @@ type stateStore interface {
 	Events() []workspace.Event
 	OpenRuntimeTab(workspace.Tab)
 	CloseRuntimeTab(string) bool
-	RecordLaunch(sessions.Profile)
+	RecordLaunch(string)
 }
 
 func NewService(store stateStore) *Service {
@@ -99,7 +99,7 @@ func (s *Service) LaunchSession(profileID string) (RuntimeSessionView, error) {
 	}
 
 	s.store.OpenRuntimeTab(tab)
-	s.store.RecordLaunch(profile)
+	s.store.RecordLaunch(profile.ID)
 
 	return RuntimeSessionView(tab), nil
 }
