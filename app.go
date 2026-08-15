@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 
 	"opsy/internal/app"
 	"opsy/internal/domain/sessions"
@@ -20,6 +21,7 @@ import (
 type App struct {
 	ctx            context.Context
 	service        *app.Service
+	downloadMu     sync.Mutex
 	downloadCancel context.CancelFunc
 }
 
@@ -129,19 +131,25 @@ func (a *App) DownloadLocalModel() error {
 }
 
 func (a *App) CancelModelDownload() {
-	if a.downloadCancel != nil {
-		a.downloadCancel()
-		a.downloadCancel = nil
+	a.downloadMu.Lock()
+	cancel := a.downloadCancel
+	a.downloadCancel = nil
+	a.downloadMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
 }
 
 func (a *App) DownloadLocalModelWithProgress() error {
 	ctx, cancel := context.WithCancel(a.ctx)
+	a.downloadMu.Lock()
 	a.downloadCancel = cancel
+	a.downloadMu.Unlock()
 	defer func() {
-		if a.downloadCancel != nil {
-			a.downloadCancel = nil
-		}
+		a.downloadMu.Lock()
+		a.downloadCancel = nil
+		a.downloadMu.Unlock()
+		cancel()
 	}()
 	err := a.currentService().DownloadLocalModelWithProgress(ctx, func(downloaded, total int64) {
 		percent := 0.0

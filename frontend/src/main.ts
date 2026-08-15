@@ -401,14 +401,16 @@ class OpsyShell {
             }
         });
 
-        root?.querySelector<HTMLButtonElement>('[data-cancel-download]')?.addEventListener('click', async () => {
-            try {
-                await CancelModelDownload();
-            } catch {
-                // ignore
-            }
-            this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
-            this.render();
+        root?.querySelectorAll<HTMLButtonElement>('[data-cancel-download]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                try {
+                    await CancelModelDownload();
+                } catch {
+                    // ignore
+                }
+                this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
+                this.render();
+            });
         });
 
         root?.querySelector<HTMLButtonElement>('[data-start-model]')?.addEventListener('click', async () => {
