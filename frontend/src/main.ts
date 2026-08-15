@@ -1,359 +1,764 @@
 import './style.css';
 import './app.css';
+import '@xterm/xterm/css/xterm.css';
 
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
     CloseSession,
-    DownloadLocalModel,
+    ConnectSSH,
+    CreateSessionProfile,
+    DeleteSessionProfile,
+    DisconnectSSH,
+    DownloadLocalModelWithProgress,
     GetShellState,
     LaunchSession,
+    ListSFTPFiles,
+    NavigateSFTP,
     SaveCloudProvider,
     SelectAIProvider,
+    SendSSHInput,
     StartLocalModel,
+    ResizeTerminal,
 } from '../wailsjs/go/main/App';
-import type {ai as aiModels, app as appModels, credentials, protocols, sessions} from '../wailsjs/go/models';
+import { EventsOn } from '../wailsjs/runtime/runtime';
+import type { ai as aiModels, app as appModels, sessions, sftp as sftpModels } from '../wailsjs/go/models';
 
-type ProtocolDescriptor = protocols.Descriptor;
-type SessionProfile = sessions.Profile;
-type RuntimeSession = appModels.RuntimeSessionView;
-type CredentialProvider = credentials.ProviderDescriptor;
-type AIProvider = aiModels.ProviderDescriptor;
 type ShellState = appModels.ShellState;
+type RuntimeSession = appModels.RuntimeSessionView;
+type SessionProfile = sessions.Profile;
+type AIProvider = aiModels.ProviderDescriptor;
+type FileEntry = sftpModels.FileEntry;
 
-const app = document.querySelector<HTMLDivElement>('#app');
+type SessionFormState = {
+    name: string;
+    group: string;
+    host: string;
+    port: string;
+    username: string;
+    password: string;
+    protocolId: string;
+    tags: string;
+};
 
-async function bootstrap(transientError = '') {
-    if (!app) {
-        return;
-    }
+type SFTPState = {
+    tabId: string | null;
+    path: string;
+    entries: FileEntry[];
+    loading: boolean;
+    error: string;
+};
 
-    const state: ShellState = await GetShellState();
-    render(state, transientError);
-}
+type ModelProgressState = {
+    downloaded: number;
+    total: number;
+    percent: number;
+    active: boolean;
+    error: string;
+};
 
-function render(state: ShellState, transientError = '') {
-    if (!app) {
-        return;
-    }
+type TerminalState = {
+    terminal: Terminal;
+    fitAddon: FitAddon;
+    wrapper: HTMLDivElement;
+    inner: HTMLDivElement;
+    opened: boolean;
+    unsubscribe: (() => void) | null;
+};
 
-    app.innerHTML = `
-        <div class="shell">
-            <aside class="panel sidebar">
-                <div class="panel-header">
-                    <div>
-                        <div class="eyebrow">Session manager</div>
-                        <h1>opsy</h1>
-                    </div>
-                    <div class="pill">${escapeHtml(state.settings.defaultProtocol.toUpperCase())} default</div>
-                </div>
+const root = document.querySelector<HTMLDivElement>('#app');
 
-                <section class="section">
-                    <div class="section-title">Saved sessions</div>
-                    <div class="session-list">
-                        ${state.sessionProfiles.map(renderProfile).join('')}
-                    </div>
-                </section>
+class OpsyShell {
+    private shellState: ShellState | null = null;
+    private activeTabId = '';
+    private errorMessage = '';
+    private showSessionModal = false;
+    private showProviderSetup = false;
+    private sessionForm: SessionFormState = this.defaultSessionForm();
+    private terminals = new Map<string, TerminalState>();
+    private sftpState: SFTPState = { tabId: null, path: '', entries: [], loading: false, error: '' };
+    private modelProgress: ModelProgressState = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
 
-                <section class="section">
-                    <div class="section-title">Credential providers</div>
-                    <div class="provider-list">
-                        ${state.credentialProviders.map(renderProvider).join('')}
-                    </div>
-                </section>
-            </aside>
-
-            <main class="panel workspace">
-                <div class="panel-header">
-                    <div>
-                        <div class="eyebrow">Workspace</div>
-                        <h2>Active tabs</h2>
-                    </div>
-                    <div class="tab-count">${state.activeSessions.length} open</div>
-                </div>
-
-                ${transientError ? `<div class="error-banner">${escapeHtml(transientError)}</div>` : ''}
-
-                <div class="tabs">
-                    ${state.activeSessions.map(renderTab).join('') || '<div class="empty-state">No active sessions</div>'}
-                </div>
-
-                <div class="workspace-grid">
-                    <section class="card">
-                        <div class="section-title">Protocols</div>
-                        <ul class="tag-list">
-                            ${state.protocols.map(renderProtocol).join('')}
-                        </ul>
-                    </section>
-
-                    <section class="card">
-                        <div class="section-title">Recent launches</div>
-                        <ul class="activity-list">
-                            ${state.sessionHistory.map((entry) => `<li><strong>${escapeHtml(entry.profileName)}</strong><span>${escapeHtml(formatDate(entry.launchedAt))}</span></li>`).join('')}
-                        </ul>
-                    </section>
-
-                    <section class="card full-width">
-                        <div class="section-title">Backend events</div>
-                        <ul class="activity-list">
-                            ${state.workspace.recentEvents.map((event) => `<li><strong>${escapeHtml(event.type)}</strong><span>${escapeHtml(event.subject)} · ${escapeHtml(formatDate(event.at))}</span></li>`).join('')}
-                        </ul>
-                    </section>
-                </div>
-            </main>
-
-            <aside class="panel assistant">
-                <div class="panel-header">
-                    <div>
-                        <div class="eyebrow">AI assistant</div>
-                        <h2>Command help</h2>
-                    </div>
-                    <div class="pill">${state.ai.contextPolicy.requireConfirmation ? 'guarded' : 'open'}</div>
-                </div>
-
-                <section class="section">
-                    <div class="section-title">Providers</div>
-                    <div class="provider-list">
-                        ${state.ai.providers.map(renderAIProvider).join('')}
-                    </div>
-                </section>
-
-                <section class="section">
-                    <div class="section-title">Provider setup</div>
-                    ${renderAIProviderSetup(state.ai.providers)}
-                </section>
-
-                <section class="section">
-                    <div class="section-title">Context policy</div>
-                    <ul class="tag-list">
-                        <li>${escapeHtml(state.ai.contextPolicy.sendTerminalSelection ? 'Selection sharing enabled' : 'Selection sharing disabled')}</li>
-                        <li>${escapeHtml(state.ai.contextPolicy.sendRecentOutput ? 'Recent output sharing enabled' : 'Recent output sharing disabled')}</li>
-                        <li>${escapeHtml(state.settings.allowCloudModels ? 'Cloud models allowed' : 'Cloud models disabled')}</li>
-                    </ul>
-                </section>
-
-                <section class="section chat">
-                    <div class="section-title">Assistant panel</div>
-                ${state.ai.messages.map((message) => `<div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>`).join('')}
-                </section>
-            </aside>
-        </div>
-    `;
-
-    app.querySelectorAll<HTMLButtonElement>('[data-open-profile]').forEach((button) => {
-        button.addEventListener('click', async () => {
-            const profileID = button.dataset.openProfile;
-            if (!profileID) {
-                return;
-            }
-
-            let nextError = '';
-            try {
-                await LaunchSession(profileID);
-            } catch (error) {
-                nextError = formatError('Unable to launch session', error);
-            }
-
-            await bootstrap(nextError);
-        });
-    });
-
-    app.querySelectorAll<HTMLButtonElement>('[data-close-session]').forEach((button) => {
-        button.addEventListener('click', async () => {
-            const sessionID = button.dataset.closeSession;
-            if (!sessionID) {
-                return;
-            }
-
-            let nextError = '';
-            try {
-                await CloseSession(sessionID);
-            } catch (error) {
-                nextError = formatError('Unable to close session', error);
-            }
-
-            await bootstrap(nextError);
-        });
-    });
-
-    app.querySelectorAll<HTMLButtonElement>('[data-select-ai-provider]').forEach((button) => {
-        button.addEventListener('click', async () => {
-            const providerID = button.dataset.selectAiProvider;
-            if (!providerID) {
-                return;
-            }
-
-            let nextError = '';
-            try {
-                await SelectAIProvider(providerID);
-            } catch (error) {
-                nextError = formatError('Unable to switch AI provider', error);
-            }
-
-            await bootstrap(nextError);
-        });
-    });
-
-    const downloadButton = app.querySelector<HTMLButtonElement>('[data-download-local-model]');
-    downloadButton?.addEventListener('click', async () => {
-        let nextError = '';
-        try {
-            await DownloadLocalModel();
-        } catch (error) {
-            nextError = formatError('Unable to download Qwen3 8B', error);
-        }
-
-        await bootstrap(nextError);
-    });
-
-    const startButton = app.querySelector<HTMLButtonElement>('[data-start-local-model]');
-    startButton?.addEventListener('click', async () => {
-        let nextError = '';
-        try {
-            await StartLocalModel();
-        } catch (error) {
-            nextError = formatError('Unable to start llama.cpp', error);
-        }
-
-        await bootstrap(nextError);
-    });
-
-    const cloudForm = app.querySelector<HTMLFormElement>('[data-cloud-provider-form]');
-    cloudForm?.addEventListener('submit', async (event) => {
-        event.preventDefault();
-
-        const endpointInput = cloudForm.querySelector<HTMLInputElement>('input[name="endpoint"]');
-        const tokenInput = cloudForm.querySelector<HTMLInputElement>('input[name="token"]');
-        if (!endpointInput || !tokenInput) {
+    async bootstrap(): Promise<void> {
+        if (!root) {
             return;
         }
 
-        let nextError = '';
-        try {
-            await SaveCloudProvider(endpointInput.value, tokenInput.value);
-        } catch (error) {
-            nextError = formatError('Unable to save cloud model settings', error);
+        this.registerGlobalEvents();
+        await this.refresh();
+        window.addEventListener('resize', () => this.fitActiveTerminal());
+    }
+
+    private registerGlobalEvents(): void {
+        EventsOn('model:progress', (...payload: unknown[]) => {
+            const data = payload[0] as { downloaded?: number; total?: number; percent?: number } | undefined;
+            this.modelProgress = {
+                downloaded: data?.downloaded ?? 0,
+                total: data?.total ?? 0,
+                percent: data?.percent ?? 0,
+                active: true,
+                error: '',
+            };
+            this.render();
+        });
+        EventsOn('model:error', (...payload: unknown[]) => {
+            const data = payload[0] as { error?: string } | undefined;
+            this.modelProgress.error = data?.error ?? 'Model download failed';
+            this.modelProgress.active = false;
+            this.render();
+        });
+    }
+
+    private async refresh(errorMessage = this.errorMessage): Promise<void> {
+        this.errorMessage = errorMessage;
+        this.shellState = await GetShellState();
+        const preferredTabID = this.activeTabId || this.shellState.workspace.layout.activeTabId || '';
+        this.activeTabId = this.pickActiveTabID(preferredTabID);
+        if (this.sftpState.tabId !== this.activeTabId) {
+            this.sftpState = { tabId: this.activeTabId || null, path: '', entries: [], loading: false, error: '' };
+        }
+        this.showProviderSetup ||= !this.hasConfiguredProvider();
+        this.render();
+    }
+
+    private render(): void {
+        if (!root || !this.shellState) {
+            return;
         }
 
-        await bootstrap(nextError);
-    });
-}
+        root.innerHTML = `
+            <div class="shell">
+                <aside class="panel sidebar-panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="eyebrow">Session manager</div>
+                            <h1>opsy</h1>
+                        </div>
+                        <button class="icon-button" data-open-session-modal>+</button>
+                    </div>
+                    <section class="section">
+                        <div class="section-heading">
+                            <span class="section-title">Sessions</span>
+                        </div>
+                        <div class="session-list">
+                            ${this.renderSessionProfiles()}
+                        </div>
+                    </section>
+                    <section class="section sftp-section">
+                        <div class="section-heading">
+                            <span class="section-title">SFTP Browser</span>
+                            <div class="section-actions">
+                                ${this.renderSFTPActions()}
+                            </div>
+                        </div>
+                        ${this.renderSFTPBrowser()}
+                    </section>
+                </aside>
 
-function renderProfile(profile: SessionProfile) {
-    return `
-        <article class="session-card">
-            <div>
-                <div class="session-title-row">
-                    <strong>${escapeHtml(profile.name)}</strong>
-                    ${profile.favorite ? '<span class="favorite">★</span>' : ''}
+                <main class="panel workspace-panel">
+                    <div class="tab-bar">${this.renderTabs()}</div>
+                    ${this.errorMessage ? `<div class="error-banner">${escapeHtml(this.errorMessage)}</div>` : ''}
+                    <div class="terminal-shell">
+                        <div id="terminal-host" class="terminal-container"></div>
+                    </div>
+                </main>
+
+                <aside class="panel assistant-panel">
+                    <div class="panel-header">
+                        <div>
+                            <div class="eyebrow">AI assistant</div>
+                            <h2>Provider</h2>
+                        </div>
+                        <button class="action-button secondary" data-toggle-provider-setup>${this.showProviderSetup ? 'Hide setup' : 'Configure AI'}</button>
+                    </div>
+                    <section class="section">
+                        <div class="provider-list">
+                            ${this.renderAIProviders()}
+                        </div>
+                    </section>
+                    ${this.modelProgress.active || this.modelProgress.error ? this.renderProgress() : ''}
+                    ${this.showProviderSetup ? `<section class="section">${this.renderProviderSetup()}</section>` : ''}
+                    <section class="section chat-section">
+                        <div class="section-title">Assistant</div>
+                        ${this.renderMessages()}
+                    </section>
+                </aside>
+            </div>
+            ${this.showSessionModal ? this.renderSessionModal() : ''}
+        `;
+
+        this.bindEvents();
+        this.attachActiveTerminal();
+    }
+
+    private bindEvents(): void {
+        root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
+            this.showSessionModal = true;
+            this.render();
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-toggle-provider-setup]')?.addEventListener('click', () => {
+            this.showProviderSetup = !this.showProviderSetup;
+            this.render();
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-open-profile]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const profileID = button.dataset.openProfile;
+                if (!profileID || !this.shellState) {
+                    return;
+                }
+                await this.openProfile(profileID);
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-delete-profile]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const profileID = button.dataset.deleteProfile;
+                if (!profileID) {
+                    return;
+                }
+                await this.runAction(async () => DeleteSessionProfile(profileID), 'Unable to delete session profile');
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-tab-id]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const tabID = button.dataset.tabId;
+                if (!tabID) {
+                    return;
+                }
+                this.activeTabId = tabID;
+                this.render();
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-close-tab]').forEach((button) => {
+            button.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                const tabID = button.dataset.closeTab;
+                if (!tabID) {
+                    return;
+                }
+                await this.closeTab(tabID);
+            });
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-open-sftp]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab) {
+                return;
+            }
+            await this.loadSFTP(activeTab.id, '');
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-refresh-sftp]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab) {
+                return;
+            }
+            await this.loadSFTP(activeTab.id, this.sftpState.path);
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-sftp-up]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab) {
+                return;
+            }
+            await this.loadSFTP(activeTab.id, parentPath(this.sftpState.path));
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-dir]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const targetPath = button.dataset.sftpDir;
+                const activeTab = this.activeTab();
+                if (!targetPath || !activeTab) {
+                    return;
+                }
+                await this.loadSFTP(activeTab.id, targetPath);
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-select-provider]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const providerID = button.dataset.selectProvider;
+                if (!providerID) {
+                    return;
+                }
+                await this.runAction(async () => SelectAIProvider(providerID), 'Unable to switch AI provider');
+            });
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-download-model]')?.addEventListener('click', async () => {
+            this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: true, error: '' };
+            this.render();
+            try {
+                await DownloadLocalModelWithProgress();
+                this.modelProgress.active = false;
+                await this.refresh('');
+            } catch (error) {
+                this.modelProgress.active = false;
+                this.modelProgress.error = formatError('Unable to download local model', error);
+                this.errorMessage = this.modelProgress.error;
+                this.render();
+            }
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-start-model]')?.addEventListener('click', async () => {
+            await this.runAction(async () => StartLocalModel(), 'Unable to start local model');
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-cloud-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget as HTMLFormElement;
+            const endpoint = form.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? '';
+            const token = form.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '';
+            await this.runAction(async () => SaveCloudProvider(endpoint, token), 'Unable to save cloud provider');
+        });
+
+        root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.showSessionModal = false;
+                this.render();
+            });
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget as HTMLFormElement;
+            const formData = new FormData(form);
+            const profile: SessionProfile = {
+                id: '',
+                name: String(formData.get('name') ?? ''),
+                group: String(formData.get('group') ?? ''),
+                host: String(formData.get('host') ?? ''),
+                port: Number(formData.get('port') ?? 22),
+                username: String(formData.get('username') ?? ''),
+                password: String(formData.get('password') ?? ''),
+                protocolId: String(formData.get('protocolId') ?? 'ssh'),
+                tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
+                favorite: false,
+            };
+            await this.runAction(async () => CreateSessionProfile(profile), 'Unable to save session profile');
+            this.showSessionModal = false;
+            this.sessionForm = this.defaultSessionForm();
+            await this.refresh('');
+        });
+    }
+
+    private async openProfile(profileID: string): Promise<void> {
+        const profile = this.shellState?.sessionProfiles.find((entry) => entry.id === profileID);
+        if (!profile) {
+            return;
+        }
+        if (profile.protocolId !== 'ssh') {
+            this.errorMessage = 'Only SSH profiles can be opened in the terminal.';
+            this.render();
+            return;
+        }
+
+        try {
+            const tab = await LaunchSession(profileID);
+            this.activeTabId = tab.id;
+            await this.refresh('');
+            this.ensureTerminalSubscription(tab.id);
+            await ConnectSSH(tab.id, profileID);
+            this.fitActiveTerminal();
+        } catch (error) {
+            this.errorMessage = formatError('Unable to open session', error);
+            this.render();
+        }
+    }
+
+    private async closeTab(tabID: string): Promise<void> {
+        const terminal = this.terminals.get(tabID);
+        terminal?.unsubscribe?.();
+        terminal?.terminal.dispose();
+        terminal?.wrapper.remove();
+        this.terminals.delete(tabID);
+        try {
+            await DisconnectSSH(tabID);
+        } catch {
+            // ignored - backend CloseSession will clean up too.
+        }
+        await this.runAction(async () => CloseSession(tabID), 'Unable to close session');
+    }
+
+    private async loadSFTP(tabID: string, targetPath: string): Promise<void> {
+        this.sftpState = { ...this.sftpState, tabId: tabID, loading: true, error: '' };
+        this.render();
+        try {
+            const entries = targetPath ? await NavigateSFTP(tabID, targetPath) : await ListSFTPFiles(tabID, '');
+            this.sftpState = {
+                tabId: tabID,
+                path: inferDirectory(entries, targetPath),
+                entries,
+                loading: false,
+                error: '',
+            };
+        } catch (error) {
+            this.sftpState = {
+                ...this.sftpState,
+                tabId: tabID,
+                loading: false,
+                error: formatError('Unable to load SFTP files', error),
+            };
+        }
+        this.render();
+    }
+
+    private attachActiveTerminal(): void {
+        const host = document.querySelector<HTMLDivElement>('#terminal-host');
+        if (!host) {
+            return;
+        }
+        host.innerHTML = '';
+
+        const activeTab = this.activeTab();
+        if (!activeTab) {
+            host.innerHTML = '<div class="empty-state">Open an SSH session to start a terminal.</div>';
+            return;
+        }
+
+        const terminalState = this.ensureTerminalSubscription(activeTab.id);
+        host.appendChild(terminalState.wrapper);
+        if (!terminalState.opened) {
+            terminalState.terminal.open(terminalState.inner);
+            terminalState.fitAddon.fit();
+            terminalState.opened = true;
+            terminalState.terminal.focus();
+            terminalState.terminal.onData((data) => {
+                void SendSSHInput(activeTab.id, data).catch((error) => {
+                    this.errorMessage = formatError('Unable to send terminal input', error);
+                    this.render();
+                });
+            });
+        }
+        this.fitActiveTerminal();
+    }
+
+    private ensureTerminalSubscription(tabID: string): TerminalState {
+        const existing = this.terminals.get(tabID);
+        if (existing) {
+            return existing;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'terminal-pane';
+        const inner = document.createElement('div');
+        inner.className = 'terminal-instance';
+        wrapper.appendChild(inner);
+
+        const terminal = new Terminal({
+            cursorBlink: true,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+            theme: { background: '#06101f', foreground: '#e6edf7' },
+            scrollback: 2000,
+        });
+        const fitAddon = new FitAddon();
+        terminal.loadAddon(fitAddon);
+        terminal.loadAddon(new WebLinksAddon());
+        terminal.writeln('Connecting...');
+
+        const unsubscribe = EventsOn(`terminal:output:${tabID}`, (...payload: unknown[]) => {
+            const data = payload[0] as { data?: string } | undefined;
+            terminal.write(data?.data ?? '');
+        });
+
+        const terminalState: TerminalState = { terminal, fitAddon, wrapper, inner, opened: false, unsubscribe };
+        this.terminals.set(tabID, terminalState);
+        return terminalState;
+    }
+
+    private fitActiveTerminal(): void {
+        const activeTab = this.activeTab();
+        if (!activeTab) {
+            return;
+        }
+        const terminalState = this.terminals.get(activeTab.id);
+        if (!terminalState || !terminalState.opened) {
+            return;
+        }
+        requestAnimationFrame(() => {
+            terminalState.fitAddon.fit();
+            const dimensions = terminalState.terminal.cols > 0 && terminalState.terminal.rows > 0;
+            if (dimensions) {
+                void ResizeTerminal(activeTab.id, terminalState.terminal.cols, terminalState.terminal.rows).catch(() => undefined);
+            }
+        });
+    }
+
+    private renderSessionProfiles(): string {
+        if (!this.shellState || this.shellState.sessionProfiles.length === 0) {
+            return '<div class="empty-state">No saved sessions yet.</div>';
+        }
+        return this.shellState.sessionProfiles.map((profile) => `
+            <article class="session-card">
+                <div>
+                    <div class="session-title-row">
+                        <strong>${escapeHtml(profile.name)}</strong>
+                        <span class="pill small">${escapeHtml(profile.protocolId.toUpperCase())}</span>
+                    </div>
+                    <div class="session-meta">${escapeHtml(profile.group || 'Ungrouped')} · ${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
+                    <div class="session-tags">${profile.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
                 </div>
-                <div class="session-meta">${escapeHtml(profile.group)} · ${escapeHtml(profile.protocolId.toUpperCase())} · ${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
-                <div class="session-tags">${profile.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
-            </div>
-            <button class="action-button" data-open-profile="${escapeHtml(profile.id)}">Open</button>
-        </article>
-    `;
-}
-
-function renderProvider(provider: CredentialProvider) {
-    return `
-        <article class="provider-card">
-            <div>
-                <strong>${escapeHtml(provider.name)}</strong>
-                <div class="session-meta">${escapeHtml(provider.type)} · ${escapeHtml(provider.status.state)}</div>
-            </div>
-            <div class="provider-capabilities">${escapeHtml(provider.capabilities.join(', '))}</div>
-        </article>
-    `;
-}
-
-function renderTab(tab: RuntimeSession) {
-    return `
-        <article class="tab-card ${escapeClassName(tab.status)}">
-            <div>
-                <strong>${escapeHtml(tab.title)}</strong>
-                <div class="session-meta">${escapeHtml(tab.description)}</div>
-            </div>
-            <button class="action-button secondary" data-close-session="${escapeHtml(tab.id)}">Close</button>
-        </article>
-    `;
-}
-
-function renderProtocol(protocol: ProtocolDescriptor) {
-    return `<li><strong>${escapeHtml(protocol.scheme.toUpperCase())}</strong><span>${escapeHtml(protocol.capabilities.join(' · '))}</span></li>`;
-}
-
-function renderAIProvider(provider: AIProvider) {
-    return `
-        <article class="provider-card ${provider.selected ? 'selected-provider' : ''}">
-            <div>
-                <strong>${escapeHtml(provider.name)}</strong>
-                <div class="session-meta">${escapeHtml(provider.class)} · ${escapeHtml(provider.model)}</div>
-                ${provider.endpoint ? `<div class="provider-capabilities">${escapeHtml(provider.endpoint)}</div>` : ''}
-            </div>
-            <div class="provider-actions">
-                <div class="provider-capabilities">${escapeHtml(provider.status)}</div>
-                <button class="action-button secondary" data-select-ai-provider="${escapeHtml(provider.id)}">${provider.selected ? 'Selected' : 'Use'}</button>
-            </div>
-        </article>
-    `;
-}
-
-function renderAIProviderSetup(providers: AIProvider[]) {
-    const selectedProvider = providers.find((provider) => provider.selected);
-    if (!selectedProvider) {
-        return '<div class="empty-state">Select an AI provider to configure it.</div>';
+                <div class="session-actions">
+                    <button class="action-button" data-open-profile="${escapeHtml(profile.id)}">Open</button>
+                    <button class="icon-button danger" data-delete-profile="${escapeHtml(profile.id)}">×</button>
+                </div>
+            </article>
+        `).join('');
     }
 
-    if (selectedProvider.class === 'local') {
-        return renderLocalProviderSetup(selectedProvider);
+    private renderTabs(): string {
+        if (!this.shellState || this.shellState.activeSessions.length === 0) {
+            return '<div class="tab empty">No active sessions</div>';
+        }
+        return this.shellState.activeSessions.map((tab) => `
+            <button class="tab ${tab.id === this.activeTabId ? 'active' : ''}" data-tab-id="${escapeHtml(tab.id)}">
+                <span>${escapeHtml(tab.title)}</span>
+                <small>${escapeHtml(tab.status)}</small>
+                <span class="tab-close" data-close-tab="${escapeHtml(tab.id)}">×</span>
+            </button>
+        `).join('');
     }
 
-    return renderCloudProviderSetup(selectedProvider);
-}
+    private renderSFTPActions(): string {
+        const activeTab = this.activeTab();
+        if (!activeTab || activeTab.protocolId !== 'ssh') {
+            return '<span class="section-copy">Select an SSH tab</span>';
+        }
+        const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Refresh';
+        return `
+            <button class="action-button secondary" data-open-sftp>${openLabel}</button>
+            ${this.sftpState.entries.length > 0 ? '<button class="action-button secondary" data-refresh-sftp>Reload</button>' : ''}
+        `;
+    }
 
-function renderLocalProviderSetup(provider: AIProvider) {
-    return `
-        <div class="provider-setup-card">
-            <div class="setup-copy">Download the bundled Qwen3 8B GGUF model, then run it through llama.cpp.</div>
-            <ul class="detail-list">
-                <li><strong>Model</strong><span>${escapeHtml(provider.model)}</span></li>
-                <li><strong>Status</strong><span>${escapeHtml(provider.status)}</span></li>
-                <li><strong>Path</strong><span>${escapeHtml(provider.localPath ?? 'Not downloaded yet')}</span></li>
-                <li><strong>Endpoint</strong><span>${escapeHtml(provider.endpoint ?? 'Will be exposed after llama.cpp starts')}</span></li>
-                <li><strong>Runner</strong><span>${escapeHtml(provider.command ?? 'llama-server must be available in PATH or OPSY_LLAMA_CPP_BIN')}</span></li>
-            </ul>
-            <div class="provider-form-actions">
-                <button class="action-button" data-download-local-model>Download Qwen3 8B</button>
-                <button class="action-button secondary" data-start-local-model ${provider.localPath ? '' : 'disabled'}>Start with llama.cpp</button>
+    private renderSFTPBrowser(): string {
+        const activeTab = this.activeTab();
+        if (!activeTab) {
+            return '<div class="empty-state">Open a session tab to browse files.</div>';
+        }
+        if (activeTab.protocolId !== 'ssh') {
+            return '<div class="empty-state">SFTP browsing is available for SSH tabs.</div>';
+        }
+        if (this.sftpState.loading) {
+            return '<div class="empty-state">Loading files…</div>';
+        }
+        if (this.sftpState.error) {
+            return `<div class="error-banner compact">${escapeHtml(this.sftpState.error)}</div>`;
+        }
+        if (this.sftpState.entries.length === 0) {
+            return '<div class="empty-state">Click “Open SFTP” to browse the active session.</div>';
+        }
+        return `
+            <div class="sftp-path-row">
+                <span class="sftp-path">${escapeHtml(this.sftpState.path || '.')}</span>
+                <button class="action-button secondary" data-sftp-up>..</button>
             </div>
-        </div>
-    `;
-}
-
-function renderCloudProviderSetup(provider: AIProvider) {
-    return `
-        <form class="provider-form" data-cloud-provider-form>
-            <label>
-                <span>Endpoint URL</span>
-                <input type="url" name="endpoint" value="${escapeHtml(provider.endpoint ?? '')}" placeholder="https://api.example.com/v1" required />
-            </label>
-            <label>
-                <span>API token</span>
-                <input type="password" name="token" placeholder="${provider.configured ? 'Enter a new token to replace the current one' : 'sk-...'}" required />
-            </label>
-            <div class="setup-copy">For cloud providers, specify the OpenAI-compatible base URL and token.</div>
-            <div class="provider-form-actions">
-                <button class="action-button" type="submit">Save cloud connection</button>
+            <div class="sftp-list">
+                ${this.sftpState.entries.map((entry) => entry.isDir
+                    ? `<button class="sftp-entry sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(entry.modTime)}</small></button>`
+                    : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></div>`).join('')}
             </div>
-        </form>
-    `;
+        `;
+    }
+
+    private renderAIProviders(): string {
+        if (!this.shellState) {
+            return '';
+        }
+        return this.shellState.ai.providers.map((provider) => `
+            <article class="provider-card ${provider.selected ? 'selected-provider' : ''}">
+                <div>
+                    <strong>${escapeHtml(provider.name)}</strong>
+                    <div class="session-meta">${escapeHtml(provider.model)} · ${escapeHtml(provider.status)}</div>
+                </div>
+                <button class="action-button secondary" data-select-provider="${escapeHtml(provider.id)}">${provider.selected ? 'Selected' : 'Use'}</button>
+            </article>
+        `).join('');
+    }
+
+    private renderProviderSetup(): string {
+        const provider = this.selectedProvider();
+        if (!provider) {
+            return '<div class="empty-state">Select an AI provider to configure it.</div>';
+        }
+        if (provider.class === 'local') {
+            return `
+                <div class="provider-setup-card">
+                    <div class="section-title">Local model</div>
+                    <div class="session-meta">${escapeHtml(provider.localPath || 'Model not downloaded yet')}</div>
+                    <div class="provider-form-actions">
+                        <button class="action-button" data-download-model>Download Qwen3</button>
+                        <button class="action-button secondary" data-start-model ${provider.localPath ? '' : 'disabled'}>Start local model</button>
+                    </div>
+                </div>
+            `;
+        }
+        return `
+            <form class="provider-form" data-cloud-form>
+                <label>
+                    <span>Endpoint</span>
+                    <input type="url" name="endpoint" value="${escapeHtml(provider.endpoint || '')}" placeholder="https://api.example.com/v1" required />
+                </label>
+                <label>
+                    <span>API token</span>
+                    <input type="password" name="token" placeholder="sk-..." required />
+                </label>
+                <div class="provider-form-actions">
+                    <button class="action-button" type="submit">Save cloud provider</button>
+                </div>
+            </form>
+        `;
+    }
+
+    private renderMessages(): string {
+        if (!this.shellState) {
+            return '';
+        }
+        if (!this.hasConfiguredProvider()) {
+            return '<div class="empty-state">Configure a provider to start chatting.</div>';
+        }
+        return this.shellState.ai.messages.map((message) => `
+            <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
+        `).join('');
+    }
+
+    private renderProgress(): string {
+        return `
+            <section class="section">
+                <div class="section-title">Model download</div>
+                <div class="progress-bar"><div class="progress-fill" style="width: ${Math.max(0, Math.min(100, this.modelProgress.percent))}%"></div></div>
+                <div class="session-meta">${escapeHtml(this.modelProgress.error || `${formatBytes(this.modelProgress.downloaded)} / ${formatBytes(this.modelProgress.total)}`)}</div>
+            </section>
+        `;
+    }
+
+    private renderSessionModal(): string {
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">New session</div>
+                            <h2>Create session profile</h2>
+                        </div>
+                        <button class="icon-button" data-close-modal>×</button>
+                    </div>
+                    <form class="session-form" data-session-form>
+                        <label><span>Name</span><input name="name" value="${escapeHtml(this.sessionForm.name)}" required /></label>
+                        <label><span>Group</span><input name="group" value="${escapeHtml(this.sessionForm.group)}" /></label>
+                        <label><span>Host</span><input name="host" value="${escapeHtml(this.sessionForm.host)}" required /></label>
+                        <label><span>Port</span><input name="port" type="number" value="${escapeHtml(this.sessionForm.port)}" min="1" required /></label>
+                        <label><span>Username</span><input name="username" value="${escapeHtml(this.sessionForm.username)}" required /></label>
+                        <label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
+                        <label>
+                            <span>Protocol</span>
+                            <select name="protocolId">
+                                <option value="ssh" ${this.sessionForm.protocolId === 'ssh' ? 'selected' : ''}>SSH</option>
+                                <option value="sftp" ${this.sessionForm.protocolId === 'sftp' ? 'selected' : ''}>SFTP</option>
+                            </select>
+                        </label>
+                        <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
+                        <div class="provider-form-actions">
+                            <button type="button" class="action-button secondary" data-close-modal>Cancel</button>
+                            <button type="submit" class="action-button">Save</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        `;
+    }
+
+    private pickActiveTabID(preferredID: string): string {
+        const tabs = this.shellState?.activeSessions ?? [];
+        if (tabs.some((tab) => tab.id === preferredID)) {
+            return preferredID;
+        }
+        return tabs[0]?.id ?? '';
+    }
+
+    private activeTab(): RuntimeSession | null {
+        return this.shellState?.activeSessions.find((tab) => tab.id === this.activeTabId) ?? null;
+    }
+
+    private selectedProvider(): AIProvider | null {
+        return this.shellState?.ai.providers.find((provider) => provider.selected) ?? null;
+    }
+
+    private hasConfiguredProvider(): boolean {
+        return (this.shellState?.ai.providers ?? []).some((provider) => provider.configured);
+    }
+
+    private async runAction(action: () => Promise<void>, prefix: string): Promise<void> {
+        try {
+            await action();
+            await this.refresh('');
+        } catch (error) {
+            this.errorMessage = formatError(prefix, error);
+            this.render();
+        }
+    }
+
+    private defaultSessionForm(): SessionFormState {
+        return {
+            name: '',
+            group: '',
+            host: '',
+            port: '22',
+            username: '',
+            password: '',
+            protocolId: 'ssh',
+            tags: '',
+        };
+    }
 }
 
-function formatDate(value: string) {
-    const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+function inferDirectory(entries: FileEntry[], requestedPath: string): string {
+    if (requestedPath) {
+        return requestedPath;
+    }
+    const firstEntry = entries[0];
+    if (!firstEntry) {
+        return '.';
+    }
+    return parentPath(firstEntry.path);
 }
 
-function escapeHtml(value: string) {
+function parentPath(value: string): string {
+    if (!value || value === '.' || value === '/') {
+        return '.';
+    }
+    const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
+    const index = normalized.lastIndexOf('/');
+    if (index <= 0) {
+        return '.';
+    }
+    return normalized.slice(0, index);
+}
+
+function formatFileMeta(entry: FileEntry): string {
+    return `${formatBytes(entry.size)} · ${entry.mode}`;
+}
+
+function formatBytes(value: number): string {
+    if (!Number.isFinite(value) || value <= 0) {
+        return '0 B';
+    }
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = value;
+    let unitIndex = 0;
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex++;
+    }
+    return `${size.toFixed(size >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+}
+
+function escapeHtml(value: string): string {
     return value
         .replaceAll('&', '&amp;')
         .replaceAll('<', '&lt;')
@@ -362,16 +767,18 @@ function escapeHtml(value: string) {
         .replaceAll("'", '&#39;');
 }
 
-function escapeClassName(value: string) {
+function escapeClassName(value: string): string {
     return value.replace(/[^a-zA-Z0-9_-]/g, '-');
 }
 
-function formatError(prefix: string, error: unknown) {
+function formatError(prefix: string, error: unknown): string {
     if (error instanceof Error) {
         return `${prefix}: ${error.message}`;
     }
-
+    if (typeof error === 'string') {
+        return `${prefix}: ${error}`;
+    }
     return prefix;
 }
 
-void bootstrap();
+void new OpsyShell().bootstrap();

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"opsy/internal/domain/ai"
+	"opsy/internal/domain/sessions"
 	"opsy/internal/storage/memory"
 )
 
@@ -20,23 +21,27 @@ func (f fakeLocalModelManager) DownloadQwen3Model(context.Context) (string, erro
 	return f.downloadPath, f.downloadErr
 }
 
+func (f fakeLocalModelManager) DownloadQwen3ModelWithProgress(context.Context, func(downloaded, total int64)) (string, error) {
+	return f.downloadPath, f.downloadErr
+}
+
 func (f fakeLocalModelManager) StartLocalServer(context.Context, string) (string, string, error) {
 	return f.endpoint, f.command, f.startErr
 }
 
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
-	service := NewService(memory.NewStore(), nil)
+	service := NewService(memory.NewStore(), nil, nil, nil)
 
 	state := service.GetShellState()
 
 	if len(state.Protocols) != 3 {
 		t.Fatalf("expected 3 protocols, got %d", len(state.Protocols))
 	}
-	if len(state.SessionProfiles) == 0 {
-		t.Fatal("expected session profiles")
+	if state.SessionProfiles == nil {
+		t.Fatal("expected session profiles slice")
 	}
-	if len(state.CredentialProviders) != 3 {
-		t.Fatalf("expected 3 credential providers, got %d", len(state.CredentialProviders))
+	if len(state.CredentialProviders) != 0 {
+		t.Fatalf("expected 0 credential providers, got %d", len(state.CredentialProviders))
 	}
 	if len(state.AI.Providers) != 2 {
 		t.Fatalf("expected 2 ai providers, got %d", len(state.AI.Providers))
@@ -44,7 +49,7 @@ func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 }
 
 func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
-	service := NewService(memory.NewStore(), nil)
+	service := NewService(seedStore(t), nil, nil, nil)
 
 	before := service.GetShellState()
 	launched, err := service.LaunchSession("artifact-mirror")
@@ -82,7 +87,7 @@ func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
 }
 
 func TestLaunchHistoryIsCapped(t *testing.T) {
-	service := NewService(memory.NewStore(), nil)
+	service := NewService(seedStore(t), nil, nil, nil)
 
 	for range 150 {
 		if _, err := service.LaunchSession("artifact-mirror"); err != nil {
@@ -97,7 +102,7 @@ func TestLaunchHistoryIsCapped(t *testing.T) {
 }
 
 func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
-	service := NewService(memory.NewStore(), nil)
+	service := NewService(memory.NewStore(), nil, nil, nil)
 
 	if err := service.SelectAIProvider("openai-compatible-cloud"); err != nil {
 		t.Fatalf("select ai provider: %v", err)
@@ -115,7 +120,7 @@ func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
 }
 
 func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
-	service := NewService(memory.NewStore(), nil)
+	service := NewService(memory.NewStore(), nil, nil, nil)
 
 	if err := service.SaveCloudProvider("https://models.example.com/v1", "secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
@@ -139,10 +144,10 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 
 func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
 	service := NewService(memory.NewStore(), fakeLocalModelManager{
-		downloadPath: "/tmp/qwen3.gguf",
+		downloadPath: "testdata/qwen3.gguf",
 		endpoint:     "http://127.0.0.1:8012/v1",
-		command:      "llama-server -m /tmp/qwen3.gguf --host 127.0.0.1 --port 8012",
-	})
+		command:      "llama-server -m testdata/qwen3.gguf --host 127.0.0.1 --port 8012",
+	}, nil, nil)
 
 	if err := service.DownloadLocalModel(context.Background()); err != nil {
 		t.Fatalf("download local model: %v", err)
@@ -159,7 +164,7 @@ func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
 	if !localProvider.Configured {
 		t.Fatal("expected local provider to be configured")
 	}
-	if localProvider.LocalPath != "/tmp/qwen3.gguf" {
+	if localProvider.LocalPath != "testdata/qwen3.gguf" {
 		t.Fatalf("expected local model path to be saved, got %q", localProvider.LocalPath)
 	}
 	if localProvider.Endpoint != "http://127.0.0.1:8012/v1" {
@@ -168,6 +173,21 @@ func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
 	if localProvider.Status != "running via llama.cpp" {
 		t.Fatalf("expected local provider status to reflect llama.cpp, got %q", localProvider.Status)
 	}
+}
+
+func seedStore(t *testing.T) *memory.Store {
+	t.Helper()
+	store := memory.NewStore()
+	profiles := []sessions.Profile{
+		{ID: "artifact-mirror", Name: "artifact-mirror", Group: "Shared Services", Tags: []string{"sftp", "artifacts"}, ProtocolID: "sftp", Host: "mirror.internal", Port: 22, Username: "mirrorbot"},
+		{ID: "ops-linux-admin", Name: "ops-linux-admin", Group: "Production", Tags: []string{"linux", "ssh"}, ProtocolID: "ssh", Host: "prod-shell.internal", Port: 22, Username: "ops"},
+	}
+	for _, profile := range profiles {
+		if err := store.UpsertSessionProfile(profile); err != nil {
+			t.Fatalf("seed session profile: %v", err)
+		}
+	}
+	return store
 }
 
 func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.ProviderDescriptor {
