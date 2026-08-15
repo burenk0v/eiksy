@@ -10,6 +10,7 @@ This repository now contains the initial application skeleton for:
 - session manager models for saved profiles, launch history, and active tabs
 - credential provider contracts for HashiCorp Vault, KeePass, and Windows Password Manager
 - AI provider models for local and OpenAI-compatible backends
+- local Qwen3 8B model download and llama.cpp launch flow alongside configurable cloud endpoint/token setup
 - backend-owned workspace state rendered by a thin Wails frontend shell
 
 ## Development
@@ -77,3 +78,5 @@ wails build -clean -platform windows/amd64 -o opsy-windows-amd64.exe
 ## CI artifacts
 
 GitHub Actions workflow `.github/workflows/build-binaries.yml` builds Windows and Linux binaries and uploads them as workflow artifacts on every push, pull request, and manual run.
+
+When you push a Git tag such as `v0.1.0`, the same workflow automatically creates a GitHub Release for that tag and attaches the built Linux and Windows binaries as release assets.

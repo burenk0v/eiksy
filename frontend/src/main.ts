@@ -1,7 +1,15 @@
 import './style.css';
 import './app.css';
 
-import {CloseSession, GetShellState, LaunchSession} from '../wailsjs/go/main/App';
+import {
+    CloseSession,
+    DownloadLocalModel,
+    GetShellState,
+    LaunchSession,
+    SaveCloudProvider,
+    SelectAIProvider,
+    StartLocalModel,
+} from '../wailsjs/go/main/App';
 import type {ai as aiModels, app as appModels, credentials, protocols, sessions} from '../wailsjs/go/models';
 
 type ProtocolDescriptor = protocols.Descriptor;
@@ -109,6 +117,11 @@ function render(state: ShellState, transientError = '') {
                 </section>
 
                 <section class="section">
+                    <div class="section-title">Provider setup</div>
+                    ${renderAIProviderSetup(state.ai.providers)}
+                </section>
+
+                <section class="section">
                     <div class="section-title">Context policy</div>
                     <ul class="tag-list">
                         <li>${escapeHtml(state.ai.contextPolicy.sendTerminalSelection ? 'Selection sharing enabled' : 'Selection sharing disabled')}</li>
@@ -160,6 +173,68 @@ function render(state: ShellState, transientError = '') {
             await bootstrap(nextError);
         });
     });
+
+    app.querySelectorAll<HTMLButtonElement>('[data-select-ai-provider]').forEach((button) => {
+        button.addEventListener('click', async () => {
+            const providerID = button.dataset.selectAiProvider;
+            if (!providerID) {
+                return;
+            }
+
+            let nextError = '';
+            try {
+                await SelectAIProvider(providerID);
+            } catch (error) {
+                nextError = formatError('Unable to switch AI provider', error);
+            }
+
+            await bootstrap(nextError);
+        });
+    });
+
+    const downloadButton = app.querySelector<HTMLButtonElement>('[data-download-local-model]');
+    downloadButton?.addEventListener('click', async () => {
+        let nextError = '';
+        try {
+            await DownloadLocalModel();
+        } catch (error) {
+            nextError = formatError('Unable to download Qwen3 8B', error);
+        }
+
+        await bootstrap(nextError);
+    });
+
+    const startButton = app.querySelector<HTMLButtonElement>('[data-start-local-model]');
+    startButton?.addEventListener('click', async () => {
+        let nextError = '';
+        try {
+            await StartLocalModel();
+        } catch (error) {
+            nextError = formatError('Unable to start llama.cpp', error);
+        }
+
+        await bootstrap(nextError);
+    });
+
+    const cloudForm = app.querySelector<HTMLFormElement>('[data-cloud-provider-form]');
+    cloudForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+
+        const endpointInput = cloudForm.querySelector<HTMLInputElement>('input[name="endpoint"]');
+        const tokenInput = cloudForm.querySelector<HTMLInputElement>('input[name="token"]');
+        if (!endpointInput || !tokenInput) {
+            return;
+        }
+
+        let nextError = '';
+        try {
+            await SaveCloudProvider(endpointInput.value, tokenInput.value);
+        } catch (error) {
+            nextError = formatError('Unable to save cloud model settings', error);
+        }
+
+        await bootstrap(nextError);
+    });
 }
 
 function renderProfile(profile: SessionProfile) {
@@ -208,13 +283,68 @@ function renderProtocol(protocol: ProtocolDescriptor) {
 
 function renderAIProvider(provider: AIProvider) {
     return `
-        <article class="provider-card">
+        <article class="provider-card ${provider.selected ? 'selected-provider' : ''}">
             <div>
                 <strong>${escapeHtml(provider.name)}</strong>
                 <div class="session-meta">${escapeHtml(provider.class)} · ${escapeHtml(provider.model)}</div>
+                ${provider.endpoint ? `<div class="provider-capabilities">${escapeHtml(provider.endpoint)}</div>` : ''}
             </div>
-            <div class="provider-capabilities">${provider.configured ? 'configured' : 'token required'}</div>
+            <div class="provider-actions">
+                <div class="provider-capabilities">${escapeHtml(provider.status)}</div>
+                <button class="action-button secondary" data-select-ai-provider="${escapeHtml(provider.id)}">${provider.selected ? 'Selected' : 'Use'}</button>
+            </div>
         </article>
+    `;
+}
+
+function renderAIProviderSetup(providers: AIProvider[]) {
+    const selectedProvider = providers.find((provider) => provider.selected);
+    if (!selectedProvider) {
+        return '<div class="empty-state">Select an AI provider to configure it.</div>';
+    }
+
+    if (selectedProvider.class === 'local') {
+        return renderLocalProviderSetup(selectedProvider);
+    }
+
+    return renderCloudProviderSetup(selectedProvider);
+}
+
+function renderLocalProviderSetup(provider: AIProvider) {
+    return `
+        <div class="provider-setup-card">
+            <div class="setup-copy">Download the bundled Qwen3 8B GGUF model, then run it through llama.cpp.</div>
+            <ul class="detail-list">
+                <li><strong>Model</strong><span>${escapeHtml(provider.model)}</span></li>
+                <li><strong>Status</strong><span>${escapeHtml(provider.status)}</span></li>
+                <li><strong>Path</strong><span>${escapeHtml(provider.localPath ?? 'Not downloaded yet')}</span></li>
+                <li><strong>Endpoint</strong><span>${escapeHtml(provider.endpoint ?? 'Will be exposed after llama.cpp starts')}</span></li>
+                <li><strong>Runner</strong><span>${escapeHtml(provider.command ?? 'llama-server must be available in PATH or OPSY_LLAMA_CPP_BIN')}</span></li>
+            </ul>
+            <div class="provider-form-actions">
+                <button class="action-button" data-download-local-model>Download Qwen3 8B</button>
+                <button class="action-button secondary" data-start-local-model ${provider.localPath ? '' : 'disabled'}>Start with llama.cpp</button>
+            </div>
+        </div>
+    `;
+}
+
+function renderCloudProviderSetup(provider: AIProvider) {
+    return `
+        <form class="provider-form" data-cloud-provider-form>
+            <label>
+                <span>Endpoint URL</span>
+                <input type="url" name="endpoint" value="${escapeHtml(provider.endpoint ?? '')}" placeholder="https://api.example.com/v1" required />
+            </label>
+            <label>
+                <span>API token</span>
+                <input type="password" name="token" placeholder="${provider.configured ? 'Enter a new token to replace the current one' : 'sk-...'}" required />
+            </label>
+            <div class="setup-copy">For cloud providers, specify the OpenAI-compatible base URL and token.</div>
+            <div class="provider-form-actions">
+                <button class="action-button" type="submit">Save cloud connection</button>
+            </div>
+        </form>
     `;
 }
 

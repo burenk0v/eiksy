@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"opsy/internal/app"
+	"opsy/internal/llm"
 	"opsy/internal/storage/memory"
 )
 
@@ -16,9 +18,17 @@ type App struct {
 // NewApp creates the root application instance.
 func NewApp() *App {
 	store := memory.NewStore()
+	localManager, err := llm.NewManager()
+	var service *app.Service
+	if err != nil {
+		log.Printf("local model manager unavailable: %v", err)
+		service = app.NewService(store, nil)
+	} else {
+		service = app.NewService(store, localManager)
+	}
 
 	return &App{
-		service: app.NewService(store),
+		service: service,
 	}
 }
 
@@ -40,4 +50,20 @@ func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) {
 // CloseSession closes an active runtime tab.
 func (a *App) CloseSession(sessionID string) error {
 	return a.service.CloseSession(sessionID)
+}
+
+func (a *App) SelectAIProvider(providerID string) error {
+	return a.service.SelectAIProvider(providerID)
+}
+
+func (a *App) SaveCloudProvider(endpoint string, token string) error {
+	return a.service.SaveCloudProvider(endpoint, token)
+}
+
+func (a *App) DownloadLocalModel() error {
+	return a.service.DownloadLocalModel(a.ctx)
+}
+
+func (a *App) StartLocalModel() error {
+	return a.service.StartLocalModel(a.ctx)
 }

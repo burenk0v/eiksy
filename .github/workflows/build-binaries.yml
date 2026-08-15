@@ -6,11 +6,27 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  RELEASE_TAG_PREFIX: refs/tags/
 
 jobs:
+  prepare-release:
+    name: Prepare GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create release for tag
+        if: startsWith(github.ref, env.RELEASE_TAG_PREFIX)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes
+
   build:
     name: Build ${{ matrix.platform }}
+    needs: prepare-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -76,3 +92,10 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+      - name: Upload release asset
+        if: startsWith(github.ref, env.RELEASE_TAG_PREFIX)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" "${{ matrix.artifact_path }}#${{ matrix.output_name }}" --clobber

@@ -6,10 +6,26 @@ export function CloseSession(arg1) {
   return window['go']['main']['App']['CloseSession'](arg1);
 }
 
+export function DownloadLocalModel() {
+  return window['go']['main']['App']['DownloadLocalModel']();
+}
+
 export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
 
 export function LaunchSession(arg1) {
   return window['go']['main']['App']['LaunchSession'](arg1);
+}
+
+export function SaveCloudProvider(arg1, arg2) {
+  return window['go']['main']['App']['SaveCloudProvider'](arg1, arg2);
+}
+
+export function SelectAIProvider(arg1) {
+  return window['go']['main']['App']['SelectAIProvider'](arg1);
+}
+
+export function StartLocalModel() {
+  return window['go']['main']['App']['StartLocalModel']();
 }

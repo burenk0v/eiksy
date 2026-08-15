@@ -1,7 +1,10 @@
 package app
 
 import (
+	"context"
 	"fmt"
+	"net/url"
+	"strings"
 	"time"
 
 	"opsy/internal/domain/ai"
@@ -38,7 +41,8 @@ type RuntimeSessionView struct {
 }
 
 type Service struct {
-	store stateStore
+	store        stateStore
+	localManager localModelManager
 }
 
 type stateStore interface {
@@ -52,13 +56,22 @@ type stateStore interface {
 	WorkspaceLayout() workspace.Layout
 	RuntimeTabs() []workspace.Tab
 	Events() []workspace.Event
+	UpdateAIState(ai.WorkspaceState)
 	OpenRuntimeTab(workspace.Tab)
 	CloseRuntimeTab(string) bool
 	RecordLaunch(string)
 }
 
-func NewService(store stateStore) *Service {
-	return &Service{store: store}
+type localModelManager interface {
+	DownloadQwen3Model(context.Context) (string, error)
+	StartLocalServer(context.Context, string) (string, string, error)
+}
+
+func NewService(store stateStore, localManager localModelManager) *Service {
+	return &Service{
+		store:        store,
+		localManager: localManager,
+	}
 }
 
 func (s *Service) GetShellState() ShellState {
@@ -110,4 +123,140 @@ func (s *Service) CloseSession(sessionID string) error {
 	}
 
 	return nil
+}
+
+func (s *Service) SelectAIProvider(providerID string) error {
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, providerID)
+	if index < 0 {
+		return fmt.Errorf("ai provider %q not found", providerID)
+	}
+
+	for i := range state.Providers {
+		state.Providers[i].Selected = state.Providers[i].ID == providerID
+	}
+
+	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Switched AI provider to %s.", state.Providers[index].Name))
+	s.store.UpdateAIState(state)
+	return nil
+}
+
+func (s *Service) SaveCloudProvider(endpoint, token string) error {
+	endpoint = strings.TrimSpace(endpoint)
+	token = strings.TrimSpace(token)
+	if endpoint == "" {
+		return fmt.Errorf("cloud endpoint is required")
+	}
+	if token == "" {
+		return fmt.Errorf("cloud token is required")
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("cloud endpoint must be a valid http or https url")
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByClass(state.Providers, ai.ProviderClassOpenAICompatible)
+	if index < 0 {
+		return fmt.Errorf("cloud ai provider is not available")
+	}
+
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+
+	state.Providers[index].Endpoint = endpoint
+	state.Providers[index].Token = token
+	state.Providers[index].Status = "ready"
+	state.Providers[index].Configured = true
+	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Saved cloud AI provider %s.", state.Providers[index].Name))
+	s.store.UpdateAIState(state)
+	return nil
+}
+
+func (s *Service) DownloadLocalModel(ctx context.Context) error {
+	if s.localManager == nil {
+		return fmt.Errorf("local model manager is not configured")
+	}
+
+	modelPath, err := s.localManager.DownloadQwen3Model(ctx)
+	if err != nil {
+		return err
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByClass(state.Providers, ai.ProviderClassLocal)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+
+	state.Providers[index].LocalPath = modelPath
+	state.Providers[index].Status = "downloaded"
+	state.Providers[index].Configured = false
+	state.Messages = appendStatusMessage(state.Messages, "Downloaded the Qwen3 8B local model.")
+	s.store.UpdateAIState(state)
+	return nil
+}
+
+func (s *Service) StartLocalModel(ctx context.Context) error {
+	if s.localManager == nil {
+		return fmt.Errorf("local model manager is not configured")
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByClass(state.Providers, ai.ProviderClassLocal)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+
+	endpoint, command, err := s.localManager.StartLocalServer(ctx, state.Providers[index].LocalPath)
+	if err != nil {
+		return err
+	}
+
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+
+	state.Providers[index].Endpoint = endpoint
+	state.Providers[index].Command = command
+	state.Providers[index].Status = "running via llama.cpp"
+	state.Providers[index].Configured = true
+	state.Messages = appendStatusMessage(state.Messages, "Started the Qwen3 8B local model with llama.cpp.")
+	s.store.UpdateAIState(state)
+	return nil
+}
+
+func providerIndexByID(providers []ai.ProviderDescriptor, providerID string) int {
+	for index, provider := range providers {
+		if provider.ID == providerID {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func providerIndexByClass(providers []ai.ProviderDescriptor, class ai.ProviderClass) int {
+	for index, provider := range providers {
+		if provider.Class == class {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func appendStatusMessage(messages []ai.ChatMessage, content string) []ai.ChatMessage {
+	updated := append([]ai.ChatMessage(nil), messages...)
+	updated = append(updated, ai.ChatMessage{
+		Role:    "assistant",
+		Content: content,
+	})
+	return updated
 }

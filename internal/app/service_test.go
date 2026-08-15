@@ -1,13 +1,31 @@
 package app
 
 import (
+	"context"
 	"testing"
 
+	"opsy/internal/domain/ai"
 	"opsy/internal/storage/memory"
 )
 
+type fakeLocalModelManager struct {
+	downloadPath string
+	endpoint     string
+	command      string
+	downloadErr  error
+	startErr     error
+}
+
+func (f fakeLocalModelManager) DownloadQwen3Model(context.Context) (string, error) {
+	return f.downloadPath, f.downloadErr
+}
+
+func (f fakeLocalModelManager) StartLocalServer(context.Context, string) (string, string, error) {
+	return f.endpoint, f.command, f.startErr
+}
+
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
-	service := NewService(memory.NewStore())
+	service := NewService(memory.NewStore(), nil)
 
 	state := service.GetShellState()
 
@@ -26,7 +44,7 @@ func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 }
 
 func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
-	service := NewService(memory.NewStore())
+	service := NewService(memory.NewStore(), nil)
 
 	before := service.GetShellState()
 	launched, err := service.LaunchSession("artifact-mirror")
@@ -64,7 +82,7 @@ func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
 }
 
 func TestLaunchHistoryIsCapped(t *testing.T) {
-	service := NewService(memory.NewStore())
+	service := NewService(memory.NewStore(), nil)
 
 	for range 150 {
 		if _, err := service.LaunchSession("artifact-mirror"); err != nil {
@@ -76,4 +94,91 @@ func TestLaunchHistoryIsCapped(t *testing.T) {
 	if len(state.SessionHistory) != 100 {
 		t.Fatalf("expected capped launch history of 100 entries, got %d", len(state.SessionHistory))
 	}
+}
+
+func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
+	service := NewService(memory.NewStore(), nil)
+
+	if err := service.SelectAIProvider("openai-compatible-cloud"); err != nil {
+		t.Fatalf("select ai provider: %v", err)
+	}
+
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
+	if !cloudProvider.Selected {
+		t.Fatal("expected cloud provider to be selected")
+	}
+	if localProvider.Selected {
+		t.Fatal("expected local provider to be deselected")
+	}
+}
+
+func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
+	service := NewService(memory.NewStore(), nil)
+
+	if err := service.SaveCloudProvider("https://models.example.com/v1", "secret-token"); err != nil {
+		t.Fatalf("save cloud provider: %v", err)
+	}
+
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	if !cloudProvider.Selected {
+		t.Fatal("expected cloud provider to be selected")
+	}
+	if !cloudProvider.Configured {
+		t.Fatal("expected cloud provider to be configured")
+	}
+	if cloudProvider.Endpoint != "https://models.example.com/v1" {
+		t.Fatalf("expected cloud endpoint to be saved, got %q", cloudProvider.Endpoint)
+	}
+	if cloudProvider.Status != "ready" {
+		t.Fatalf("expected cloud provider status ready, got %q", cloudProvider.Status)
+	}
+}
+
+func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
+	service := NewService(memory.NewStore(), fakeLocalModelManager{
+		downloadPath: "/tmp/qwen3.gguf",
+		endpoint:     "http://127.0.0.1:8012/v1",
+		command:      "llama-server -m /tmp/qwen3.gguf --host 127.0.0.1 --port 8012",
+	})
+
+	if err := service.DownloadLocalModel(context.Background()); err != nil {
+		t.Fatalf("download local model: %v", err)
+	}
+	if err := service.StartLocalModel(context.Background()); err != nil {
+		t.Fatalf("start local model: %v", err)
+	}
+
+	state := service.GetShellState()
+	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
+	if !localProvider.Selected {
+		t.Fatal("expected local provider to be selected")
+	}
+	if !localProvider.Configured {
+		t.Fatal("expected local provider to be configured")
+	}
+	if localProvider.LocalPath != "/tmp/qwen3.gguf" {
+		t.Fatalf("expected local model path to be saved, got %q", localProvider.LocalPath)
+	}
+	if localProvider.Endpoint != "http://127.0.0.1:8012/v1" {
+		t.Fatalf("expected local endpoint to be saved, got %q", localProvider.Endpoint)
+	}
+	if localProvider.Status != "running via llama.cpp" {
+		t.Fatalf("expected local provider status to reflect llama.cpp, got %q", localProvider.Status)
+	}
+}
+
+func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.ProviderDescriptor {
+	t.Helper()
+
+	for _, provider := range state.AI.Providers {
+		if provider.ID == providerID {
+			return provider
+		}
+	}
+
+	t.Fatalf("expected provider %q to exist", providerID)
+	return ai.ProviderDescriptor{}
 }
