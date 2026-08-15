@@ -13,6 +13,8 @@ import (
 	"opsy/internal/domain/workspace"
 )
 
+const maxLaunchHistoryEntries = 100
+
 type Store struct {
 	mu                  sync.RWMutex
 	protocols           []protocols.Descriptor
@@ -355,6 +357,9 @@ func (s *Store) RecordLaunch(profileID string) {
 		ProfileName: profile.Name,
 		LaunchedAt:  now,
 	})
+	if len(s.launchHistory) > maxLaunchHistoryEntries {
+		s.launchHistory = s.launchHistory[len(s.launchHistory)-maxLaunchHistoryEntries:]
+	}
 }
 
 func (s *Store) nextEventIDLocked() string {

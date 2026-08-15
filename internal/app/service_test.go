@@ -62,3 +62,18 @@ func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
 		t.Fatal("expected launched profile to remain in shell state")
 	}
 }
+
+func TestLaunchHistoryIsCapped(t *testing.T) {
+	service := NewService(memory.NewStore())
+
+	for range 150 {
+		if _, err := service.LaunchSession("artifact-mirror"); err != nil {
+			t.Fatalf("launch session: %v", err)
+		}
+	}
+
+	state := service.GetShellState()
+	if len(state.SessionHistory) != 100 {
+		t.Fatalf("expected capped launch history of 100 entries, got %d", len(state.SessionHistory))
+	}
+}
