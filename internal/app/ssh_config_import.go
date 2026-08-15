@@ -60,6 +60,7 @@ func (s *Service) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 	if len(imported) == 0 {
 		return nil, fmt.Errorf("no valid ssh profiles were imported")
 	}
+	s.EmitLog("info", fmt.Sprintf("Imported %d SSH profile(s)", len(imported)))
 	return imported, nil
 }
 

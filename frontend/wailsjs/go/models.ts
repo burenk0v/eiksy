@@ -425,6 +425,8 @@ export namespace settings {
 	    windowLayout: WindowLayout;
 	    promptBeforeAi: boolean;
 	    allowCloudModels: boolean;
+	    logLevel: string;
+	    showLogPanel: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -437,6 +439,8 @@ export namespace settings {
 	        this.windowLayout = this.convertValues(source["windowLayout"], WindowLayout);
 	        this.promptBeforeAi = source["promptBeforeAi"];
 	        this.allowCloudModels = source["allowCloudModels"];
+	        this.logLevel = source["logLevel"];
+	        this.showLogPanel = source["showLogPanel"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

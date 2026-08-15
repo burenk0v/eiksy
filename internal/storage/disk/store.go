@@ -166,6 +166,13 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	s.aiState = cloneAIState(state)
 }
 
+func (s *Store) UpdateSettings(updated settings.AppSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = updated
+	return s.saveSettings()
+}
+
 func (s *Store) OpenRuntimeTab(tab workspace.Tab) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -290,7 +297,13 @@ func (s *Store) loadSessionProfiles() error {
 	}
 	var profiles []sessions.Profile
 	if err := json.Unmarshal(content, &profiles); err != nil {
-		return fmt.Errorf("decode sessions file: %w", err)
+		if renameErr := os.Rename(s.sessionsPath, s.sessionsPath+".fail"); renameErr != nil {
+			return fmt.Errorf("decode sessions file: %w (also failed to rename: %v)", err, renameErr)
+		}
+		if writeErr := os.WriteFile(s.sessionsPath, []byte("[]\n"), 0o600); writeErr != nil {
+			return fmt.Errorf("decode sessions file: %w (also failed to recreate: %v)", err, writeErr)
+		}
+		return nil
 	}
 	for _, profile := range profiles {
 		profile = cloneProfile(profile)
@@ -311,19 +324,27 @@ func (s *Store) loadSettings() error {
 	}
 	var loaded settings.AppSettings
 	if err := json.Unmarshal(content, &loaded); err != nil {
-		return fmt.Errorf("decode settings file: %w", err)
+		if renameErr := os.Rename(s.settingsPath, s.settingsPath+".fail"); renameErr != nil {
+			return fmt.Errorf("decode settings file: %w (also failed to rename: %v)", err, renameErr)
+		}
+		s.settings = defaultSettings()
+		return s.saveSettings()
 	}
+	defaults := defaultSettings()
 	if loaded.Theme == "" {
-		loaded.Theme = s.settings.Theme
+		loaded.Theme = defaults.Theme
 	}
 	if loaded.DefaultProtocol == "" {
-		loaded.DefaultProtocol = s.settings.DefaultProtocol
+		loaded.DefaultProtocol = defaults.DefaultProtocol
 	}
 	if loaded.WindowLayout.SidebarWidth == 0 {
-		loaded.WindowLayout.SidebarWidth = s.settings.WindowLayout.SidebarWidth
+		loaded.WindowLayout.SidebarWidth = defaults.WindowLayout.SidebarWidth
 	}
 	if loaded.WindowLayout.AssistantWidth == 0 {
-		loaded.WindowLayout.AssistantWidth = s.settings.WindowLayout.AssistantWidth
+		loaded.WindowLayout.AssistantWidth = defaults.WindowLayout.AssistantWidth
+	}
+	if loaded.LogLevel == "" {
+		loaded.LogLevel = defaults.LogLevel
 	}
 	s.settings = loaded
 	return nil
@@ -397,6 +418,8 @@ func defaultSettings() settings.AppSettings {
 		WindowLayout:     settings.WindowLayout{SidebarWidth: 300, AssistantWidth: 360},
 		PromptBeforeAI:   true,
 		AllowCloudModels: true,
+		LogLevel:         settings.LogLevelInfo,
+		ShowLogPanel:     false,
 	}
 }
 

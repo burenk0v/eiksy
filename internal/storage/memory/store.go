@@ -140,6 +140,13 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	s.aiState = cloneAIState(state)
 }
 
+func (s *Store) UpdateSettings(updated settings.AppSettings) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.settings = updated
+	return nil
+}
+
 func (s *Store) Settings() settings.AppSettings {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -300,6 +307,8 @@ func defaultSettings() settings.AppSettings {
 		},
 		PromptBeforeAI:   true,
 		AllowCloudModels: true,
+		LogLevel:         settings.LogLevelInfo,
+		ShowLogPanel:     false,
 	}
 }
 
