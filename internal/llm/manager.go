@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	defaultModelURL = "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf?download=true"
-	defaultModelDir = "models"
+	defaultModelURL  = "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf?download=true"
+	defaultModelDir  = "models"
 	defaultModelFile = "Qwen_Qwen3-8B-Q4_K_M.gguf"
 	defaultHost      = "127.0.0.1"
 	defaultPort      = "8012"

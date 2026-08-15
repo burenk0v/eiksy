@@ -10,6 +10,7 @@ This repository now contains the initial application skeleton for:
 - session manager models for saved profiles, launch history, and active tabs
 - credential provider contracts for HashiCorp Vault, KeePass, and Windows Password Manager
 - AI provider models for local and OpenAI-compatible backends
+- local Qwen3 8B model download and llama.cpp launch flow alongside configurable cloud endpoint/token setup
 - backend-owned workspace state rendered by a thin Wails frontend shell
 
 ## Development
