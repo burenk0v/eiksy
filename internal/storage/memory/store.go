@@ -94,8 +94,8 @@ func NewStore() *Store {
 		},
 		runtimeOrder: []string{"session-1"},
 		launchHistory: []sessions.HistoryEntry{
-			{ProfileID: "ops-linux-admin", ProfileName: "ops-linux-admin", LaunchedAt: lastSSH.Format(time.RFC3339)},
 			{ProfileID: "helpdesk-rdp", ProfileName: "helpdesk-rdp", LaunchedAt: lastRDP.Format(time.RFC3339)},
+			{ProfileID: "ops-linux-admin", ProfileName: "ops-linux-admin", LaunchedAt: lastSSH.Format(time.RFC3339)},
 		},
 		credentialProviders: []credentials.ProviderDescriptor{
 			{
@@ -224,7 +224,12 @@ func (s *Store) LaunchHistory() []sessions.HistoryEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return append([]sessions.HistoryEntry(nil), s.launchHistory...)
+	result := append([]sessions.HistoryEntry(nil), s.launchHistory...)
+	for left, right := 0, len(result)-1; left < right; left, right = left+1, right-1 {
+		result[left], result[right] = result[right], result[left]
+	}
+
+	return result
 }
 
 func (s *Store) CredentialProviders() []credentials.ProviderDescriptor {
@@ -340,11 +345,11 @@ func (s *Store) RecordLaunch(profile sessions.Profile) {
 	profile.LastLaunchedAt = now
 	s.sessionProfiles[profile.ID] = profile
 
-	s.launchHistory = append([]sessions.HistoryEntry{{
+	s.launchHistory = append(s.launchHistory, sessions.HistoryEntry{
 		ProfileID:   profile.ID,
 		ProfileName: profile.Name,
 		LaunchedAt:  now,
-	}}, s.launchHistory...)
+	})
 }
 
 func (s *Store) nextEventIDLocked() string {
