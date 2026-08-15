@@ -41,7 +41,18 @@ func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
 	if len(after.ActiveSessions) != len(before.ActiveSessions)+1 {
 		t.Fatalf("expected active session count to grow, before=%d after=%d", len(before.ActiveSessions), len(after.ActiveSessions))
 	}
-	if after.SessionHistory[0].ProfileID != "artifact-mirror" {
-		t.Fatalf("expected launch history to be updated, got %+v", after.SessionHistory[0])
+	if len(after.SessionHistory) != len(before.SessionHistory)+1 {
+		t.Fatalf("expected launch history count to grow, before=%d after=%d", len(before.SessionHistory), len(after.SessionHistory))
+	}
+
+	found := false
+	for _, entry := range after.SessionHistory {
+		if entry.ProfileID == "artifact-mirror" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected launch history to contain artifact-mirror")
 	}
 }

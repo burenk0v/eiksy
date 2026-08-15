@@ -1,7 +1,7 @@
 package memory
 
 import (
-	"sort"
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,6 +26,7 @@ type Store struct {
 	settings            settings.AppSettings
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
+	eventCounter        int64
 }
 
 func NewStore() *Store {
@@ -175,6 +176,7 @@ func NewStore() *Store {
 			{ID: "event-1", Type: "session.opened", Subject: "ops-linux-admin", At: lastSSH.Format(time.RFC3339)},
 			{ID: "event-2", Type: "vault.token.renewal_scheduled", Subject: "vault-primary", At: now.Format(time.RFC3339)},
 		},
+		eventCounter: 2,
 	}
 
 	return store
@@ -269,7 +271,12 @@ func (s *Store) Events() []workspace.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return append([]workspace.Event(nil), s.events...)
+	result := make([]workspace.Event, 0, len(s.events))
+	for i := len(s.events) - 1; i >= 0; i-- {
+		result = append(result, s.events[i])
+	}
+
+	return result
 }
 
 func (s *Store) OpenRuntimeTab(tab workspace.Tab) {
@@ -282,12 +289,12 @@ func (s *Store) OpenRuntimeTab(tab workspace.Tab) {
 
 	s.runtimeTabs[tab.ID] = tab
 	s.workspaceLayout.ActiveTabID = tab.ID
-	s.events = append([]workspace.Event{{
-		ID:      "event-" + tab.ID,
+	s.events = append(s.events, workspace.Event{
+		ID:      s.nextEventIDLocked(),
 		Type:    "session.opened",
 		Subject: tab.Title,
 		At:      time.Now().UTC().Format(time.RFC3339),
-	}}, s.events...)
+	})
 }
 
 func (s *Store) CloseRuntimeTab(sessionID string) bool {
@@ -299,15 +306,25 @@ func (s *Store) CloseRuntimeTab(sessionID string) bool {
 	}
 
 	delete(s.runtimeTabs, sessionID)
-	filteredOrder := s.runtimeOrder[:0]
-	for _, id := range s.runtimeOrder {
+	removedIndex := -1
+	filteredOrder := make([]string, 0, len(s.runtimeOrder))
+	for index, id := range s.runtimeOrder {
 		if id != sessionID {
 			filteredOrder = append(filteredOrder, id)
+		} else {
+			removedIndex = index
 		}
 	}
 	s.runtimeOrder = filteredOrder
 	if len(s.runtimeOrder) > 0 {
-		s.workspaceLayout.ActiveTabID = s.runtimeOrder[len(s.runtimeOrder)-1]
+		nextIndex := removedIndex
+		if nextIndex >= len(s.runtimeOrder) {
+			nextIndex = len(s.runtimeOrder) - 1
+		}
+		if nextIndex < 0 {
+			nextIndex = 0
+		}
+		s.workspaceLayout.ActiveTabID = s.runtimeOrder[nextIndex]
 	} else {
 		s.workspaceLayout.ActiveTabID = ""
 	}
@@ -328,8 +345,9 @@ func (s *Store) RecordLaunch(profile sessions.Profile) {
 		ProfileName: profile.Name,
 		LaunchedAt:  now,
 	}}, s.launchHistory...)
+}
 
-	sort.SliceStable(s.launchHistory, func(i, j int) bool {
-		return s.launchHistory[i].LaunchedAt > s.launchHistory[j].LaunchedAt
-	})
+func (s *Store) nextEventIDLocked() string {
+	s.eventCounter++
+	return fmt.Sprintf("event-%d", s.eventCounter)
 }

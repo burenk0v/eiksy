@@ -10,7 +10,6 @@ import (
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	"opsy/internal/domain/workspace"
-	"opsy/internal/storage/memory"
 )
 
 type ShellState struct {
@@ -39,10 +38,26 @@ type RuntimeSessionView struct {
 }
 
 type Service struct {
-	store *memory.Store
+	store stateStore
 }
 
-func NewService(store *memory.Store) *Service {
+type stateStore interface {
+	Protocols() []protocols.Descriptor
+	SessionProfiles() []sessions.Profile
+	SessionProfile(string) (sessions.Profile, bool)
+	LaunchHistory() []sessions.HistoryEntry
+	CredentialProviders() []credentials.ProviderDescriptor
+	AIState() ai.WorkspaceState
+	Settings() settings.AppSettings
+	WorkspaceLayout() workspace.Layout
+	RuntimeTabs() []workspace.Tab
+	Events() []workspace.Event
+	OpenRuntimeTab(workspace.Tab)
+	CloseRuntimeTab(string) bool
+	RecordLaunch(sessions.Profile)
+}
+
+func NewService(store stateStore) *Service {
 	return &Service{store: store}
 }
 

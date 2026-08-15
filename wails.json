@@ -7,7 +7,7 @@
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "copilot-swe-agent[bot]",
-    "email": "198982749+Copilot@users.noreply.github.com"
+    "name": "Oleg Burenkov",
+    "email": ""
   }
 }

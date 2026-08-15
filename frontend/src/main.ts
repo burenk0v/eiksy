@@ -2,101 +2,24 @@ import './style.css';
 import './app.css';
 
 import {CloseSession, GetShellState, LaunchSession} from '../wailsjs/go/main/App';
+import type {ai as aiModels, app as appModels, credentials, protocols, sessions} from '../wailsjs/go/models';
 
-type ProtocolDescriptor = {
-    id: string;
-    name: string;
-    scheme: string;
-    capabilities: string[];
-};
-
-type SessionProfile = {
-    id: string;
-    name: string;
-    group: string;
-    tags: string[];
-    favorite: boolean;
-    protocolId: string;
-    host: string;
-    port: number;
-    username: string;
-    secretRef?: string;
-    lastLaunchedAt?: string;
-};
-
-type RuntimeSession = {
-    id: string;
-    title: string;
-    protocolId: string;
-    profileId: string;
-    status: string;
-    description: string;
-};
-
-type CredentialProvider = {
-    id: string;
-    name: string;
-    type: string;
-    capabilities: string[];
-    status: {
-        state: string;
-        expiresAt?: string;
-        renewable: boolean;
-        authenticated: boolean;
-    };
-};
-
-type AIProvider = {
-    id: string;
-    name: string;
-    class: string;
-    model: string;
-    endpoint?: string;
-    configured: boolean;
-};
-
-type ShellState = {
-    protocols: ProtocolDescriptor[];
-    sessionProfiles: SessionProfile[];
-    activeSessions: RuntimeSession[];
-    sessionHistory: Array<{profileId: string; profileName: string; launchedAt: string;}>;
-    credentialProviders: CredentialProvider[];
-    ai: {
-        providers: AIProvider[];
-        contextPolicy: {
-            sendTerminalSelection: boolean;
-            sendRecentOutput: boolean;
-            requireConfirmation: boolean;
-        };
-        messages: Array<{role: string; content: string;}>;
-    };
-    workspace: {
-        layout: {
-            sidebarSections: Array<{id: string; title: string;}>;
-            activeTabId?: string;
-        };
-        recentEvents: Array<{id: string; type: string; subject: string; at: string;}>;
-    };
-    settings: {
-        theme: string;
-        defaultProtocol: string;
-        windowLayout: {
-            sidebarWidth: number;
-            assistantWidth: number;
-        };
-        promptBeforeAi: boolean;
-        allowCloudModels: boolean;
-    };
-};
+type ProtocolDescriptor = protocols.Descriptor;
+type SessionProfile = sessions.Profile;
+type RuntimeSession = appModels.RuntimeSessionView;
+type CredentialProvider = credentials.ProviderDescriptor;
+type AIProvider = aiModels.ProviderDescriptor;
+type ShellState = appModels.ShellState;
 
 const app = document.querySelector<HTMLDivElement>('#app');
+let transientError = '';
 
 async function bootstrap() {
     if (!app) {
         return;
     }
 
-    const state = await GetShellState() as ShellState;
+    const state: ShellState = await GetShellState();
     render(state);
 }
 
@@ -113,7 +36,7 @@ function render(state: ShellState) {
                         <div class="eyebrow">Session manager</div>
                         <h1>opsy</h1>
                     </div>
-                    <div class="pill">${state.settings.defaultProtocol.toUpperCase()} default</div>
+                    <div class="pill">${escapeHtml(state.settings.defaultProtocol.toUpperCase())} default</div>
                 </div>
 
                 <section class="section">
@@ -140,6 +63,8 @@ function render(state: ShellState) {
                     <div class="tab-count">${state.activeSessions.length} open</div>
                 </div>
 
+                ${transientError ? `<div class="error-banner">${escapeHtml(transientError)}</div>` : ''}
+
                 <div class="tabs">
                     ${state.activeSessions.map(renderTab).join('') || '<div class="empty-state">No active sessions</div>'}
                 </div>
@@ -155,14 +80,14 @@ function render(state: ShellState) {
                     <section class="card">
                         <div class="section-title">Recent launches</div>
                         <ul class="activity-list">
-                            ${state.sessionHistory.map((entry) => `<li><strong>${entry.profileName}</strong><span>${formatDate(entry.launchedAt)}</span></li>`).join('')}
+                            ${state.sessionHistory.map((entry) => `<li><strong>${escapeHtml(entry.profileName)}</strong><span>${escapeHtml(formatDate(entry.launchedAt))}</span></li>`).join('')}
                         </ul>
                     </section>
 
                     <section class="card full-width">
                         <div class="section-title">Backend events</div>
                         <ul class="activity-list">
-                            ${state.workspace.recentEvents.map((event) => `<li><strong>${event.type}</strong><span>${event.subject} · ${formatDate(event.at)}</span></li>`).join('')}
+                            ${state.workspace.recentEvents.map((event) => `<li><strong>${escapeHtml(event.type)}</strong><span>${escapeHtml(event.subject)} · ${escapeHtml(formatDate(event.at))}</span></li>`).join('')}
                         </ul>
                     </section>
                 </div>
@@ -187,15 +112,15 @@ function render(state: ShellState) {
                 <section class="section">
                     <div class="section-title">Context policy</div>
                     <ul class="tag-list">
-                        <li>${state.ai.contextPolicy.sendTerminalSelection ? 'Selection sharing enabled' : 'Selection sharing disabled'}</li>
-                        <li>${state.ai.contextPolicy.sendRecentOutput ? 'Recent output sharing enabled' : 'Recent output sharing disabled'}</li>
-                        <li>${state.settings.allowCloudModels ? 'Cloud models allowed' : 'Cloud models disabled'}</li>
+                        <li>${escapeHtml(state.ai.contextPolicy.sendTerminalSelection ? 'Selection sharing enabled' : 'Selection sharing disabled')}</li>
+                        <li>${escapeHtml(state.ai.contextPolicy.sendRecentOutput ? 'Recent output sharing enabled' : 'Recent output sharing disabled')}</li>
+                        <li>${escapeHtml(state.settings.allowCloudModels ? 'Cloud models allowed' : 'Cloud models disabled')}</li>
                     </ul>
                 </section>
 
                 <section class="section chat">
                     <div class="section-title">Assistant panel</div>
-                    ${state.ai.messages.map((message) => `<div class="message ${message.role}">${message.content}</div>`).join('')}
+                ${state.ai.messages.map((message) => `<div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>`).join('')}
                 </section>
             </aside>
         </div>
@@ -208,7 +133,13 @@ function render(state: ShellState) {
                 return;
             }
 
-            await LaunchSession(profileID);
+            try {
+                transientError = '';
+                await LaunchSession(profileID);
+            } catch (error) {
+                transientError = formatError('Unable to launch session', error);
+            }
+
             await bootstrap();
         });
     });
@@ -220,7 +151,13 @@ function render(state: ShellState) {
                 return;
             }
 
-            await CloseSession(sessionID);
+            try {
+                transientError = '';
+                await CloseSession(sessionID);
+            } catch (error) {
+                transientError = formatError('Unable to close session', error);
+            }
+
             await bootstrap();
         });
     });
@@ -231,13 +168,13 @@ function renderProfile(profile: SessionProfile) {
         <article class="session-card">
             <div>
                 <div class="session-title-row">
-                    <strong>${profile.name}</strong>
+                    <strong>${escapeHtml(profile.name)}</strong>
                     ${profile.favorite ? '<span class="favorite">★</span>' : ''}
                 </div>
-                <div class="session-meta">${profile.group} · ${profile.protocolId.toUpperCase()} · ${profile.username}@${profile.host}:${profile.port}</div>
-                <div class="session-tags">${profile.tags.map((tag) => `<span>${tag}</span>`).join('')}</div>
+                <div class="session-meta">${escapeHtml(profile.group)} · ${escapeHtml(profile.protocolId.toUpperCase())} · ${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
+                <div class="session-tags">${profile.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
             </div>
-            <button class="action-button" data-open-profile="${profile.id}">Open</button>
+            <button class="action-button" data-open-profile="${escapeHtml(profile.id)}">Open</button>
         </article>
     `;
 }
@@ -246,36 +183,36 @@ function renderProvider(provider: CredentialProvider) {
     return `
         <article class="provider-card">
             <div>
-                <strong>${provider.name}</strong>
-                <div class="session-meta">${provider.type} · ${provider.status.state}</div>
+                <strong>${escapeHtml(provider.name)}</strong>
+                <div class="session-meta">${escapeHtml(provider.type)} · ${escapeHtml(provider.status.state)}</div>
             </div>
-            <div class="provider-capabilities">${provider.capabilities.join(', ')}</div>
+            <div class="provider-capabilities">${escapeHtml(provider.capabilities.join(', '))}</div>
         </article>
     `;
 }
 
 function renderTab(tab: RuntimeSession) {
     return `
-        <article class="tab-card ${tab.status}">
+        <article class="tab-card ${escapeClassName(tab.status)}">
             <div>
-                <strong>${tab.title}</strong>
-                <div class="session-meta">${tab.description}</div>
+                <strong>${escapeHtml(tab.title)}</strong>
+                <div class="session-meta">${escapeHtml(tab.description)}</div>
             </div>
-            <button class="action-button secondary" data-close-session="${tab.id}">Close</button>
+            <button class="action-button secondary" data-close-session="${escapeHtml(tab.id)}">Close</button>
         </article>
     `;
 }
 
 function renderProtocol(protocol: ProtocolDescriptor) {
-    return `<li><strong>${protocol.scheme.toUpperCase()}</strong><span>${protocol.capabilities.join(' · ')}</span></li>`;
+    return `<li><strong>${escapeHtml(protocol.scheme.toUpperCase())}</strong><span>${escapeHtml(protocol.capabilities.join(' · '))}</span></li>`;
 }
 
 function renderAIProvider(provider: AIProvider) {
     return `
         <article class="provider-card">
             <div>
-                <strong>${provider.name}</strong>
-                <div class="session-meta">${provider.class} · ${provider.model}</div>
+                <strong>${escapeHtml(provider.name)}</strong>
+                <div class="session-meta">${escapeHtml(provider.class)} · ${escapeHtml(provider.model)}</div>
             </div>
             <div class="provider-capabilities">${provider.configured ? 'configured' : 'token required'}</div>
         </article>
@@ -285,6 +222,27 @@ function renderAIProvider(provider: AIProvider) {
 function formatDate(value: string) {
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function escapeHtml(value: string) {
+    return value
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+}
+
+function escapeClassName(value: string) {
+    return value.replace(/[^a-zA-Z0-9_-]/g, '-');
+}
+
+function formatError(prefix: string, error: unknown) {
+    if (error instanceof Error) {
+        return `${prefix}: ${error.message}`;
+    }
+
+    return prefix;
 }
 
 void bootstrap();
