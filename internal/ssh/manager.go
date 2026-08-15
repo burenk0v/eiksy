@@ -7,10 +7,12 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	xssh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -21,37 +23,37 @@ type Manager struct {
 }
 
 type connection struct {
-	client  *xssh.Client
-	session *xssh.Session
-	stdin   io.WriteCloser
-	handler func(string)
+	client         *xssh.Client
+	session        *xssh.Session
+	stdin          io.WriteCloser
+	handler        func(string)
+	localListeners []net.Listener
 }
 
 func NewManager() *Manager {
 	return &Manager{connections: map[string]*connection{}, handlers: map[string]func(string){}}
 }
 
-func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, user, password string) error {
+func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, user, password string, options map[string]string) error {
 	if port <= 0 {
 		port = 22
 	}
 	_ = m.Disconnect(tabID)
 
-	hostKeyCallback, err := hostKeyCallback()
+	hostKey, err := hostKeyCallback()
 	if err != nil {
 		return err
 	}
-	config := &xssh.ClientConfig{
-		User:            user,
-		Auth:            []xssh.AuthMethod{xssh.Password(password)},
-		HostKeyCallback: hostKeyCallback,
-	}
-	address := net.JoinHostPort(host, fmt.Sprintf("%d", port))
-	dialer := &net.Dialer{}
-	netConn, err := dialer.DialContext(ctx, "tcp", address)
+	config, err := buildClientConfig(user, password, options, hostKey)
 	if err != nil {
-		return fmt.Errorf("dial ssh server: %w", err)
+		return err
 	}
+	address := net.JoinHostPort(host, strconv.Itoa(port))
+	netConn, err := dialTarget(ctx, address, config, options)
+	if err != nil {
+		return err
+	}
+
 	conn, chans, reqs, err := xssh.NewClientConn(netConn, address, config)
 	if err != nil {
 		_ = netConn.Close()
@@ -88,9 +90,16 @@ func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, use
 		return fmt.Errorf("start ssh shell: %w", err)
 	}
 
+	listeners, err := startLocalForwards(client, options)
+	if err != nil {
+		_ = session.Close()
+		_ = client.Close()
+		return err
+	}
+
 	m.mu.Lock()
 	handler := m.handlers[tabID]
-	connState := &connection{client: client, session: session, stdin: stdin, handler: handler}
+	connState := &connection{client: client, session: session, stdin: stdin, handler: handler, localListeners: listeners}
 	m.connections[tabID] = connState
 	m.mu.Unlock()
 
@@ -136,6 +145,9 @@ func (m *Manager) Disconnect(tabID string) error {
 	m.mu.Unlock()
 	if conn == nil {
 		return nil
+	}
+	for _, listener := range conn.localListeners {
+		_ = listener.Close()
 	}
 	if conn.stdin != nil {
 		_ = conn.stdin.Close()
@@ -202,9 +214,193 @@ func hostKeyCallback() (xssh.HostKeyCallback, error) {
 	}
 	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
 	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
-		// No known_hosts file yet; accept any host key on first connection.
-		// The user can add their own known_hosts file to enforce strict checking.
 		return xssh.InsecureIgnoreHostKey(), nil //nolint:gosec
 	}
 	return knownhosts.New(knownHostsPath)
+}
+
+func buildClientConfig(user, password string, options map[string]string, hostKeyCallback xssh.HostKeyCallback) (*xssh.ClientConfig, error) {
+	authMethods := []xssh.AuthMethod{}
+	if strings.TrimSpace(password) != "" {
+		authMethods = append(authMethods, xssh.Password(password))
+	}
+	if shouldUseAgent(options) {
+		authMethod, err := authMethodFromAgent(options)
+		if err != nil {
+			return nil, err
+		}
+		authMethods = append(authMethods, authMethod)
+	}
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("no ssh auth method configured; provide a password or enable ssh agent")
+	}
+	return &xssh.ClientConfig{
+		User:            user,
+		Auth:            authMethods,
+		HostKeyCallback: hostKeyCallback,
+	}, nil
+}
+
+func shouldUseAgent(options map[string]string) bool {
+	if options == nil {
+		return false
+	}
+	value := strings.TrimSpace(options["use_ssh_agent"])
+	if value == "" {
+		value = strings.TrimSpace(options["ssh_agent_socket"])
+		return value != ""
+	}
+	return strings.EqualFold(value, "1") || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
+}
+
+func authMethodFromAgent(options map[string]string) (xssh.AuthMethod, error) {
+	socket := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
+	if options != nil {
+		override := strings.TrimSpace(options["ssh_agent_socket"])
+		if override != "" && !strings.EqualFold(override, "none") {
+			socket = override
+		}
+	}
+	if socket == "" {
+		return nil, fmt.Errorf("ssh agent requested but SSH_AUTH_SOCK is not set")
+	}
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		return nil, fmt.Errorf("connect ssh agent: %w", err)
+	}
+	agentClient := agent.NewClient(conn)
+	return xssh.PublicKeysCallback(agentClient.Signers), nil
+}
+
+func dialTarget(ctx context.Context, address string, config *xssh.ClientConfig, options map[string]string) (net.Conn, error) {
+	proxyJump := strings.TrimSpace(optionValue(options, "proxy_jump"))
+	if proxyJump == "" {
+		dialer := &net.Dialer{}
+		netConn, err := dialer.DialContext(ctx, "tcp", address)
+		if err != nil {
+			return nil, fmt.Errorf("dial ssh server: %w", err)
+		}
+		return netConn, nil
+	}
+	jumpAddress, jumpUser := parseProxyJump(proxyJump, config.User)
+	jumpConfig := cloneClientConfig(config)
+	jumpConfig.User = jumpUser
+	jumpClient, err := xssh.Dial("tcp", jumpAddress, jumpConfig)
+	if err != nil {
+		return nil, fmt.Errorf("dial proxy jump %s: %w", jumpAddress, err)
+	}
+	netConn, err := jumpClient.Dial("tcp", address)
+	if err != nil {
+		_ = jumpClient.Close()
+		return nil, fmt.Errorf("dial target via proxy jump: %w", err)
+	}
+	return &proxyConn{Conn: netConn, jumpClient: jumpClient}, nil
+}
+
+func startLocalForwards(client *xssh.Client, options map[string]string) ([]net.Listener, error) {
+	if options == nil {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(options["local_forwards"])
+	if raw == "" {
+		return nil, nil
+	}
+	specs := strings.Split(raw, ",")
+	listeners := make([]net.Listener, 0, len(specs))
+	for _, spec := range specs {
+		bindAddr, remoteAddr, err := parseLocalForwardSpec(spec)
+		if err != nil {
+			for _, listener := range listeners {
+				_ = listener.Close()
+			}
+			return nil, err
+		}
+		listener, err := net.Listen("tcp", bindAddr)
+		if err != nil {
+			for _, current := range listeners {
+				_ = current.Close()
+			}
+			return nil, fmt.Errorf("open local tunnel %s: %w", bindAddr, err)
+		}
+		listeners = append(listeners, listener)
+		go handleTunnelListener(listener, client, remoteAddr)
+	}
+	return listeners, nil
+}
+
+func handleTunnelListener(listener net.Listener, client *xssh.Client, remoteAddr string) {
+	for {
+		localConn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		go func() {
+			defer localConn.Close()
+			remoteConn, err := client.Dial("tcp", remoteAddr)
+			if err != nil {
+				return
+			}
+			defer remoteConn.Close()
+			go io.Copy(remoteConn, localConn)
+			_, _ = io.Copy(localConn, remoteConn)
+		}()
+	}
+}
+
+func parseLocalForwardSpec(spec string) (string, string, error) {
+	spec = strings.TrimSpace(spec)
+	parts := strings.Split(spec, ":")
+	if len(parts) != 3 {
+		return "", "", fmt.Errorf("invalid local forward %q, expected localPort:remoteHost:remotePort", spec)
+	}
+	localPort := strings.TrimSpace(parts[0])
+	remoteHost := strings.TrimSpace(parts[1])
+	remotePort := strings.TrimSpace(parts[2])
+	if localPort == "" || remoteHost == "" || remotePort == "" {
+		return "", "", fmt.Errorf("invalid local forward %q", spec)
+	}
+	return net.JoinHostPort("127.0.0.1", localPort), net.JoinHostPort(remoteHost, remotePort), nil
+}
+
+func parseProxyJump(value, defaultUser string) (string, string) {
+	value = strings.TrimSpace(value)
+	value = strings.Split(value, ",")[0]
+	user := defaultUser
+	hostPort := value
+	if at := strings.Index(value, "@"); at > 0 {
+		user = value[:at]
+		hostPort = value[at+1:]
+	}
+	host, port, err := net.SplitHostPort(hostPort)
+	if err != nil || host == "" {
+		host = hostPort
+		port = "22"
+	}
+	return net.JoinHostPort(host, port), user
+}
+
+func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
+	clone := *config
+	clone.Auth = append([]xssh.AuthMethod(nil), config.Auth...)
+	return &clone
+}
+
+func optionValue(options map[string]string, key string) string {
+	if options == nil {
+		return ""
+	}
+	return options[key]
+}
+
+type proxyConn struct {
+	net.Conn
+	jumpClient *xssh.Client
+}
+
+func (c *proxyConn) Close() error {
+	_ = c.Conn.Close()
+	if c.jumpClient != nil {
+		return c.jumpClient.Close()
+	}
+	return nil
 }

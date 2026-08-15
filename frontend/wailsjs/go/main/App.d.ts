@@ -18,6 +18,8 @@ export function DownloadLocalModelWithProgress():Promise<void>;
 
 export function GetShellState():Promise<app.ShellState>;
 
+export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
+
 export function LaunchSession(arg1:string):Promise<app.RuntimeSessionView>;
 
 export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
@@ -26,9 +28,13 @@ export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEnt
 
 export function OpenSessionWindow():Promise<void>;
 
+export function ReadSFTPFile(arg1:string,arg2:string):Promise<string>;
+
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
 export function SaveCloudProvider(arg1:string,arg2:string):Promise<void>;
+
+export function SaveSFTPFile(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SelectAIProvider(arg1:string):Promise<void>;
 

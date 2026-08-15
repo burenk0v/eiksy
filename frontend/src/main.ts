@@ -16,7 +16,10 @@ import {
     LaunchSession,
     ListSFTPFiles,
     NavigateSFTP,
+    ImportSSHConfig,
+    ReadSFTPFile,
     SaveCloudProvider,
+    SaveSFTPFile,
     SelectAIProvider,
     SendSSHInput,
     StartLocalModel,
@@ -40,6 +43,9 @@ type SessionFormState = {
     password: string;
     protocolId: string;
     tags: string;
+    proxyJump: string;
+    localForwards: string;
+    useSSHAgent: boolean;
 };
 
 type SFTPState = {
@@ -48,6 +54,12 @@ type SFTPState = {
     entries: FileEntry[];
     loading: boolean;
     error: string;
+    editorPath: string;
+    editorContent: string;
+    editorLoading: boolean;
+    editorSaving: boolean;
+    editorDirty: boolean;
+    editorError: string;
 };
 
 type ModelProgressState = {
@@ -77,7 +89,20 @@ class OpsyShell {
     private showProviderSetup = false;
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private terminals = new Map<string, TerminalState>();
-    private sftpState: SFTPState = { tabId: null, path: '', entries: [], loading: false, error: '' };
+    private sftpState: SFTPState = {
+        tabId: null,
+        path: '',
+        entries: [],
+        loading: false,
+        error: '',
+        editorPath: '',
+        editorContent: '',
+        editorLoading: false,
+        editorSaving: false,
+        editorDirty: false,
+        editorError: '',
+    };
+    private sshConfigDraft = '';
     private modelProgress: ModelProgressState = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
 
     async bootstrap(): Promise<void> {
@@ -116,7 +141,7 @@ class OpsyShell {
         const preferredTabID = this.activeTabId || this.shellState.workspace.layout.activeTabId || '';
         this.activeTabId = this.pickActiveTabID(preferredTabID);
         if (this.sftpState.tabId !== this.activeTabId) {
-            this.sftpState = { tabId: this.activeTabId || null, path: '', entries: [], loading: false, error: '' };
+            this.sftpState = this.defaultSFTPState(this.activeTabId || null);
         }
         this.showProviderSetup ||= !this.hasConfiguredProvider();
         this.render();
@@ -143,6 +168,11 @@ class OpsyShell {
                         </div>
                         <div class="session-list">
                             ${this.renderSessionProfiles()}
+                        </div>
+                        <div class="import-box">
+                            <label class="import-label" for="ssh-config-import">SSH config import</label>
+                            <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
+                            <button class="action-button secondary" data-import-ssh-config>Import</button>
                         </div>
                     </section>
                     <section class="section sftp-section">
@@ -211,6 +241,17 @@ class OpsyShell {
                 }
                 await this.openProfile(profileID);
             });
+
+            root?.querySelector<HTMLTextAreaElement>('[data-ssh-config-import]')?.addEventListener('input', (event) => {
+                this.sshConfigDraft = (event.currentTarget as HTMLTextAreaElement).value;
+            });
+
+            root?.querySelector<HTMLButtonElement>('[data-import-ssh-config]')?.addEventListener('click', async () => {
+                await this.runAction(async () => {
+                    await ImportSSHConfig(this.sshConfigDraft);
+                    this.sshConfigDraft = '';
+                }, 'Unable to import SSH config');
+            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-delete-profile]').forEach((button) => {
@@ -278,6 +319,30 @@ class OpsyShell {
                 }
                 await this.loadSFTP(activeTab.id, targetPath);
             });
+
+            root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file]').forEach((button) => {
+                button.addEventListener('click', async () => {
+                    const targetPath = button.dataset.sftpFile;
+                    const activeTab = this.activeTab();
+                    if (!targetPath || !activeTab) {
+                        return;
+                    }
+                    await this.openRemoteFile(activeTab.id, targetPath);
+                });
+            });
+
+            root?.querySelector<HTMLButtonElement>('[data-save-remote-file]')?.addEventListener('click', async () => {
+                const activeTab = this.activeTab();
+                if (!activeTab || !this.sftpState.editorPath) {
+                    return;
+                }
+                await this.saveRemoteFile(activeTab.id);
+            });
+
+            root?.querySelector<HTMLTextAreaElement>('[data-remote-editor]')?.addEventListener('input', (event) => {
+                this.sftpState.editorContent = (event.currentTarget as HTMLTextAreaElement).value;
+                this.sftpState.editorDirty = true;
+            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-select-provider]').forEach((button) => {
@@ -340,6 +405,22 @@ class OpsyShell {
                 tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
                 favorite: false,
             };
+            const proxyJump = String(formData.get('proxyJump') ?? '').trim();
+            const localForwards = String(formData.get('localForwards') ?? '').trim();
+            const useSSHAgent = formData.get('useSSHAgent') === 'on';
+            const options: Record<string, string> = {};
+            if (proxyJump) {
+                options.proxy_jump = proxyJump;
+            }
+            if (localForwards) {
+                options.local_forwards = localForwards;
+            }
+            if (useSSHAgent) {
+                options.use_ssh_agent = 'true';
+            }
+            if (Object.keys(options).length > 0) {
+                profile.options = options;
+            }
             await this.runAction(async () => CreateSessionProfile(profile), 'Unable to save session profile');
             this.showSessionModal = false;
             this.sessionForm = this.defaultSessionForm();
@@ -352,19 +433,18 @@ class OpsyShell {
         if (!profile) {
             return;
         }
-        if (profile.protocolId !== 'ssh') {
-            this.errorMessage = 'Only SSH profiles can be opened in the terminal.';
-            this.render();
-            return;
-        }
-
         try {
             const tab = await LaunchSession(profileID);
             this.activeTabId = tab.id;
             await this.refresh('');
-            this.ensureTerminalSubscription(tab.id);
-            await ConnectSSH(tab.id, profileID);
-            this.fitActiveTerminal();
+            if (profile.protocolId === 'ssh') {
+                this.ensureTerminalSubscription(tab.id);
+                await ConnectSSH(tab.id, profileID);
+                this.fitActiveTerminal();
+            } else if (profile.protocolId === 'rdp') {
+                this.errorMessage = 'RDP tab created. Native desktop stream is not yet wired in this build.';
+                this.render();
+            }
         } catch (error) {
             this.errorMessage = formatError('Unable to open session', error);
             this.render();
@@ -391,6 +471,7 @@ class OpsyShell {
         try {
             const entries = targetPath ? await NavigateSFTP(tabID, targetPath) : await ListSFTPFiles(tabID, '');
             this.sftpState = {
+                ...this.sftpState,
                 tabId: tabID,
                 path: inferDirectory(entries, targetPath),
                 entries,
@@ -408,6 +489,51 @@ class OpsyShell {
         this.render();
     }
 
+    private async openRemoteFile(tabID: string, targetPath: string): Promise<void> {
+        this.sftpState = {
+            ...this.sftpState,
+            tabId: tabID,
+            editorPath: targetPath,
+            editorLoading: true,
+            editorError: '',
+        };
+        this.render();
+        try {
+            const content = await ReadSFTPFile(tabID, targetPath);
+            this.sftpState = {
+                ...this.sftpState,
+                editorPath: targetPath,
+                editorContent: content,
+                editorLoading: false,
+                editorDirty: false,
+                editorError: '',
+            };
+        } catch (error) {
+            this.sftpState = {
+                ...this.sftpState,
+                editorLoading: false,
+                editorError: formatError('Unable to read remote file', error),
+            };
+        }
+        this.render();
+    }
+
+    private async saveRemoteFile(tabID: string): Promise<void> {
+        this.sftpState = { ...this.sftpState, editorSaving: true, editorError: '' };
+        this.render();
+        try {
+            await SaveSFTPFile(tabID, this.sftpState.editorPath, this.sftpState.editorContent);
+            this.sftpState = { ...this.sftpState, editorSaving: false, editorDirty: false, editorError: '' };
+        } catch (error) {
+            this.sftpState = {
+                ...this.sftpState,
+                editorSaving: false,
+                editorError: formatError('Unable to save remote file', error),
+            };
+        }
+        this.render();
+    }
+
     private attachActiveTerminal(): void {
         const host = document.querySelector<HTMLDivElement>('#terminal-host');
         if (!host) {
@@ -418,6 +544,10 @@ class OpsyShell {
         const activeTab = this.activeTab();
         if (!activeTab) {
             host.innerHTML = '<div class="empty-state">Open an SSH session to start a terminal.</div>';
+            return;
+        }
+        if (activeTab.protocolId !== 'ssh') {
+            host.innerHTML = `<div class="empty-state">${escapeHtml(activeTab.protocolId.toUpperCase())} session opened in tab mode. Terminal is available for SSH tabs.</div>`;
             return;
         }
 
@@ -561,7 +691,27 @@ class OpsyShell {
             <div class="sftp-list">
                 ${this.sftpState.entries.map((entry) => entry.isDir
                     ? `<button class="sftp-entry sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(entry.modTime)}</small></button>`
-                    : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></div>`).join('')}
+                    : `<button class="sftp-entry sftp-file" data-sftp-file="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></button>`).join('')}
+            </div>
+            ${this.renderRemoteEditor()}
+        `;
+    }
+
+    private renderRemoteEditor(): string {
+        if (!this.sftpState.editorPath) {
+            return '<div class="empty-state">Select a file to open remote editor.</div>';
+        }
+        if (this.sftpState.editorLoading) {
+            return '<div class="empty-state">Loading file…</div>';
+        }
+        return `
+            <div class="remote-editor">
+                <div class="sftp-path-row">
+                    <span class="sftp-path">${escapeHtml(this.sftpState.editorPath)}</span>
+                    <button class="action-button secondary" data-save-remote-file ${this.sftpState.editorSaving ? 'disabled' : ''}>${this.sftpState.editorSaving ? 'Saving…' : 'Save'}</button>
+                </div>
+                ${this.sftpState.editorError ? `<div class="error-banner compact">${escapeHtml(this.sftpState.editorError)}</div>` : ''}
+                <textarea class="remote-editor-input" data-remote-editor>${escapeHtml(this.sftpState.editorContent)}</textarea>
             </div>
         `;
     }
@@ -660,9 +810,13 @@ class OpsyShell {
                             <select name="protocolId">
                                 <option value="ssh" ${this.sessionForm.protocolId === 'ssh' ? 'selected' : ''}>SSH</option>
                                 <option value="sftp" ${this.sessionForm.protocolId === 'sftp' ? 'selected' : ''}>SFTP</option>
+                                <option value="rdp" ${this.sessionForm.protocolId === 'rdp' ? 'selected' : ''}>RDP</option>
                             </select>
                         </label>
                         <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
+                        <label><span>ProxyJump</span><input name="proxyJump" value="${escapeHtml(this.sessionForm.proxyJump)}" placeholder="bastion or user@bastion:22" /></label>
+                        <label><span>Local tunnels</span><input name="localForwards" value="${escapeHtml(this.sessionForm.localForwards)}" placeholder="15432:db.internal:5432,18080:127.0.0.1:8080" /></label>
+                        <label class="inline-check"><span>Use SSH agent</span><input name="useSSHAgent" type="checkbox" ${this.sessionForm.useSSHAgent ? 'checked' : ''} /></label>
                         <div class="provider-form-actions">
                             <button type="button" class="action-button secondary" data-close-modal>Cancel</button>
                             <button type="submit" class="action-button">Save</button>
@@ -713,6 +867,25 @@ class OpsyShell {
             password: '',
             protocolId: 'ssh',
             tags: '',
+            proxyJump: '',
+            localForwards: '',
+            useSSHAgent: false,
+        };
+    }
+
+    private defaultSFTPState(tabID: string | null): SFTPState {
+        return {
+            tabId: tabID,
+            path: '',
+            entries: [],
+            loading: false,
+            error: '',
+            editorPath: '',
+            editorContent: '',
+            editorLoading: false,
+            editorSaving: false,
+            editorDirty: false,
+            editorError: '',
         };
     }
 }

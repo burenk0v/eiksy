@@ -99,6 +99,18 @@ func (a *App) NavigateSFTP(tabID, path string) ([]sftpdomain.FileEntry, error) {
 	return a.currentService().NavigateSFTP(tabID, path)
 }
 
+func (a *App) ReadSFTPFile(tabID, path string) (string, error) {
+	return a.currentService().ReadSFTPFile(tabID, path)
+}
+
+func (a *App) SaveSFTPFile(tabID, path, content string) error {
+	return a.currentService().SaveSFTPFile(tabID, path, content)
+}
+
+func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
+	return a.currentService().ImportSSHConfig(raw)
+}
+
 func (a *App) OpenSessionWindow() error {
 	return nil
 }

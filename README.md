@@ -8,6 +8,8 @@ This repository now contains the initial application skeleton for:
 
 - protocol registry with SSH, SFTP, and RDP descriptors
 - session manager models for saved profiles, launch history, and active tabs
+- SSH config import into session profiles, including ProxyJump, SSH agent, and local tunnel options
+- SSH terminal tabs with SFTP browsing and in-app remote file editing
 - credential provider contracts for HashiCorp Vault, KeePass, and Windows Password Manager
 - AI provider models for local and OpenAI-compatible backends
 - local Qwen3 8B model download and llama.cpp launch flow alongside configurable cloud endpoint/token setup
