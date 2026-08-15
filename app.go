@@ -18,8 +18,9 @@ import (
 
 // App wires the Wails bridge to backend services.
 type App struct {
-	ctx     context.Context
-	service *app.Service
+	ctx            context.Context
+	service        *app.Service
+	downloadCancel context.CancelFunc
 }
 
 // NewApp creates the root application instance.
@@ -127,8 +128,22 @@ func (a *App) DownloadLocalModel() error {
 	return a.currentService().DownloadLocalModel(a.ctx)
 }
 
+func (a *App) CancelModelDownload() {
+	if a.downloadCancel != nil {
+		a.downloadCancel()
+		a.downloadCancel = nil
+	}
+}
+
 func (a *App) DownloadLocalModelWithProgress() error {
-	err := a.currentService().DownloadLocalModelWithProgress(a.ctx, func(downloaded, total int64) {
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.downloadCancel = cancel
+	defer func() {
+		if a.downloadCancel != nil {
+			a.downloadCancel = nil
+		}
+	}()
+	err := a.currentService().DownloadLocalModelWithProgress(ctx, func(downloaded, total int64) {
 		percent := 0.0
 		if total > 0 {
 			percent = float64(downloaded) / float64(total) * 100

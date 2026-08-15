@@ -6,6 +6,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
+    CancelModelDownload,
     CloseSession,
     ConnectSSH,
     CreateSessionProfile,
@@ -79,6 +80,12 @@ type TerminalState = {
     unsubscribe: (() => void) | null;
 };
 
+type Theme = 'dark' | 'light';
+type SettingsTab = 'ai' | 'sshconfig' | 'theme';
+type SessionModalTab = 'basic' | 'advanced';
+
+const THEME_KEY = 'opsy-theme';
+
 const root = document.querySelector<HTMLDivElement>('#app');
 
 class OpsyShell {
@@ -86,7 +93,9 @@ class OpsyShell {
     private activeTabId = '';
     private errorMessage = '';
     private showSessionModal = false;
-    private showProviderSetup = false;
+    private sessionModalTab: SessionModalTab = 'basic';
+    private showSettingsModal = false;
+    private settingsTab: SettingsTab = 'ai';
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private terminals = new Map<string, TerminalState>();
     private sftpState: SFTPState = {
@@ -104,6 +113,22 @@ class OpsyShell {
     };
     private sshConfigDraft = '';
     private modelProgress: ModelProgressState = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
+    private theme: Theme;
+
+    constructor() {
+        const saved = localStorage.getItem(THEME_KEY) as Theme | null;
+        this.theme = saved === 'light' ? 'light' : 'dark';
+        this.applyTheme();
+    }
+
+    private applyTheme(): void {
+        if (this.theme === 'light') {
+            document.documentElement.classList.add('light');
+        } else {
+            document.documentElement.classList.remove('light');
+        }
+        localStorage.setItem(THEME_KEY, this.theme);
+    }
 
     async bootstrap(): Promise<void> {
         if (!root) {
@@ -143,7 +168,6 @@ class OpsyShell {
         if (this.sftpState.tabId !== this.activeTabId) {
             this.sftpState = this.defaultSFTPState(this.activeTabId || null);
         }
-        this.showProviderSetup ||= !this.hasConfiguredProvider();
         this.render();
     }
 
@@ -160,7 +184,10 @@ class OpsyShell {
                             <div class="eyebrow">Session manager</div>
                             <h1>opsy</h1>
                         </div>
-                        <button class="icon-button" data-open-session-modal>+</button>
+                        <div style="display:flex;gap:0.5rem;align-items:center;">
+                            <button class="icon-button" data-open-session-modal title="New session">+</button>
+                            <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
+                        </div>
                     </div>
                     <section class="section">
                         <div class="section-heading">
@@ -168,11 +195,6 @@ class OpsyShell {
                         </div>
                         <div class="session-list">
                             ${this.renderSessionProfiles()}
-                        </div>
-                        <div class="import-box">
-                            <label class="import-label" for="ssh-config-import">SSH config import</label>
-                            <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
-                            <button class="action-button secondary" data-import-ssh-config>Import</button>
                         </div>
                     </section>
                     <section class="section sftp-section">
@@ -198,17 +220,10 @@ class OpsyShell {
                     <div class="panel-header">
                         <div>
                             <div class="eyebrow">AI assistant</div>
-                            <h2>Provider</h2>
+                            <h2>Chat</h2>
                         </div>
-                        <button class="action-button secondary" data-toggle-provider-setup>${this.showProviderSetup ? 'Hide setup' : 'Configure AI'}</button>
                     </div>
-                    <section class="section">
-                        <div class="provider-list">
-                            ${this.renderAIProviders()}
-                        </div>
-                    </section>
                     ${this.modelProgress.active || this.modelProgress.error ? this.renderProgress() : ''}
-                    ${this.showProviderSetup ? `<section class="section">${this.renderProviderSetup()}</section>` : ''}
                     <section class="section chat-section">
                         <div class="section-title">Assistant</div>
                         ${this.renderMessages()}
@@ -216,6 +231,7 @@ class OpsyShell {
                 </aside>
             </div>
             ${this.showSessionModal ? this.renderSessionModal() : ''}
+            ${this.showSettingsModal ? this.renderSettingsModal() : ''}
         `;
 
         this.bindEvents();
@@ -225,12 +241,27 @@ class OpsyShell {
     private bindEvents(): void {
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
             this.showSessionModal = true;
+            this.sessionModalTab = 'basic';
             this.render();
         });
 
-        root?.querySelector<HTMLButtonElement>('[data-toggle-provider-setup]')?.addEventListener('click', () => {
-            this.showProviderSetup = !this.showProviderSetup;
+        root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
+            this.showSettingsModal = true;
             this.render();
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.settingsTab = (button.dataset.settingsTab as SettingsTab) ?? 'ai';
+                this.render();
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-modal-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.sessionModalTab = (button.dataset.sessionModalTab as SessionModalTab) ?? 'basic';
+                this.render();
+            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-open-profile]').forEach((button) => {
@@ -241,17 +272,17 @@ class OpsyShell {
                 }
                 await this.openProfile(profileID);
             });
+        });
 
-            root?.querySelector<HTMLTextAreaElement>('[data-ssh-config-import]')?.addEventListener('input', (event) => {
-                this.sshConfigDraft = (event.currentTarget as HTMLTextAreaElement).value;
-            });
+        root?.querySelector<HTMLTextAreaElement>('[data-ssh-config-import]')?.addEventListener('input', (event) => {
+            this.sshConfigDraft = (event.currentTarget as HTMLTextAreaElement).value;
+        });
 
-            root?.querySelector<HTMLButtonElement>('[data-import-ssh-config]')?.addEventListener('click', async () => {
-                await this.runAction(async () => {
-                    await ImportSSHConfig(this.sshConfigDraft);
-                    this.sshConfigDraft = '';
-                }, 'Unable to import SSH config');
-            });
+        root?.querySelector<HTMLButtonElement>('[data-import-ssh-config]')?.addEventListener('click', async () => {
+            await this.runAction(async () => {
+                await ImportSSHConfig(this.sshConfigDraft);
+                this.sshConfigDraft = '';
+            }, 'Unable to import SSH config');
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-delete-profile]').forEach((button) => {
@@ -370,6 +401,16 @@ class OpsyShell {
             }
         });
 
+        root?.querySelector<HTMLButtonElement>('[data-cancel-download]')?.addEventListener('click', async () => {
+            try {
+                await CancelModelDownload();
+            } catch {
+                // ignore
+            }
+            this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
+            this.render();
+        });
+
         root?.querySelector<HTMLButtonElement>('[data-start-model]')?.addEventListener('click', async () => {
             await this.runAction(async () => StartLocalModel(), 'Unable to start local model');
         });
@@ -385,7 +426,19 @@ class OpsyShell {
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
             button.addEventListener('click', () => {
                 this.showSessionModal = false;
+                this.showSettingsModal = false;
                 this.render();
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-set-theme]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const t = button.dataset.setTheme as Theme;
+                if (t === 'light' || t === 'dark') {
+                    this.theme = t;
+                    this.applyTheme();
+                    this.render();
+                }
             });
         });
 
@@ -681,7 +734,7 @@ class OpsyShell {
             return `<div class="error-banner compact">${escapeHtml(this.sftpState.error)}</div>`;
         }
         if (this.sftpState.entries.length === 0) {
-            return '<div class="empty-state">Click “Open SFTP” to browse the active session.</div>';
+            return '<div class="empty-state">Click "Open SFTP" to browse the active session.</div>';
         }
         return `
             <div class="sftp-path-row">
@@ -742,9 +795,17 @@ class OpsyShell {
                     <div class="section-title">Local model</div>
                     <div class="session-meta">${escapeHtml(provider.localPath || 'Model not downloaded yet')}</div>
                     <div class="provider-form-actions">
-                        <button class="action-button" data-download-model>Download Qwen3</button>
+                        <button class="action-button" data-download-model ${this.modelProgress.active ? 'disabled' : ''}>
+                            ${this.modelProgress.active ? 'Downloading…' : 'Download Qwen3'}
+                        </button>
+                        ${this.modelProgress.active ? `<button class="action-button secondary" data-cancel-download>Cancel</button>` : ''}
                         <button class="action-button secondary" data-start-model ${provider.localPath ? '' : 'disabled'}>Start local model</button>
                     </div>
+                    ${this.modelProgress.active ? `
+                        <div class="progress-bar"><div class="progress-fill" style="width: ${Math.max(0, Math.min(100, this.modelProgress.percent))}%"></div></div>
+                        <div class="session-meta">${escapeHtml(`${formatBytes(this.modelProgress.downloaded)} / ${formatBytes(this.modelProgress.total)}`)}</div>
+                    ` : ''}
+                    ${this.modelProgress.error ? `<div class="error-banner compact">${escapeHtml(this.modelProgress.error)}</div>` : ''}
                 </div>
             `;
         }
@@ -770,7 +831,7 @@ class OpsyShell {
             return '';
         }
         if (!this.hasConfiguredProvider()) {
-            return '<div class="empty-state">Configure a provider to start chatting.</div>';
+            return '<div class="empty-state">Configure a provider in Settings to start chatting.</div>';
         }
         return this.shellState.ai.messages.map((message) => `
             <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
@@ -783,11 +844,71 @@ class OpsyShell {
                 <div class="section-title">Model download</div>
                 <div class="progress-bar"><div class="progress-fill" style="width: ${Math.max(0, Math.min(100, this.modelProgress.percent))}%"></div></div>
                 <div class="session-meta">${escapeHtml(this.modelProgress.error || `${formatBytes(this.modelProgress.downloaded)} / ${formatBytes(this.modelProgress.total)}`)}</div>
+                ${this.modelProgress.active ? `
+                    <div style="margin-top:0.5rem;">
+                        <button class="action-button secondary" data-cancel-download>Stop download</button>
+                    </div>
+                ` : ''}
             </section>
         `;
     }
 
+    private renderSettingsModal(): string {
+        const tabs: Array<{ id: SettingsTab; label: string }> = [
+            { id: 'ai', label: 'AI' },
+            { id: 'sshconfig', label: 'SSH Config' },
+            { id: 'theme', label: 'Theme' },
+        ];
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog wide">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">Settings</div>
+                            <h2>Preferences</h2>
+                        </div>
+                        <button class="icon-button" data-close-modal>×</button>
+                    </div>
+                    <nav class="modal-tabs">
+                        ${tabs.map((t) => `<button class="modal-tab ${this.settingsTab === t.id ? 'active' : ''}" data-settings-tab="${t.id}">${t.label}</button>`).join('')}
+                    </nav>
+                    <div class="modal-body">
+                        <div class="modal-tab-panel ${this.settingsTab === 'ai' ? 'active' : ''}">
+                            <div class="section-title">AI Providers</div>
+                            <div class="provider-list">
+                                ${this.renderAIProviders()}
+                            </div>
+                            ${this.renderProviderSetup()}
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'sshconfig' ? 'active' : ''}">
+                            <div class="section-title">Import SSH Config</div>
+                            <div class="import-box">
+                                <label class="import-label" for="ssh-config-import">Paste SSH config block</label>
+                                <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
+                                <button class="action-button secondary" data-import-ssh-config>Import</button>
+                            </div>
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'theme' ? 'active' : ''}">
+                            <div class="section-title">Appearance</div>
+                            <div class="theme-toggle-row">
+                                <span>Theme</span>
+                                <div class="theme-switch">
+                                    <button class="${this.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 Dark</button>
+                                    <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     private renderSessionModal(): string {
+        const tabs: Array<{ id: SessionModalTab; label: string }> = [
+            { id: 'basic', label: 'Basic' },
+            { id: 'advanced', label: 'Advanced' },
+        ];
         return `
             <div class="modal-overlay">
                 <div class="modal-dialog">
@@ -798,30 +919,39 @@ class OpsyShell {
                         </div>
                         <button class="icon-button" data-close-modal>×</button>
                     </div>
-                    <form class="session-form" data-session-form>
-                        <label><span>Name</span><input name="name" value="${escapeHtml(this.sessionForm.name)}" required /></label>
-                        <label><span>Group</span><input name="group" value="${escapeHtml(this.sessionForm.group)}" /></label>
-                        <label><span>Host</span><input name="host" value="${escapeHtml(this.sessionForm.host)}" required /></label>
-                        <label><span>Port</span><input name="port" type="number" value="${escapeHtml(this.sessionForm.port)}" min="1" required /></label>
-                        <label><span>Username</span><input name="username" value="${escapeHtml(this.sessionForm.username)}" required /></label>
-                        <label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
-                        <label>
-                            <span>Protocol</span>
-                            <select name="protocolId">
-                                <option value="ssh" ${this.sessionForm.protocolId === 'ssh' ? 'selected' : ''}>SSH</option>
-                                <option value="sftp" ${this.sessionForm.protocolId === 'sftp' ? 'selected' : ''}>SFTP</option>
-                                <option value="rdp" ${this.sessionForm.protocolId === 'rdp' ? 'selected' : ''}>RDP</option>
-                            </select>
-                        </label>
-                        <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
-                        <label><span>ProxyJump</span><input name="proxyJump" value="${escapeHtml(this.sessionForm.proxyJump)}" placeholder="bastion or user@bastion:22" /></label>
-                        <label><span>Local tunnels</span><input name="localForwards" value="${escapeHtml(this.sessionForm.localForwards)}" placeholder="15432:db.internal:5432,18080:127.0.0.1:8080" /></label>
-                        <label class="inline-check"><span>Use SSH agent</span><input name="useSSHAgent" type="checkbox" ${this.sessionForm.useSSHAgent ? 'checked' : ''} /></label>
-                        <div class="provider-form-actions">
-                            <button type="button" class="action-button secondary" data-close-modal>Cancel</button>
-                            <button type="submit" class="action-button">Save</button>
-                        </div>
-                    </form>
+                    <nav class="modal-tabs">
+                        ${tabs.map((t) => `<button class="modal-tab ${this.sessionModalTab === t.id ? 'active' : ''}" data-session-modal-tab="${t.id}">${t.label}</button>`).join('')}
+                    </nav>
+                    <div class="modal-body">
+                        <form class="session-form" data-session-form>
+                            <div class="modal-tab-panel ${this.sessionModalTab === 'basic' ? 'active' : ''}">
+                                <label><span>Name</span><input name="name" value="${escapeHtml(this.sessionForm.name)}" required /></label>
+                                <label><span>Group</span><input name="group" value="${escapeHtml(this.sessionForm.group)}" /></label>
+                                <label><span>Host</span><input name="host" value="${escapeHtml(this.sessionForm.host)}" required /></label>
+                                <label><span>Port</span><input name="port" type="number" value="${escapeHtml(this.sessionForm.port)}" min="1" required /></label>
+                                <label><span>Username</span><input name="username" value="${escapeHtml(this.sessionForm.username)}" required /></label>
+                                <label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
+                                <label>
+                                    <span>Protocol</span>
+                                    <select name="protocolId">
+                                        <option value="ssh" ${this.sessionForm.protocolId === 'ssh' ? 'selected' : ''}>SSH</option>
+                                        <option value="sftp" ${this.sessionForm.protocolId === 'sftp' ? 'selected' : ''}>SFTP</option>
+                                        <option value="rdp" ${this.sessionForm.protocolId === 'rdp' ? 'selected' : ''}>RDP</option>
+                                    </select>
+                                </label>
+                                <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
+                            </div>
+                            <div class="modal-tab-panel ${this.sessionModalTab === 'advanced' ? 'active' : ''}">
+                                <label><span>ProxyJump</span><input name="proxyJump" value="${escapeHtml(this.sessionForm.proxyJump)}" placeholder="bastion or user@bastion:22" /></label>
+                                <label><span>Local tunnels</span><input name="localForwards" value="${escapeHtml(this.sessionForm.localForwards)}" placeholder="15432:db.internal:5432,18080:127.0.0.1:8080" /></label>
+                                <label class="inline-check"><span>Use SSH agent</span><input name="useSSHAgent" type="checkbox" ${this.sessionForm.useSSHAgent ? 'checked' : ''} /></label>
+                            </div>
+                            <div style="padding: 0 1.5rem 1.25rem; display:flex; gap:0.75rem; justify-content:flex-end;">
+                                <button type="button" class="action-button secondary" data-close-modal>Cancel</button>
+                                <button type="submit" class="action-button">Save</button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
             </div>
         `;

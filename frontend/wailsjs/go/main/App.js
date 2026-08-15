@@ -81,3 +81,7 @@ export function SendSSHInput(arg1, arg2) {
 export function StartLocalModel() {
   return window['go']['main']['App']['StartLocalModel']();
 }
+
+export function CancelModelDownload() {
+  return window['go']['main']['App']['CancelModelDownload']();
+}
