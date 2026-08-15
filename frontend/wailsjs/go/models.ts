@@ -348,7 +348,6 @@ export namespace sessions {
 	    host: string;
 	    port: number;
 	    username: string;
-	    password?: string;
 	    secretRef?: string;
 	    options?: Record<string, string>;
 	    lastLaunchedAt?: string;
@@ -368,7 +367,6 @@ export namespace sessions {
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
-	        this.password = source["password"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
