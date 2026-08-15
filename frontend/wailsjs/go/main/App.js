@@ -34,6 +34,10 @@ export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
 
+export function ImportSSHConfig(arg1) {
+  return window['go']['main']['App']['ImportSSHConfig'](arg1);
+}
+
 export function LaunchSession(arg1) {
   return window['go']['main']['App']['LaunchSession'](arg1);
 }
@@ -50,12 +54,20 @@ export function OpenSessionWindow() {
   return window['go']['main']['App']['OpenSessionWindow']();
 }
 
+export function ReadSFTPFile(arg1, arg2) {
+  return window['go']['main']['App']['ReadSFTPFile'](arg1, arg2);
+}
+
 export function ResizeTerminal(arg1, arg2, arg3) {
   return window['go']['main']['App']['ResizeTerminal'](arg1, arg2, arg3);
 }
 
 export function SaveCloudProvider(arg1, arg2) {
   return window['go']['main']['App']['SaveCloudProvider'](arg1, arg2);
+}
+
+export function SaveSFTPFile(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveSFTPFile'](arg1, arg2, arg3);
 }
 
 export function SelectAIProvider(arg1) {

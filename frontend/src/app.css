@@ -94,6 +94,32 @@ small {
     gap: 0.85rem;
 }
 
+.import-box {
+    margin-top: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.import-label {
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7f92b0;
+}
+
+.import-box textarea,
+.remote-editor-input {
+    min-height: 110px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    background: rgba(9, 17, 31, 0.92);
+    color: #e6edf7;
+    padding: 0.75rem 0.85rem;
+    font: inherit;
+    resize: vertical;
+}
+
 .session-card,
 .provider-card,
 .message,
@@ -282,6 +308,19 @@ small {
 
 .sftp-file {
     color: #e6edf7;
+}
+
+.remote-editor {
+    margin-top: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.inline-check {
+    flex-direction: row !important;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .progress-bar {

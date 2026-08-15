@@ -80,7 +80,7 @@ type localModelManager interface {
 }
 
 type sshManager interface {
-	Connect(context.Context, string, string, int, string, string) error
+	Connect(context.Context, string, string, int, string, string, map[string]string) error
 	SendInput(string, string) error
 	ResizeTerminal(string, int, int) error
 	Disconnect(string) error
@@ -89,9 +89,11 @@ type sshManager interface {
 }
 
 type sftpManager interface {
-	Connect(context.Context, string, string, int, string, string) error
+	Connect(context.Context, string, string, int, string, string, map[string]string) error
 	Connected(string) bool
 	ListDir(string, string) ([]sftpdomain.FileEntry, error)
+	ReadFile(string, string) (string, error)
+	WriteFile(string, string, string) error
 	Disconnect(string) error
 }
 
@@ -216,7 +218,7 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 		s.emitFn(fmt.Sprintf("terminal:output:%s", tabID), map[string]string{"data": data})
 	})
 	_ = s.updateTabStatus(tabID, "connecting")
-	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profile.Password); err != nil {
+	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profile.Password, profile.Options); err != nil {
 		_ = s.updateTabStatus(tabID, "error")
 		return err
 	}
@@ -269,6 +271,34 @@ func (s *Service) ListSFTPFiles(tabID, targetPath string) ([]sftpdomain.FileEntr
 
 func (s *Service) NavigateSFTP(tabID, targetPath string) ([]sftpdomain.FileEntry, error) {
 	return s.ListSFTPFiles(tabID, targetPath)
+}
+
+func (s *Service) ReadSFTPFile(tabID, filePath string) (string, error) {
+	if s.sftpManager == nil {
+		return "", fmt.Errorf("sftp manager is not configured")
+	}
+	if err := s.ensureSFTPConnection(tabID); err != nil {
+		return "", err
+	}
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return "", fmt.Errorf("file path is required")
+	}
+	return s.sftpManager.ReadFile(tabID, filePath)
+}
+
+func (s *Service) SaveSFTPFile(tabID, filePath, content string) error {
+	if s.sftpManager == nil {
+		return fmt.Errorf("sftp manager is not configured")
+	}
+	if err := s.ensureSFTPConnection(tabID); err != nil {
+		return err
+	}
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
+	return s.sftpManager.WriteFile(tabID, filePath, content)
 }
 
 func (s *Service) SelectAIProvider(providerID string) error {
@@ -394,7 +424,7 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if s.sftpManager.Connected(tabID) {
 		return nil
 	}
-	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profile.Password)
+	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profile.Password, profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
