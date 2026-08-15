@@ -358,7 +358,7 @@ func (s *Store) RecordLaunch(profileID string) {
 		LaunchedAt:  now,
 	})
 	if len(s.launchHistory) > maxLaunchHistoryEntries {
-		s.launchHistory = s.launchHistory[len(s.launchHistory)-maxLaunchHistoryEntries:]
+		s.launchHistory = append([]sessions.HistoryEntry(nil), s.launchHistory[len(s.launchHistory)-maxLaunchHistoryEntries:]...)
 	}
 }
 
