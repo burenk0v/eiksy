@@ -17,10 +17,7 @@ type App struct {
 // NewApp creates the root application instance.
 func NewApp() *App {
 	store := memory.NewStore()
-	localManager, err := llm.NewManager()
-	if err != nil {
-		panic(err)
-	}
+	localManager, _ := llm.NewManager()
 
 	return &App{
 		service: app.NewService(store, localManager),

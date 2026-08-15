@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -21,7 +22,6 @@ const (
 	defaultModelFile = "Qwen_Qwen3-8B-Q4_K_M.gguf"
 	defaultHost      = "127.0.0.1"
 	defaultPort      = "8012"
-	defaultTimeout   = 45 * time.Minute
 )
 
 type Manager struct {
@@ -48,7 +48,7 @@ func NewManager() (*Manager, error) {
 	}
 
 	return &Manager{
-		httpClient: &http.Client{Timeout: defaultTimeout},
+		httpClient: &http.Client{},
 		modelURL:   defaultModelURL,
 		modelPath:  modelPath,
 		llamaBin:   llamaBin,
@@ -131,8 +131,9 @@ func (m *Manager) StartLocalServer(ctx context.Context, modelPath string) (strin
 	}
 
 	cmd := exec.CommandContext(ctx, llamaBinary, "-m", modelPath, "--host", m.host, "--port", m.port)
+	var stderr bytes.Buffer
 	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return "", "", fmt.Errorf("start llama.cpp server: %w", err)
 	}
@@ -141,6 +142,9 @@ func (m *Manager) StartLocalServer(ctx context.Context, modelPath string) (strin
 	if err := m.waitForPort(); err != nil {
 		_ = cmd.Process.Kill()
 		m.serverCmd = nil
+		if logOutput := strings.TrimSpace(stderr.String()); logOutput != "" {
+			return "", "", fmt.Errorf("llama.cpp server did not become ready: %s", logOutput)
+		}
 		return "", "", err
 	}
 

@@ -245,14 +245,14 @@ func (s *Store) AIState() ai.WorkspaceState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.aiState
+	return cloneAIState(s.aiState)
 }
 
 func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.aiState = state
+	s.aiState = cloneAIState(state)
 }
 
 func (s *Store) Settings() settings.AppSettings {
@@ -372,4 +372,11 @@ func (s *Store) RecordLaunch(profileID string) {
 func (s *Store) nextEventIDLocked() string {
 	s.eventCounter++
 	return fmt.Sprintf("event-%d", s.eventCounter)
+}
+
+func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
+	cloned := state
+	cloned.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
+	cloned.Messages = append([]ai.ChatMessage(nil), state.Messages...)
+	return cloned
 }
