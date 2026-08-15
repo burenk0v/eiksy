@@ -298,9 +298,9 @@ function renderAIProvider(provider: AIProvider) {
 }
 
 function renderAIProviderSetup(providers: AIProvider[]) {
-    const selectedProvider = providers.find((provider) => provider.selected) ?? providers[0];
+    const selectedProvider = providers.find((provider) => provider.selected);
     if (!selectedProvider) {
-        return '<div class="empty-state">No AI providers configured</div>';
+        return '<div class="empty-state">Select an AI provider to configure it.</div>';
     }
 
     if (selectedProvider.class === 'local') {
