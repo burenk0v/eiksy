@@ -39,7 +39,7 @@ func (s *Service) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 		if entry.proxyJump != "" {
 			profile.Options["proxy_jump"] = entry.proxyJump
 		}
-		if entry.identityAgent != "" || strings.EqualFold(entry.identityAgent, "none") {
+		if entry.identityAgent != "" && !strings.EqualFold(entry.identityAgent, "none") {
 			profile.Options["ssh_agent_socket"] = entry.identityAgent
 		}
 		if len(entry.localForwards) > 0 {
