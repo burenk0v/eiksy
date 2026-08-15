@@ -140,7 +140,11 @@ func (a *App) StartLocalModel() error {
 
 func (a *App) currentService() *app.Service {
 	if a.service == nil {
-		a.service = app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())
+		svc := app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())
+		svc.SetRuntimeContext(a.ctx, func(eventName string, data ...interface{}) {
+			runtime.EventsEmit(a.ctx, eventName, data...)
+		})
+		a.service = svc
 	}
 	return a.service
 }

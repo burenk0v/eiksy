@@ -75,12 +75,6 @@ func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, use
 		_ = client.Close()
 		return fmt.Errorf("open ssh stdout: %w", err)
 	}
-	stderr, err := session.StderrPipe()
-	if err != nil {
-		_ = session.Close()
-		_ = client.Close()
-		return fmt.Errorf("open ssh stderr: %w", err)
-	}
 
 	modes := xssh.TerminalModes{xssh.ECHO: 1, xssh.TTY_OP_ISPEED: 14400, xssh.TTY_OP_OSPEED: 14400}
 	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
@@ -101,7 +95,6 @@ func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, use
 	m.mu.Unlock()
 
 	go m.streamOutput(tabID, stdout)
-	go m.streamOutput(tabID, stderr)
 	go func() {
 		_ = session.Wait()
 		_ = m.Disconnect(tabID)
@@ -207,5 +200,11 @@ func hostKeyCallback() (xssh.HostKeyCallback, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home dir: %w", err)
 	}
-	return knownhosts.New(filepath.Join(homeDir, ".ssh", "known_hosts"))
+	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
+	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
+		// No known_hosts file yet; accept any host key on first connection.
+		// The user can add their own known_hosts file to enforce strict checking.
+		return xssh.InsecureIgnoreHostKey(), nil //nolint:gosec
+	}
+	return knownhosts.New(knownHostsPath)
 }

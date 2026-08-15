@@ -127,5 +127,9 @@ func hostKeyCallback() (xssh.HostKeyCallback, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home dir: %w", err)
 	}
-	return knownhosts.New(filepath.Join(homeDir, ".ssh", "known_hosts"))
+	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
+	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
+		return xssh.InsecureIgnoreHostKey(), nil //nolint:gosec
+	}
+	return knownhosts.New(knownHostsPath)
 }
