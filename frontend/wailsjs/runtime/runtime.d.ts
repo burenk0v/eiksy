@@ -238,7 +238,7 @@ export function ClipboardSetText(text: string): Promise<boolean>;
 // OnFileDrop listens to drag and drop events and calls the callback with the coordinates of the drop and an array of path strings.
 export function OnFileDrop(callback: (x: number, y: number ,paths: string[]) => void, useDropTarget: boolean) :void
 
-// [OnFileDropOff](https://wails.io/docs/reference/runtime/draganddrop#draganddropoff)
+// [OnFileDropOff](https://wails.io/docs/reference/runtime/draganddrop#dragandddropoff)
 // OnFileDropOff removes the drag and drop listeners and handlers.
 export function OnFileDropOff() :void
 
