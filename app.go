@@ -19,10 +19,12 @@ type App struct {
 func NewApp() *App {
 	store := memory.NewStore()
 	localManager, err := llm.NewManager()
-	service := app.NewService(store, localManager)
+	var service *app.Service
 	if err != nil {
 		log.Printf("local model manager unavailable: %v", err)
 		service = app.NewService(store, nil)
+	} else {
+		service = app.NewService(store, localManager)
 	}
 
 	return &App{
