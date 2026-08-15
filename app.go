@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 
 	"opsy/internal/app"
 	"opsy/internal/domain/sessions"
@@ -18,8 +19,10 @@ import (
 
 // App wires the Wails bridge to backend services.
 type App struct {
-	ctx     context.Context
-	service *app.Service
+	ctx            context.Context
+	service        *app.Service
+	downloadMu     sync.Mutex
+	downloadCancel context.CancelFunc
 }
 
 // NewApp creates the root application instance.
@@ -127,8 +130,28 @@ func (a *App) DownloadLocalModel() error {
 	return a.currentService().DownloadLocalModel(a.ctx)
 }
 
+func (a *App) CancelModelDownload() {
+	a.downloadMu.Lock()
+	cancel := a.downloadCancel
+	a.downloadCancel = nil
+	a.downloadMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+}
+
 func (a *App) DownloadLocalModelWithProgress() error {
-	err := a.currentService().DownloadLocalModelWithProgress(a.ctx, func(downloaded, total int64) {
+	ctx, cancel := context.WithCancel(a.ctx)
+	a.downloadMu.Lock()
+	a.downloadCancel = cancel
+	a.downloadMu.Unlock()
+	defer func() {
+		a.downloadMu.Lock()
+		a.downloadCancel = nil
+		a.downloadMu.Unlock()
+		cancel()
+	}()
+	err := a.currentService().DownloadLocalModelWithProgress(ctx, func(downloaded, total int64) {
 		percent := 0.0
 		if total > 0 {
 			percent = float64(downloaded) / float64(total) * 100

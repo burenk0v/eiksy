@@ -41,3 +41,5 @@ export function SelectAIProvider(arg1:string):Promise<void>;
 export function SendSSHInput(arg1:string,arg2:string):Promise<void>;
 
 export function StartLocalModel():Promise<void>;
+
+export function CancelModelDownload():Promise<void>;

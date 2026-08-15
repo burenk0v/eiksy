@@ -1,6 +1,6 @@
 html {
-    background-color: #09111f;
-    color: #e6edf7;
+    background-color: var(--bg-base, #09111f);
+    color: var(--color-text, #e6edf7);
 }
 
 body {
