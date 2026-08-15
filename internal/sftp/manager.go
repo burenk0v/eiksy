@@ -3,6 +3,7 @@ package sftpmanager
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path"
@@ -107,7 +108,12 @@ func (m *Manager) ReadFile(tabID, targetPath string) (string, error) {
 	if conn == nil {
 		return "", fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
-	bytes, err := conn.sftpClient.ReadFile(targetPath)
+	file, err := conn.sftpClient.Open(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("read sftp file %q: %w", targetPath, err)
+	}
+	defer file.Close()
+	bytes, err := io.ReadAll(file)
 	if err != nil {
 		return "", fmt.Errorf("read sftp file %q: %w", targetPath, err)
 	}
@@ -121,7 +127,12 @@ func (m *Manager) WriteFile(tabID, targetPath, content string) error {
 	if conn == nil {
 		return fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
-	if err := conn.sftpClient.WriteFile(targetPath, []byte(content)); err != nil {
+	file, err := conn.sftpClient.OpenFile(targetPath, os.O_WRONLY|os.O_TRUNC)
+	if err != nil {
+		return fmt.Errorf("open sftp file %q for write: %w", targetPath, err)
+	}
+	defer file.Close()
+	if _, err := file.Write([]byte(content)); err != nil {
 		return fmt.Errorf("write sftp file %q: %w", targetPath, err)
 	}
 	return nil

@@ -471,6 +471,7 @@ class OpsyShell {
         try {
             const entries = targetPath ? await NavigateSFTP(tabID, targetPath) : await ListSFTPFiles(tabID, '');
             this.sftpState = {
+                ...this.sftpState,
                 tabId: tabID,
                 path: inferDirectory(entries, targetPath),
                 entries,
