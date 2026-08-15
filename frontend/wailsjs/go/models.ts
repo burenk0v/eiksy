@@ -286,6 +286,42 @@ export namespace protocols {
 
 export namespace sessions {
 	
+	export class ProfileInput {
+	    id: string;
+	    name: string;
+	    group: string;
+	    tags: string[];
+	    favorite: boolean;
+	    protocolId: string;
+	    host: string;
+	    port: number;
+	    username: string;
+	    password?: string;
+	    secretRef?: string;
+	    options?: Record<string, string>;
+	    lastLaunchedAt?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProfileInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.group = source["group"];
+	        this.tags = source["tags"];
+	        this.favorite = source["favorite"];
+	        this.protocolId = source["protocolId"];
+	        this.host = source["host"];
+	        this.port = source["port"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.secretRef = source["secretRef"];
+	        this.options = source["options"];
+	        this.lastLaunchedAt = source["lastLaunchedAt"];
+	    }
+	}
 	export class HistoryEntry {
 	    profileId: string;
 	    profileName: string;

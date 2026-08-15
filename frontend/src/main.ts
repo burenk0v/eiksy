@@ -30,7 +30,7 @@ import type { ai as aiModels, app as appModels, sessions, sftp as sftpModels } f
 
 type ShellState = appModels.ShellState;
 type RuntimeSession = appModels.RuntimeSessionView;
-type SessionProfile = sessions.Profile;
+type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
 type FileEntry = sftpModels.FileEntry;
 

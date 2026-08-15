@@ -67,8 +67,8 @@ func (a *App) CloseSession(sessionID string) error {
 	return a.currentService().CloseSession(sessionID)
 }
 
-func (a *App) CreateSessionProfile(profile sessions.Profile) error {
-	return a.currentService().CreateSessionProfile(profile)
+func (a *App) CreateSessionProfile(input sessions.ProfileInput) error {
+	return a.currentService().CreateSessionProfile(input.ToProfile())
 }
 
 func (a *App) DeleteSessionProfile(id string) error {
