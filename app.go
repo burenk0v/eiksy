@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 
 	"opsy/internal/app"
 	"opsy/internal/llm"
@@ -17,7 +18,10 @@ type App struct {
 // NewApp creates the root application instance.
 func NewApp() *App {
 	store := memory.NewStore()
-	localManager, _ := llm.NewManager()
+	localManager, err := llm.NewManager()
+	if err != nil {
+		log.Printf("local model manager unavailable: %v", err)
+	}
 
 	return &App{
 		service: app.NewService(store, localManager),

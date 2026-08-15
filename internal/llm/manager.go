@@ -17,11 +17,12 @@ import (
 )
 
 const (
-	defaultModelURL  = "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf?download=true"
-	defaultModelDir  = "models"
-	defaultModelFile = "Qwen_Qwen3-8B-Q4_K_M.gguf"
-	defaultHost      = "127.0.0.1"
-	defaultPort      = "8012"
+	defaultModelURL    = "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf?download=true"
+	defaultModelDir    = "models"
+	defaultModelFile   = "Qwen_Qwen3-8B-Q4_K_M.gguf"
+	defaultHost        = "127.0.0.1"
+	defaultPort        = "8012"
+	serverReadyTimeout = 30 * time.Second
 )
 
 type Manager struct {
@@ -171,7 +172,7 @@ func (m *Manager) commandLine(modelPath string) string {
 
 func (m *Manager) waitForPort() error {
 	address := net.JoinHostPort(m.host, m.port)
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(serverReadyTimeout)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", address, 250*time.Millisecond)
 		if err == nil {
