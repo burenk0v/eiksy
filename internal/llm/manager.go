@@ -21,6 +21,7 @@ const (
 	defaultModelFile = "Qwen_Qwen3-8B-Q4_K_M.gguf"
 	defaultHost      = "127.0.0.1"
 	defaultPort      = "8012"
+	defaultTimeout   = 45 * time.Minute
 )
 
 type Manager struct {
@@ -47,7 +48,7 @@ func NewManager() (*Manager, error) {
 	}
 
 	return &Manager{
-		httpClient: &http.Client{Timeout: 0},
+		httpClient: &http.Client{Timeout: defaultTimeout},
 		modelURL:   defaultModelURL,
 		modelPath:  modelPath,
 		llamaBin:   llamaBin,
@@ -90,8 +91,7 @@ func (m *Manager) DownloadQwen3Model(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("create temporary model file: %w", err)
 	}
 
-	copyErr := error(nil)
-	_, copyErr = io.Copy(file, resp.Body)
+	_, copyErr := io.Copy(file, resp.Body)
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = os.Remove(tmpPath)
@@ -138,6 +138,12 @@ func (m *Manager) StartLocalServer(ctx context.Context, modelPath string) (strin
 	}
 
 	m.serverCmd = cmd
+	if err := m.waitForPort(); err != nil {
+		_ = cmd.Process.Kill()
+		m.serverCmd = nil
+		return "", "", err
+	}
+
 	go func(command *exec.Cmd) {
 		_ = command.Wait()
 
@@ -147,12 +153,6 @@ func (m *Manager) StartLocalServer(ctx context.Context, modelPath string) (strin
 			m.serverCmd = nil
 		}
 	}(cmd)
-
-	if err := m.waitForPort(); err != nil {
-		_ = cmd.Process.Kill()
-		m.serverCmd = nil
-		return "", "", err
-	}
 
 	return m.endpoint(), m.commandLine(modelPath), nil
 }

@@ -152,11 +152,8 @@ func (s *Service) SaveCloudProvider(endpoint, token string) error {
 	}
 
 	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return fmt.Errorf("cloud endpoint must be a valid http or https url")
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("cloud endpoint must use http or https")
 	}
 
 	state := s.store.AIState()

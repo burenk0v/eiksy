@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"opsy/internal/domain/ai"
 	"opsy/internal/storage/memory"
 )
 
@@ -103,10 +104,12 @@ func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
 	}
 
 	state := service.GetShellState()
-	if !state.AI.Providers[1].Selected {
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
+	if !cloudProvider.Selected {
 		t.Fatal("expected cloud provider to be selected")
 	}
-	if state.AI.Providers[0].Selected {
+	if localProvider.Selected {
 		t.Fatal("expected local provider to be deselected")
 	}
 }
@@ -119,7 +122,7 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 	}
 
 	state := service.GetShellState()
-	cloudProvider := state.AI.Providers[1]
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
 	if !cloudProvider.Selected {
 		t.Fatal("expected cloud provider to be selected")
 	}
@@ -149,7 +152,7 @@ func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
 	}
 
 	state := service.GetShellState()
-	localProvider := state.AI.Providers[0]
+	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
 	if !localProvider.Selected {
 		t.Fatal("expected local provider to be selected")
 	}
@@ -165,4 +168,17 @@ func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
 	if localProvider.Status != "running via llama.cpp" {
 		t.Fatalf("expected local provider status to reflect llama.cpp, got %q", localProvider.Status)
 	}
+}
+
+func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.ProviderDescriptor {
+	t.Helper()
+
+	for _, provider := range state.AI.Providers {
+		if provider.ID == providerID {
+			return provider
+		}
+	}
+
+	t.Fatalf("expected provider %q to exist", providerID)
+	return ai.ProviderDescriptor{}
 }
