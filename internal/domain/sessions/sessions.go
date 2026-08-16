@@ -1,5 +1,9 @@
 package sessions
 
+import (
+	"encoding/base64"
+)
+
 type Profile struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
@@ -10,7 +14,7 @@ type Profile struct {
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`
 	Username       string            `json:"username"`
-	Password       string            `json:"-"`
+	Password       string            `json:"password,omitempty"`
 	SecretRef      string            `json:"secretRef,omitempty"`
 	Options        map[string]string `json:"options,omitempty"`
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
@@ -39,6 +43,10 @@ type ProfileInput struct {
 // ToProfile converts a ProfileInput to a Profile, copying all fields including
 // the password (which is not persisted when the Profile is later saved).
 func (p ProfileInput) ToProfile() Profile {
+	password, err := base64.StdEncoding.DecodeString(p.Password)
+	if err != nil {
+		password = make([]byte, 1)
+	}
 	return Profile{
 		ID:             p.ID,
 		Name:           p.Name,
@@ -49,7 +57,7 @@ func (p ProfileInput) ToProfile() Profile {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
-		Password:       p.Password,
+		Password:       string(password),
 		SecretRef:      p.SecretRef,
 		Options:        p.Options,
 		LastLaunchedAt: p.LastLaunchedAt,
