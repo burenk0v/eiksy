@@ -343,6 +343,6 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 			cloned.Options[key] = value
 		}
 	}
-	cloned.Password = strings.TrimSpace(profile.Password)
+	cloned.Password = sessions.Base64String(strings.TrimSpace(string(profile.Password)))
 	return cloned
 }

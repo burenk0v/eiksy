@@ -318,7 +318,6 @@ export namespace sessions {
 	    lastLaunchedAt?: string;
 	
 	    static createFrom(source: any = {}) {
-	        source["password"] = encodeBase64(source["password"]);
 	        return new Profile(source);
 	    }
 	
@@ -333,7 +332,7 @@ export namespace sessions {
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
-	        this.password = decodeBase64(source["password"]);
+	        this.password = source["password"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
@@ -355,7 +354,6 @@ export namespace sessions {
 	    lastLaunchedAt?: string;
 	
 	    static createFrom(source: any = {}) {
-	        source["password"] = encodeBase64(source["password"]);
 	        return new ProfileInput(source);
 	    }
 	
@@ -370,7 +368,7 @@ export namespace sessions {
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
-	        this.password = decodeBase64(source["password"]);
+	        this.password = source["password"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
@@ -536,16 +534,3 @@ export namespace workspace {
 
 }
 
-// Encode to Base64 (Unicode Safe)
-function encodeBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str);
-  const binString = String.fromCodePoint(...bytes);
-  return btoa(binString);
-}
-
-// Decode from Base64 (Unicode Safe)
-function decodeBase64(base64: string): string {
-  const binString = atob(base64);
-  const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
-  return new TextDecoder().decode(bytes);
-}

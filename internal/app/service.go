@@ -234,7 +234,7 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	})
 	_ = s.updateTabStatus(tabID, "connecting")
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
-	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profile.Password, profile.Options); err != nil {
+	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options); err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
 		return err
@@ -463,7 +463,7 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if s.sftpManager.Connected(tabID) {
 		return nil
 	}
-	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profile.Password, profile.Options)
+	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
@@ -541,7 +541,7 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID))
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
-	profile.Password = strings.TrimSpace(profile.Password)
+	profile.Password = sessions.Base64String(strings.TrimSpace(string(profile.Password)))
 	if profile.Port <= 0 {
 		profile.Port = 22
 	}

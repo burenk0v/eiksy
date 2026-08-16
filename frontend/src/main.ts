@@ -95,20 +95,6 @@ const THEME_KEY = 'opsy-theme';
 
 const root = document.querySelector<HTMLDivElement>('#app');
 
-// Encode to Base64 (Unicode Safe)
-function encodeBase64(str: string): string {
-  const bytes = new TextEncoder().encode(str);
-  const binString = String.fromCodePoint(...bytes);
-  return btoa(binString);
-}
-
-// Decode from Base64 (Unicode Safe)
-function decodeBase64(base64: string): string {
-  const binString = atob(base64);
-  const bytes = Uint8Array.from(binString, (m) => m.codePointAt(0)!);
-  return new TextDecoder().decode(bytes);
-}
-
 class OpsyShell {
     private shellState: ShellState | null = null;
     private activeTabId = '';
@@ -516,7 +502,6 @@ class OpsyShell {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
             const formData = new FormData(form);
-            const password: string = encodeBase64(String(formData.get('password') ?? ''));
             const profile: SessionProfile = {
                 id: '',
                 name: String(formData.get('name') ?? ''),
@@ -524,7 +509,7 @@ class OpsyShell {
                 host: String(formData.get('host') ?? ''),
                 port: Number(formData.get('port') ?? 22),
                 username: String(formData.get('username') ?? ''),
-                password: password,
+                password: String(formData.get('password') ?? ''),
                 protocolId: String(formData.get('protocolId') ?? 'ssh'),
                 tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
                 favorite: false,
@@ -1061,7 +1046,7 @@ class OpsyShell {
                                 <label><span>Host</span><input name="host" value="${escapeHtml(this.sessionForm.host)}" required /></label>
                                 <label><span>Port</span><input name="port" type="number" value="${escapeHtml(this.sessionForm.port)}" min="1" required /></label>
                                 <label><span>Username</span><input name="username" value="${escapeHtml(this.sessionForm.username)}" required /></label>
-                                <label><span>Password</span><input name="password" type="password" value="${escapeHtml(decodeBase64(this.sessionForm.password))}" /></label>
+                                <label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
                                 <label>
                                     <span>Protocol</span>
                                     <select name="protocolId">

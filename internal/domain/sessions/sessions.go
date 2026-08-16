@@ -2,7 +2,34 @@ package sessions
 
 import (
 	"encoding/base64"
+	"encoding/json"
 )
+
+// Кастомный тип для автоматической конвертации в Base64
+// ts_type string
+type Base64String string
+
+// MarshalJSON кодирует строку в Base64 при сохранении в JSON
+func (b Base64String) MarshalJSON() ([]byte, error) {
+	encoded := base64.StdEncoding.EncodeToString([]byte(b))
+	return json.Marshal(encoded)
+}
+
+// UnmarshalJSON декодирует Base64 обратно в обычную строку при чтении JSON
+func (b *Base64String) UnmarshalJSON(data []byte) error {
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return err
+	}
+
+	*b = Base64String(decoded)
+	return nil
+}
 
 type Profile struct {
 	ID             string            `json:"id"`
@@ -14,7 +41,7 @@ type Profile struct {
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`
 	Username       string            `json:"username"`
-	Password       string            `json:"password,omitempty"`
+	Password       Base64String      `json:"password,omitempty"`
 	SecretRef      string            `json:"secretRef,omitempty"`
 	Options        map[string]string `json:"options,omitempty"`
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
@@ -34,7 +61,7 @@ type ProfileInput struct {
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`
 	Username       string            `json:"username"`
-	Password       string            `json:"password,omitempty"`
+	Password       Base64String      `json:"password,omitempty"`
 	SecretRef      string            `json:"secretRef,omitempty"`
 	Options        map[string]string `json:"options,omitempty"`
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
@@ -43,10 +70,6 @@ type ProfileInput struct {
 // ToProfile converts a ProfileInput to a Profile, copying all fields including
 // the password (which is not persisted when the Profile is later saved).
 func (p ProfileInput) ToProfile() Profile {
-	password, err := base64.StdEncoding.DecodeString(p.Password)
-	if err != nil {
-		password = make([]byte, 1)
-	}
 	return Profile{
 		ID:             p.ID,
 		Name:           p.Name,
@@ -57,7 +80,7 @@ func (p ProfileInput) ToProfile() Profile {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
-		Password:       string(password),
+		Password:       p.Password,
 		SecretRef:      p.SecretRef,
 		Options:        p.Options,
 		LastLaunchedAt: p.LastLaunchedAt,
