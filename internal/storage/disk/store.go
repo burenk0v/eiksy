@@ -39,6 +39,33 @@ type Store struct {
 	eventCounter        int64
 }
 
+type persistedSettings struct {
+	settings.AppSettings
+	VaultToken string                     `json:"vaultToken,omitempty"`
+	AIState    *persistedAIWorkspaceState `json:"aiState,omitempty"`
+}
+
+type persistedAIWorkspaceState struct {
+	Providers     []persistedAIProviderDescriptor `json:"providers"`
+	ContextPolicy ai.ContextPolicy                `json:"contextPolicy"`
+	Messages      []ai.ChatMessage                `json:"messages"`
+	ChatSessionID string                          `json:"chatSessionId"`
+}
+
+type persistedAIProviderDescriptor struct {
+	ID         string           `json:"id"`
+	Name       string           `json:"name"`
+	Class      ai.ProviderClass `json:"class"`
+	Model      string           `json:"model"`
+	Endpoint   string           `json:"endpoint,omitempty"`
+	LocalPath  string           `json:"localPath,omitempty"`
+	Command    string           `json:"command,omitempty"`
+	Status     string           `json:"status"`
+	Selected   bool             `json:"selected"`
+	Token      string           `json:"token,omitempty"`
+	Configured bool             `json:"configured"`
+}
+
 func NewStore() (*Store, error) {
 	baseDir, err := llm.OpsyDir()
 	if err != nil {
@@ -164,6 +191,7 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.aiState = cloneAIState(state)
+	_ = s.saveSettings()
 }
 
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
@@ -276,7 +304,7 @@ func (s *Store) ensureFiles() error {
 	if err := ensureJSONFile(s.sessionsPath, []byte("[]\n")); err != nil {
 		return fmt.Errorf("create sessions file: %w", err)
 	}
-	settingsBytes, err := json.MarshalIndent(defaultSettings(), "", "  ")
+	settingsBytes, err := json.MarshalIndent(newPersistedSettings(defaultSettings(), defaultAIState()), "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal default settings: %w", err)
 	}
@@ -323,13 +351,17 @@ func (s *Store) loadSettings() error {
 		return s.saveSettings()
 	}
 	var loaded settings.AppSettings
-	if err := json.Unmarshal(content, &loaded); err != nil {
+	var persisted persistedSettings
+	if err := json.Unmarshal(content, &persisted); err != nil {
 		if renameErr := os.Rename(s.settingsPath, s.settingsPath+".fail"); renameErr != nil {
 			return fmt.Errorf("decode settings file: %w (also failed to rename: %v)", err, renameErr)
 		}
 		s.settings = defaultSettings()
+		s.aiState = defaultAIState()
 		return s.saveSettings()
 	}
+	loaded = persisted.AppSettings
+	loaded.VaultToken = persisted.VaultToken
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
 		loaded.Theme = defaults.Theme
@@ -346,7 +378,19 @@ func (s *Store) loadSettings() error {
 	if loaded.LogLevel == "" {
 		loaded.LogLevel = defaults.LogLevel
 	}
+	if loaded.LogRotationSize <= 0 {
+		loaded.LogRotationSize = defaults.LogRotationSize
+	}
+	if loaded.VaultMountPoint == "" {
+		loaded.VaultMountPoint = defaults.VaultMountPoint
+	}
+	if loaded.VaultToken == "" {
+		loaded.VaultToken = defaults.VaultToken
+	}
 	s.settings = loaded
+	if persisted.AIState != nil {
+		s.aiState = aiStateFromPersisted(*persisted.AIState)
+	}
 	return nil
 }
 
@@ -367,7 +411,7 @@ func (s *Store) saveSessionProfilesLocked() error {
 }
 
 func (s *Store) saveSettings() error {
-	data, err := json.MarshalIndent(s.settings, "", "  ")
+	data, err := json.MarshalIndent(newPersistedSettings(s.settings, s.aiState), "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode settings file: %w", err)
 	}
@@ -407,6 +451,7 @@ func defaultAIState() ai.WorkspaceState {
 		},
 		ContextPolicy: ai.ContextPolicy{SendTerminalSelection: true, SendRecentOutput: false, RequireConfirmation: true},
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
+		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
 	}
 }
 
@@ -419,6 +464,9 @@ func defaultSettings() settings.AppSettings {
 		AllowCloudModels: true,
 		LogLevel:         settings.LogLevelInfo,
 		ShowLogPanel:     false,
+		SaveLogsToFile:   false,
+		LogRotationSize:  settings.DefaultLogRotationSize,
+		VaultMountPoint:  settings.DefaultVaultMountPoint,
 	}
 }
 
@@ -450,4 +498,64 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 	}
 	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
 	return cloned
+}
+
+func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) persistedSettings {
+	persisted := persistedSettings{
+		AppSettings: app,
+		VaultToken:  strings.TrimSpace(app.VaultToken),
+	}
+	persisted.AppSettings.VaultToken = ""
+	persisted.AIState = aiStateToPersisted(state)
+	return persisted
+}
+
+func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
+	persisted := &persistedAIWorkspaceState{
+		ContextPolicy: state.ContextPolicy,
+		Messages:      append([]ai.ChatMessage(nil), state.Messages...),
+		ChatSessionID: state.ChatSessionID,
+		Providers:     make([]persistedAIProviderDescriptor, 0, len(state.Providers)),
+	}
+	for _, provider := range state.Providers {
+		persisted.Providers = append(persisted.Providers, persistedAIProviderDescriptor{
+			ID:         provider.ID,
+			Name:       provider.Name,
+			Class:      provider.Class,
+			Model:      provider.Model,
+			Endpoint:   provider.Endpoint,
+			LocalPath:  provider.LocalPath,
+			Command:    provider.Command,
+			Status:     provider.Status,
+			Selected:   provider.Selected,
+			Token:      strings.TrimSpace(provider.Token),
+			Configured: provider.Configured,
+		})
+	}
+	return persisted
+}
+
+func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState {
+	state := ai.WorkspaceState{
+		ContextPolicy: persisted.ContextPolicy,
+		Messages:      append([]ai.ChatMessage(nil), persisted.Messages...),
+		ChatSessionID: persisted.ChatSessionID,
+		Providers:     make([]ai.ProviderDescriptor, 0, len(persisted.Providers)),
+	}
+	for _, provider := range persisted.Providers {
+		state.Providers = append(state.Providers, ai.ProviderDescriptor{
+			ID:         provider.ID,
+			Name:       provider.Name,
+			Class:      provider.Class,
+			Model:      provider.Model,
+			Endpoint:   provider.Endpoint,
+			LocalPath:  provider.LocalPath,
+			Command:    provider.Command,
+			Status:     provider.Status,
+			Selected:   provider.Selected,
+			Token:      strings.TrimSpace(provider.Token),
+			Configured: provider.Configured,
+		})
+	}
+	return state
 }

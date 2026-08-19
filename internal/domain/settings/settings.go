@@ -10,10 +10,12 @@ type WindowLayout struct {
 type LogLevel string
 
 const (
-	LogLevelDebug LogLevel = "debug"
-	LogLevelInfo  LogLevel = "info"
-	LogLevelWarn  LogLevel = "warn"
-	LogLevelError LogLevel = "error"
+	LogLevelDebug          LogLevel = "debug"
+	LogLevelInfo           LogLevel = "info"
+	LogLevelWarn           LogLevel = "warn"
+	LogLevelError          LogLevel = "error"
+	DefaultLogRotationSize          = 10 * 1024 * 1024
+	DefaultVaultMountPoint          = "secret"
 )
 
 type AppSettings struct {
@@ -24,4 +26,9 @@ type AppSettings struct {
 	AllowCloudModels bool         `json:"allowCloudModels"`
 	LogLevel         LogLevel     `json:"logLevel"`
 	ShowLogPanel     bool         `json:"showLogPanel"`
+	SaveLogsToFile   bool         `json:"saveLogsToFile"`
+	LogRotationSize  int          `json:"logRotationSize"`
+	VaultAddress     string       `json:"vaultAddress"`
+	VaultMountPoint  string       `json:"vaultMountPoint"`
+	VaultToken       string       `json:"-"`
 }

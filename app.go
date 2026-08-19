@@ -9,6 +9,7 @@ import (
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	sftpdomain "opsy/internal/domain/sftp"
+	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/llm"
 	sftpmanager "opsy/internal/sftp"
 	sshmanager "opsy/internal/ssh"
@@ -115,6 +116,10 @@ func (a *App) ReadSFTPFile(tabID, path string) (string, error) {
 
 func (a *App) SaveSFTPFile(tabID, path, content string) error {
 	return a.currentService().SaveSFTPFile(tabID, path, content)
+}
+
+func (a *App) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
+	return a.currentService().ListVaultSecrets(path)
 }
 
 func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) {

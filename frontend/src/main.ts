@@ -16,6 +16,7 @@ import {
     GetShellState,
     LaunchSession,
     ListSFTPFiles,
+    ListVaultSecrets,
     NavigateSFTP,
     ImportSSHConfig,
     ReadSFTPFile,
@@ -27,13 +28,14 @@ import {
     UpdateSettings,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
-import type { ai as aiModels, app as appModels, sessions, settings as settingsModels, sftp as sftpModels } from '../wailsjs/go/models';
+import type { ai as aiModels, app as appModels, sessions, settings as settingsModels, sftp as sftpModels, vault as vaultModels } from '../wailsjs/go/models';
 
 type ShellState = appModels.ShellState;
 type RuntimeSession = appModels.RuntimeSessionView;
 type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
 type FileEntry = sftpModels.FileEntry;
+type VaultSecretNode = vaultModels.SecretNode;
 
 type SessionFormState = {
     name: string;
@@ -65,6 +67,14 @@ type SFTPState = {
     editorError: string;
 };
 
+type VaultState = {
+    path: string;
+    entries: VaultSecretNode[];
+    loading: boolean;
+    error: string;
+    loaded: boolean;
+};
+
 type TerminalState = {
     terminal: Terminal;
     fitAddon: FitAddon;
@@ -75,8 +85,10 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light';
-type SettingsTab = 'ai' | 'sshconfig' | 'theme' | 'logs';
+type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'theme' | 'logs';
 type SessionModalTab = 'basic' | 'advanced';
+type LeftPanelTab = 'sessions' | 'sftp';
+type RightPanelTab = 'ai' | 'vault';
 
 type LogEntry = {
     level: string;
@@ -111,6 +123,8 @@ class OpsyShell {
     private sessionModalTab: SessionModalTab = 'basic';
     private showSettingsModal = false;
     private settingsTab: SettingsTab = 'ai';
+    private leftPanelTab: LeftPanelTab = 'sessions';
+    private rightPanelTab: RightPanelTab = 'ai';
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private terminals = new Map<string, TerminalState>();
     private sftpState: SFTPState = {
@@ -127,6 +141,7 @@ class OpsyShell {
         editorError: '',
     };
     private sshConfigDraft = '';
+    private vaultState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
     private theme: Theme;
     private logEntries: LogEntry[] = [];
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
@@ -209,7 +224,7 @@ class OpsyShell {
                     <aside class="panel sidebar-panel">
                         <div class="panel-header">
                             <div>
-                                <div class="eyebrow">Session manager</div>
+                                <div class="eyebrow">Workspace</div>
                                 <h1>opsy</h1>
                             </div>
                             <div style="display:flex;gap:0.5rem;align-items:center;">
@@ -217,8 +232,12 @@ class OpsyShell {
                                 <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                             </div>
                         </div>
+                        <div class="sidebar-panel-tabs">
+                            <button class="panel-tab ${this.leftPanelTab === 'sessions' ? 'active' : ''}" data-left-panel-tab="sessions">Session manager</button>
+                            <button class="panel-tab ${this.leftPanelTab === 'sftp' ? 'active' : ''}" data-left-panel-tab="sftp">SFTP browser</button>
+                        </div>
                         <div class="sidebar-body">
-                            <section class="section sidebar-section sessions-section">
+                            <section class="section sidebar-section sessions-section ${this.leftPanelTab === 'sessions' ? '' : 'hidden'}">
                                 <div class="section-heading">
                                     <span class="section-title">Sessions</span>
                                 </div>
@@ -227,7 +246,7 @@ class OpsyShell {
                                     ${this.renderSessionProfiles()}
                                 </div>
                             </section>
-                            <section class="section sftp-section sidebar-section">
+                            <section class="section sftp-section sidebar-section ${this.leftPanelTab === 'sftp' ? '' : 'hidden'}">
                                 <div class="section-heading">
                                     <span class="section-title">SFTP Browser</span>
                                     <div class="section-actions">
@@ -250,11 +269,16 @@ class OpsyShell {
                     <aside class="panel assistant-panel">
                         <div class="panel-header">
                             <div>
-                                <div class="eyebrow">AI assistant</div>
-                                <h2>Chat</h2>
+                                <div class="eyebrow">Assistant</div>
+                                <h2>${this.rightPanelTab === 'ai' ? 'AI' : 'Vault browser'}</h2>
                             </div>
-                            ${this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
+                            ${this.rightPanelTab === 'ai' && this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
                         </div>
+                        <div class="sidebar-panel-tabs">
+                            <button class="panel-tab ${this.rightPanelTab === 'ai' ? 'active' : ''}" data-right-panel-tab="ai">AI</button>
+                            <button class="panel-tab ${this.rightPanelTab === 'vault' ? 'active' : ''}" data-right-panel-tab="vault">Vault browser</button>
+                        </div>
+                        ${this.rightPanelTab === 'ai' ? `
                         <section class="section chat-section">
                             <div class="section-title">Assistant</div>
                             <div class="chat-messages" id="chat-messages">
@@ -271,7 +295,17 @@ class OpsyShell {
                             <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
                             <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
                         </form>
-                        ` : ''}
+                        ` : ''}` : `
+                        <section class="section chat-section">
+                            <div class="section-heading">
+                                <span class="section-title">Vault Tree</span>
+                                <div class="section-actions">
+                                    <button class="action-button secondary" data-open-vault>Open</button>
+                                    <button class="action-button secondary" data-refresh-vault>Refresh</button>
+                                </div>
+                            </div>
+                            ${this.renderVaultBrowser()}
+                        </section>`}
                     </aside>
                 </div>
                 ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
@@ -320,6 +354,20 @@ class OpsyShell {
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
             this.showSettingsModal = true;
             this.render();
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-left-panel-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.leftPanelTab = (button.dataset.leftPanelTab as LeftPanelTab) ?? 'sessions';
+                this.render();
+            });
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-right-panel-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.rightPanelTab = (button.dataset.rightPanelTab as RightPanelTab) ?? 'ai';
+                this.render();
+            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((button) => {
@@ -434,6 +482,26 @@ class OpsyShell {
             await this.loadSFTP(activeTab.id, parentPath(this.sftpState.path));
         });
 
+        root?.querySelector<HTMLButtonElement>('[data-open-vault]')?.addEventListener('click', async () => {
+            await this.loadVaultSecrets('');
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-refresh-vault]')?.addEventListener('click', async () => {
+            await this.loadVaultSecrets(this.vaultState.path);
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-vault-up]')?.addEventListener('click', async () => {
+            await this.loadVaultSecrets(parentVaultPath(this.vaultState.path));
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-vault-dir]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const targetPath = button.dataset.vaultDir;
+                if (!targetPath) return;
+                await this.loadVaultSecrets(targetPath);
+            });
+        });
+
         root?.querySelectorAll<HTMLButtonElement>('[data-sftp-dir]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const targetPath = button.dataset.sftpDir;
@@ -497,7 +565,14 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-clear-chat]')?.addEventListener('click', async () => {
-            await this.runAction(async () => ClearChat(), 'Unable to clear chat');
+            try {
+                await ClearChat();
+                this.aiStatus = 'idle';
+                await this.refresh('');
+            } catch (error) {
+                this.errorMessage = formatError('Unable to clear chat', error);
+                this.render();
+            }
         });
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
@@ -535,6 +610,36 @@ class OpsyShell {
                 const updated = { ...this.shellState.settings, logLevel: level } as unknown as settingsModels.AppSettings;
                 await this.runAction(async () => UpdateSettings(updated), 'Unable to save log level setting');
             });
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-vault-settings-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!this.shellState) return;
+            const form = event.currentTarget as HTMLFormElement;
+            const updated = {
+                ...this.shellState.settings,
+                vaultAddress: form.querySelector<HTMLInputElement>('input[name="vaultAddress"]')?.value ?? '',
+                vaultMountPoint: form.querySelector<HTMLInputElement>('input[name="vaultMountPoint"]')?.value ?? '',
+                vaultToken: form.querySelector<HTMLInputElement>('input[name="vaultToken"]')?.value ?? '',
+            } as unknown as settingsModels.AppSettings;
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-log-file-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!this.shellState) return;
+            const form = event.currentTarget as HTMLFormElement;
+            const saveLogsToFile = form.querySelector<HTMLInputElement>('input[name="saveLogsToFile"]')?.checked ?? false;
+            const logRotationMB = Number(form.querySelector<HTMLInputElement>('input[name="logRotationMB"]')?.value ?? '10');
+            const rotationSize = Number.isFinite(logRotationMB) && logRotationMB > 0
+                ? Math.round(logRotationMB * 1024 * 1024)
+                : 10 * 1024 * 1024;
+            const updated = {
+                ...this.shellState.settings,
+                saveLogsToFile,
+                logRotationSize: rotationSize,
+            } as unknown as settingsModels.AppSettings;
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to save log file settings');
         });
 
         root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
@@ -757,6 +862,30 @@ class OpsyShell {
         this.render();
     }
 
+    private async loadVaultSecrets(targetPath: string): Promise<void> {
+        const normalizedPath = targetPath === '.' ? '' : targetPath;
+        this.vaultState = { ...this.vaultState, loading: true, error: '' };
+        this.render();
+        try {
+            const entries = await ListVaultSecrets(normalizedPath);
+            this.vaultState = {
+                path: normalizedPath,
+                entries,
+                loading: false,
+                error: '',
+                loaded: true,
+            };
+        } catch (error) {
+            this.vaultState = {
+                ...this.vaultState,
+                loading: false,
+                error: formatError('Unable to load Vault secrets', error),
+                loaded: true,
+            };
+        }
+        this.render();
+    }
+
     private attachActiveTerminal(): void {
         const host = document.querySelector<HTMLDivElement>('#terminal-host');
         if (!host) {
@@ -781,7 +910,7 @@ class OpsyShell {
             terminalState.fitAddon.fit();
             terminalState.opened = true;
             terminalState.terminal.focus();
-            terminalState.terminal.onData((data) => {
+            terminalState.terminal.onData((data: string) => {
                 void SendSSHInput(activeTab.id, data).catch((error) => {
                     this.errorMessage = formatError('Unable to send terminal input', error);
                     this.render();
@@ -911,7 +1040,6 @@ class OpsyShell {
         return this.shellState.activeSessions.map((tab) => `
             <button class="tab ${tab.id === this.activeTabId ? 'active' : ''}" data-tab-id="${escapeHtml(tab.id)}">
                 <span>${escapeHtml(tab.title)}</span>
-                <small>${escapeHtml(tab.status)}</small>
                 <span class="tab-close" data-close-tab="${escapeHtml(tab.id)}">×</span>
             </button>
         `).join('');
@@ -979,6 +1107,32 @@ class OpsyShell {
         `;
     }
 
+    private renderVaultBrowser(): string {
+        if (this.vaultState.loading) {
+            return '<div class="empty-state">Loading secrets…</div>';
+        }
+        if (this.vaultState.error) {
+            return `<div class="error-banner compact">${escapeHtml(this.vaultState.error)}</div>`;
+        }
+        if (!this.vaultState.loaded) {
+            return '<div class="empty-state">Open Vault browser to load secrets.</div>';
+        }
+        const entriesBlock = this.vaultState.entries.length > 0
+            ? this.vaultState.entries.map((entry) => entry.isDir
+                ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
+                : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`).join('')
+            : '<div class="empty-state">No secrets in this path.</div>';
+        return `
+            <div class="sftp-path-row">
+                <span class="sftp-path">${escapeHtml(this.vaultState.path || '/')}</span>
+                <button class="action-button secondary" data-vault-up>..</button>
+            </div>
+            <div class="sftp-list">
+                ${entriesBlock}
+            </div>
+        `;
+    }
+
     private renderProviderSetup(): string {
         const provider = this.selectedProvider();
         if (!provider) {
@@ -1020,12 +1174,17 @@ class OpsyShell {
     private renderSettingsModal(): string {
         const tabs: Array<{ id: SettingsTab; label: string }> = [
             { id: 'ai', label: 'AI' },
+            { id: 'vault', label: 'Vault' },
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'theme', label: 'Theme' },
             { id: 'logs', label: 'Logs' },
         ];
         const currentLogLevel = this.shellState?.settings.logLevel ?? 'info';
         const showLogPanel = this.shellState?.settings.showLogPanel ?? false;
+        const saveLogsToFile = this.shellState?.settings.saveLogsToFile ?? false;
+        const logRotationMB = Math.max(1, Math.round((this.shellState?.settings.logRotationSize ?? (10 * 1024 * 1024)) / (1024 * 1024)));
+        const vaultAddress = this.shellState?.settings.vaultAddress ?? '';
+        const vaultMountPoint = this.shellState?.settings.vaultMountPoint ?? 'secret';
         const logLevels = [
             { value: 'debug', label: 'Debug' },
             { value: 'info', label: 'Info' },
@@ -1049,6 +1208,26 @@ class OpsyShell {
                         <div class="modal-tab-panel ${this.settingsTab === 'ai' ? 'active' : ''}">
                             <div class="section-title">AI Provider</div>
                             ${this.renderProviderSetup()}
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'vault' ? 'active' : ''}">
+                            <div class="section-title">Vault Browser</div>
+                            <form class="provider-form" data-vault-settings-form>
+                                <label>
+                                    <span>Vault instance URL</span>
+                                    <input type="url" name="vaultAddress" value="${escapeHtml(vaultAddress)}" placeholder="https://vault.example.com" />
+                                </label>
+                                <label>
+                                    <span>Mountpoint</span>
+                                    <input type="text" name="vaultMountPoint" value="${escapeHtml(vaultMountPoint)}" placeholder="secret" />
+                                </label>
+                                <label>
+                                    <span>Token</span>
+                                    <input type="password" name="vaultToken" placeholder="hvs...." />
+                                </label>
+                                <div class="provider-form-actions">
+                                    <button class="action-button" type="submit">Save Vault settings</button>
+                                </div>
+                            </form>
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'sshconfig' ? 'active' : ''}">
                             <div class="section-title">Import SSH Config</div>
@@ -1083,6 +1262,19 @@ class OpsyShell {
                                     ${logLevels.map((l) => `<button class="${currentLogLevel === l.value ? 'active' : ''}" data-set-log-level="${l.value}">${l.label}</button>`).join('')}
                                 </div>
                             </div>
+                            <form class="provider-form" data-log-file-form>
+                                <label class="inline-check">
+                                    <span>Save logs to file</span>
+                                    <input name="saveLogsToFile" type="checkbox" ${saveLogsToFile ? 'checked' : ''} />
+                                </label>
+                                <label>
+                                    <span>Rotate when file reaches (MB)</span>
+                                    <input type="number" name="logRotationMB" min="1" step="1" value="${escapeHtml(String(logRotationMB))}" />
+                                </label>
+                                <div class="provider-form-actions">
+                                    <button class="action-button" type="submit">Save log file settings</button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -1308,6 +1500,18 @@ function parentPath(value: string): string {
     const index = normalized.lastIndexOf('/');
     if (index <= 0) {
         return '.';
+    }
+    return normalized.slice(0, index);
+}
+
+function parentVaultPath(value: string): string {
+    if (!value || value === '/') {
+        return '';
+    }
+    const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
+    const index = normalized.lastIndexOf('/');
+    if (index < 0) {
+        return '';
     }
     return normalized.slice(0, index);
 }

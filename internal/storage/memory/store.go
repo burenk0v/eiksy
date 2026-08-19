@@ -292,7 +292,8 @@ func defaultAIState() ai.WorkspaceState {
 			SendRecentOutput:      false,
 			RequireConfirmation:   true,
 		},
-		Messages: []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
+		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
+		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
 	}
 }
 
@@ -308,6 +309,9 @@ func defaultSettings() settings.AppSettings {
 		AllowCloudModels: true,
 		LogLevel:         settings.LogLevelInfo,
 		ShowLogPanel:     false,
+		SaveLogsToFile:   false,
+		LogRotationSize:  settings.DefaultLogRotationSize,
+		VaultMountPoint:  settings.DefaultVaultMountPoint,
 	}
 }
 
