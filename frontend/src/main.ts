@@ -95,8 +95,8 @@ type TerminalState = {
 type Theme = 'dark' | 'light' | 'green';
 type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme' | 'logs';
 type SessionModalTab = 'basic' | 'advanced';
-type LeftPanelTab = 'sessions' | 'sftp';
 type RightPanelTab = 'ai' | 'vault';
+type SessionInnerTab = 'console' | 'sftp';
 
 type PortForwardRule = {
     ports: string;
@@ -142,8 +142,8 @@ class OpsyShell {
     private sessionModalTab: SessionModalTab = 'basic';
     private showSettingsModal = false;
     private settingsTab: SettingsTab = 'ai';
-    private leftPanelTab: LeftPanelTab = 'sessions';
     private rightPanelTab: RightPanelTab = 'ai';
+    private sessionInnerTab: SessionInnerTab = 'console';
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private terminals = new Map<string, TerminalState>();
     private sftpState: SFTPState = {
@@ -272,12 +272,8 @@ class OpsyShell {
                                 <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                             </div>
                         </div>
-                        <div class="sidebar-panel-tabs">
-                            <button class="panel-tab ${this.leftPanelTab === 'sessions' ? 'active' : ''}" data-left-panel-tab="sessions">Session manager</button>
-                            <button class="panel-tab ${this.leftPanelTab === 'sftp' ? 'active' : ''}" data-left-panel-tab="sftp">SFTP browser</button>
-                        </div>
                         <div class="sidebar-body">
-                            <section class="section sidebar-section sessions-section ${this.leftPanelTab === 'sessions' ? '' : 'hidden'}">
+                            <section class="section sidebar-section sessions-section">
                                 <div class="section-heading">
                                     <span class="section-title">Sessions</span>
                                 </div>
@@ -286,23 +282,28 @@ class OpsyShell {
                                     ${this.renderSessionProfiles()}
                                 </div>
                             </section>
-                            <section class="section sftp-section sidebar-section ${this.leftPanelTab === 'sftp' ? '' : 'hidden'}">
-                                <div class="section-heading">
-                                    <span class="section-title">SFTP Browser</span>
-                                    <div class="section-actions">
-                                        ${this.renderSFTPActions()}
-                                    </div>
-                                </div>
-                                ${this.renderSFTPBrowser()}
-                            </section>
                         </div>
                     </aside>
 
                     <main class="panel workspace-panel">
                         <div class="tab-bar">${this.renderTabs()}</div>
                         ${this.errorMessage ? `<div class="error-banner">${escapeHtml(this.errorMessage)}</div>` : ''}
-                        <div class="terminal-shell">
+                        ${this.activeTab() ? `
+                        <div class="session-inner-tabs">
+                            <button class="session-inner-tab ${this.sessionInnerTab === 'console' ? 'active' : ''}" data-session-inner-tab="console">Console</button>
+                            <button class="session-inner-tab ${this.sessionInnerTab === 'sftp' ? 'active' : ''}" data-session-inner-tab="sftp">SFTP</button>
+                        </div>
+                        ` : ''}
+                        <div class="terminal-shell ${this.sessionInnerTab === 'sftp' ? 'hidden' : ''}">
                             <div id="terminal-host" class="terminal-container"></div>
+                        </div>
+                        <div class="sftp-workspace ${this.sessionInnerTab === 'console' ? 'hidden' : ''}">
+                            <div class="sftp-workspace-header">
+                                <div class="section-actions">
+                                    ${this.renderSFTPActions()}
+                                </div>
+                            </div>
+                            ${this.renderSFTPBrowser()}
                         </div>
                     </main>
 
@@ -327,12 +328,12 @@ class OpsyShell {
                         </section>
                         ${this.hasConfiguredProvider() ? `
                         <form class="chat-input-form" data-chat-form>
+                            ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
+                            <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
                             <label class="inline-check chat-attach-row">
                                 <span>Attach latest console output</span>
                                 <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
                             </label>
-                            ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
-                            <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
                             <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
                         </form>
                         ` : ''}` : `
@@ -400,11 +401,13 @@ class OpsyShell {
             }
         });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-left-panel-tab]').forEach((button) => {
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-inner-tab]').forEach((button) => {
             button.addEventListener('click', async () => {
-                this.leftPanelTab = (button.dataset.leftPanelTab as LeftPanelTab) ?? 'sessions';
+                this.sessionInnerTab = (button.dataset.sessionInnerTab as SessionInnerTab) ?? 'console';
                 this.render();
-                await this.ensureActiveSFTPLoaded();
+                if (this.sessionInnerTab === 'sftp') {
+                    await this.ensureActiveSFTPLoaded();
+                }
             });
         });
 
@@ -495,7 +498,9 @@ class OpsyShell {
                     this.sftpState = this.defaultSFTPState(tabID);
                 }
                 this.render();
-                await this.ensureActiveSFTPLoaded();
+                if (this.sessionInnerTab === 'sftp') {
+                    await this.ensureActiveSFTPLoaded();
+                }
             });
         });
 
@@ -1255,26 +1260,29 @@ class OpsyShell {
                 </div>
                 <div class="sftp-list">
                     <div class="sftp-list-header">
+                        <span></span>
                         <span>Name</span>
                         <span>Size</span>
                         <span>Mode</span>
-                        <span>Actions</span>
+                        <span>Modified</span>
+                        <span></span>
                     </div>
                     ${this.sftpState.entries.map((entry) => entry.isDir
                         ? `<button class="sftp-row sftp-row-button sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}">
-                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📁</span><span class="sftp-row-name-inner"><span>${escapeHtml(entry.name)}</span>${entry.modTime ? `<span class="sftp-row-date">${escapeHtml(entry.modTime)}</span>` : ''}</span></span>
+                            <span></span>
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📁</span><span>${escapeHtml(entry.name)}</span></span>
                             <span>—</span>
                             <span>${escapeHtml(entry.mode || '—')}</span>
-                            <span class="sftp-row-open">Open</span>
+                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span></span>
                         </button>`
                         : `<div class="sftp-row sftp-file ${this.sftpState.selectedFiles.includes(entry.path) ? 'selected' : ''}">
-                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📄</span><span class="sftp-row-name-inner"><span>${escapeHtml(entry.name)}</span>${entry.modTime ? `<span class="sftp-row-date">${escapeHtml(entry.modTime)}</span>` : ''}</span></span>
+                            <span class="sftp-row-check"><input type="checkbox" data-sftp-select-file="${escapeHtml(entry.path)}" ${this.sftpState.selectedFiles.includes(entry.path) ? 'checked' : ''} /></span>
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📄</span><span>${escapeHtml(entry.name)}</span></span>
                             <span>${escapeHtml(formatBytes(entry.size))}</span>
                             <span>${escapeHtml(entry.mode || '—')}</span>
-                            <div class="sftp-row-actions">
-                                <button class="action-button secondary sftp-inline-button" data-sftp-file-edit="${escapeHtml(entry.path)}">Edit</button>
-                                <label class="sftp-select-check"><input type="checkbox" data-sftp-select-file="${escapeHtml(entry.path)}" ${this.sftpState.selectedFiles.includes(entry.path) ? 'checked' : ''} /><span>Select</span></label>
-                            </div>
+                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span><button class="action-button secondary sftp-inline-button" data-sftp-file-edit="${escapeHtml(entry.path)}">Edit</button></span>
                         </div>`).join('')}
                 </div>
             </div>
@@ -1736,7 +1744,7 @@ class OpsyShell {
     }
 
     private async ensureActiveSFTPLoaded(force = false): Promise<void> {
-        if (this.leftPanelTab !== 'sftp') {
+        if (this.sessionInnerTab !== 'sftp') {
             return;
         }
         const activeTab = this.activeTab();
