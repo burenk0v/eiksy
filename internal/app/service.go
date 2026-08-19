@@ -575,9 +575,6 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if strings.TrimSpace(updated.VaultToken) == "" {
 		updated.VaultToken = current.VaultToken
 	}
-	if strings.TrimSpace(updated.SSHForwardHostID) == "" {
-		updated.SSHForwardHostID = ""
-	}
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
 	updated.VaultToken = strings.TrimSpace(updated.VaultToken)
@@ -773,6 +770,7 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 }
 
 func buildPortForwardSpecs(ports, host string) string {
+	const maxRangeSpan = 256
 	parts := strings.Split(ports, ",")
 	specs := make([]string, 0, len(parts))
 	for _, part := range parts {
@@ -786,14 +784,17 @@ func buildPortForwardSpecs(ports, host string) string {
 			end := strings.TrimSpace(rangeParts[1])
 			startPort, errStart := strconv.Atoi(start)
 			endPort, errEnd := strconv.Atoi(end)
-			if errStart == nil && errEnd == nil && startPort > 0 && endPort >= startPort {
+			if errStart == nil && errEnd == nil && startPort > 0 && endPort >= startPort && endPort <= 65535 && (endPort-startPort+1) <= maxRangeSpan {
 				for port := startPort; port <= endPort; port++ {
 					specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
 				}
 			}
 			continue
 		}
-		specs = append(specs, fmt.Sprintf("%s:%s:%s", token, host, token))
+		port, err := strconv.Atoi(token)
+		if err == nil && port > 0 && port <= 65535 {
+			specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
+		}
 	}
 	return strings.Join(specs, ",")
 }

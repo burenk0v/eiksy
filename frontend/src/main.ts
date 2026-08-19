@@ -1147,11 +1147,12 @@ class OpsyShell {
             return '<span class="section-copy">Select an SSH tab</span>';
         }
         const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Refresh';
+        const canTransfer = !this.sftpState.loading && !this.sftpState.error;
         return `
             <button class="action-button secondary" data-open-sftp>${openLabel}</button>
             ${this.sftpState.entries.length > 0 ? '<button class="action-button secondary" data-refresh-sftp>Reload</button>' : ''}
-            ${this.sftpState.entries.length > 0 ? '<button class="action-button secondary" data-sftp-upload>Upload</button>' : ''}
-            ${this.sftpState.entries.length > 0 ? `<button class="action-button secondary" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''}>Download (${this.sftpState.selectedFiles.length})</button>` : ''}
+            ${canTransfer ? '<button class="action-button secondary" data-sftp-upload>Upload</button>' : ''}
+            ${canTransfer ? `<button class="action-button secondary" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''}>Download (${this.sftpState.selectedFiles.length})</button>` : ''}
         `;
     }
 
