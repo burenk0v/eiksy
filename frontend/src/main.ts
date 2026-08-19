@@ -1744,7 +1744,7 @@ class OpsyShell {
     }
 
     private async ensureActiveSFTPLoaded(force = false): Promise<void> {
-        if (this.sessionInnerTab !== 'sftp' && !force) {
+        if (this.sessionInnerTab !== 'sftp') {
             return;
         }
         const activeTab = this.activeTab();
