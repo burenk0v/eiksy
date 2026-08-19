@@ -133,8 +133,8 @@ func (a *App) SelectAIProvider(providerID string) error {
 	return a.currentService().SelectAIProvider(providerID)
 }
 
-func (a *App) SaveCloudProvider(endpoint string, token string) error {
-	return a.currentService().SaveCloudProvider(endpoint, token)
+func (a *App) SaveCloudProvider(model string, endpoint string, token string) error {
+	return a.currentService().SaveCloudProvider(model, endpoint, token)
 }
 
 func (a *App) DownloadLocalModel() error {

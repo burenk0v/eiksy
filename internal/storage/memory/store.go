@@ -285,8 +285,7 @@ func defaultProtocols() []protocols.Descriptor {
 func defaultAIState() ai.WorkspaceState {
 	return ai.WorkspaceState{
 		Providers: []ai.ProviderDescriptor{
-			{ID: "llama-cpp-local", Name: "Qwen3 8B Local", Class: ai.ProviderClassLocal, Model: "Qwen3 8B (Q4_K_M)", Status: "download required", Selected: true, Configured: false},
-			{ID: "openai-compatible-cloud", Name: "OpenAI-compatible Cloud", Class: ai.ProviderClassOpenAICompatible, Model: "Remote model", Status: "token required", Configured: false},
+			{ID: "openai-compatible-cloud", Name: "OpenAI-compatible Cloud", Class: ai.ProviderClassOpenAICompatible, Model: "Remote model", Status: "configuration required", Selected: true, Configured: false},
 		},
 		ContextPolicy: ai.ContextPolicy{
 			SendTerminalSelection: true,

@@ -221,18 +221,28 @@ func hostKeyCallback() (xssh.HostKeyCallback, error) {
 
 func buildClientConfig(user, password string, options map[string]string, hostKeyCallback xssh.HostKeyCallback) (*xssh.ClientConfig, error) {
 	authMethods := []xssh.AuthMethod{}
-	if strings.TrimSpace(password) != "" {
-		authMethods = append(authMethods, xssh.Password(password))
-	}
-	if shouldUseAgent(options) {
-		authMethod, err := authMethodFromAgent(options)
+	authMethod := strings.ToLower(strings.TrimSpace(optionValue(options, "auth_method")))
+	switch authMethod {
+	case "key":
+		privateKeyAuth, err := authMethodFromPrivateKey(options)
 		if err != nil {
 			return nil, err
 		}
-		authMethods = append(authMethods, authMethod)
+		authMethods = append(authMethods, privateKeyAuth)
+	default:
+		if strings.TrimSpace(password) != "" {
+			authMethods = append(authMethods, xssh.Password(password))
+		}
+		if shouldUseAgent(options) {
+			agentAuth, err := authMethodFromAgent(options)
+			if err != nil {
+				return nil, err
+			}
+			authMethods = append(authMethods, agentAuth)
+		}
 	}
 	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no ssh auth method configured; provide a password or enable ssh agent")
+		return nil, fmt.Errorf("no ssh auth method configured; provide a password or configure an ssh key")
 	}
 	return &xssh.ClientConfig{
 		User:            user,
@@ -270,6 +280,29 @@ func authMethodFromAgent(options map[string]string) (xssh.AuthMethod, error) {
 	}
 	agentClient := agent.NewClient(conn)
 	return xssh.PublicKeysCallback(agentClient.Signers), nil
+}
+
+func authMethodFromPrivateKey(options map[string]string) (xssh.AuthMethod, error) {
+	path := strings.TrimSpace(optionValue(options, "ssh_private_key_path"))
+	if path == "" {
+		return nil, fmt.Errorf("ssh key authentication selected but key path is empty")
+	}
+	if strings.HasPrefix(path, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("resolve user home dir: %w", err)
+		}
+		path = filepath.Join(homeDir, strings.TrimPrefix(path, "~/"))
+	}
+	privateKey, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read ssh private key %q: %w", path, err)
+	}
+	signer, err := xssh.ParsePrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("parse ssh private key %q: %w", path, err)
+	}
+	return xssh.PublicKeys(signer), nil
 }
 
 func dialTarget(ctx context.Context, address string, config *xssh.ClientConfig, options map[string]string) (net.Conn, error) {

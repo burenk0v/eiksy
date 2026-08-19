@@ -42,6 +42,10 @@ func (s *Service) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 		if entry.identityAgent != "" && !strings.EqualFold(entry.identityAgent, "none") {
 			profile.Options["ssh_agent_socket"] = entry.identityAgent
 		}
+		if entry.identityFile != "" {
+			profile.Options["auth_method"] = "key"
+			profile.Options["ssh_private_key_path"] = entry.identityFile
+		}
 		if len(entry.localForwards) > 0 {
 			profile.Options["local_forwards"] = strings.Join(entry.localForwards, ",")
 		}
@@ -71,6 +75,7 @@ type sshConfigEntry struct {
 	port          int
 	proxyJump     string
 	identityAgent string
+	identityFile  string
 	localForwards []string
 }
 
@@ -120,6 +125,8 @@ func parseSSHConfig(raw string) []sshConfigEntry {
 			current.proxyJump = value
 		case "identityagent":
 			current.identityAgent = value
+		case "identityfile":
+			current.identityFile = value
 		case "localforward":
 			current.localForwards = append(current.localForwards, value)
 		}
