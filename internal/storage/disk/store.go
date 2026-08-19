@@ -346,6 +346,12 @@ func (s *Store) loadSettings() error {
 	if loaded.LogLevel == "" {
 		loaded.LogLevel = defaults.LogLevel
 	}
+	if loaded.LogRotationSize <= 0 {
+		loaded.LogRotationSize = defaults.LogRotationSize
+	}
+	if loaded.VaultMountPoint == "" {
+		loaded.VaultMountPoint = defaults.VaultMountPoint
+	}
 	s.settings = loaded
 	return nil
 }
@@ -407,6 +413,7 @@ func defaultAIState() ai.WorkspaceState {
 		},
 		ContextPolicy: ai.ContextPolicy{SendTerminalSelection: true, SendRecentOutput: false, RequireConfirmation: true},
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
+		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
 	}
 }
 
@@ -419,6 +426,9 @@ func defaultSettings() settings.AppSettings {
 		AllowCloudModels: true,
 		LogLevel:         settings.LogLevelInfo,
 		ShowLogPanel:     false,
+		SaveLogsToFile:   false,
+		LogRotationSize:  10 * 1024 * 1024,
+		VaultMountPoint:  "secret",
 	}
 }
 

@@ -50,6 +50,10 @@ export function ListSFTPFiles(arg1, arg2) {
   return window['go']['main']['App']['ListSFTPFiles'](arg1, arg2);
 }
 
+export function ListVaultSecrets(arg1) {
+  return window['go']['main']['App']['ListVaultSecrets'](arg1);
+}
+
 export function NavigateSFTP(arg1, arg2) {
   return window['go']['main']['App']['NavigateSFTP'](arg1, arg2);
 }

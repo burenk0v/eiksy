@@ -64,6 +64,7 @@ export namespace ai {
 	    providers: ProviderDescriptor[];
 	    contextPolicy: ContextPolicy;
 	    messages: ChatMessage[];
+	    chatSessionId: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new WorkspaceState(source);
@@ -74,6 +75,7 @@ export namespace ai {
 	        this.providers = this.convertValues(source["providers"], ProviderDescriptor);
 	        this.contextPolicy = this.convertValues(source["contextPolicy"], ContextPolicy);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
+	        this.chatSessionId = source["chatSessionId"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -401,6 +403,11 @@ export namespace settings {
 	    allowCloudModels: boolean;
 	    logLevel: string;
 	    showLogPanel: boolean;
+	    saveLogsToFile: boolean;
+	    logRotationSize: number;
+	    vaultAddress: string;
+	    vaultMountPoint: string;
+	    vaultToken: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -415,6 +422,11 @@ export namespace settings {
 	        this.allowCloudModels = source["allowCloudModels"];
 	        this.logLevel = source["logLevel"];
 	        this.showLogPanel = source["showLogPanel"];
+	        this.saveLogsToFile = source["saveLogsToFile"];
+	        this.logRotationSize = source["logRotationSize"];
+	        this.vaultAddress = source["vaultAddress"];
+	        this.vaultMountPoint = source["vaultMountPoint"];
+	        this.vaultToken = source["vaultToken"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -476,6 +488,27 @@ export namespace workspace {
 	    static createFrom(source: any = {}) {
 	        return new Event(source);
 	    }
+
+	    export namespace vault {
+	
+	    	export class SecretNode {
+	    	    name: string;
+	    	    path: string;
+	    	    isDir: boolean;
+	
+	    	    static createFrom(source: any = {}) {
+	    	        return new SecretNode(source);
+	    	    }
+	
+	    	    constructor(source: any = {}) {
+	    	        if ('string' === typeof source) source = JSON.parse(source);
+	    	        this.name = source["name"];
+	    	        this.path = source["path"];
+	    	        this.isDir = source["isDir"];
+	    	    }
+	    	}
+
+	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
@@ -533,4 +566,3 @@ export namespace workspace {
 	}
 
 }
-

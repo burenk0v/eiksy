@@ -4,6 +4,7 @@ import {sessions} from '../models';
 import {app} from '../models';
 import {sftp} from '../models';
 import {settings} from '../models';
+import {vault} from '../models';
 
 export function CancelModelDownload():Promise<void>;
 
@@ -28,6 +29,8 @@ export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
 export function LaunchSession(arg1:string):Promise<app.RuntimeSessionView>;
 
 export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
+
+export function ListVaultSecrets(arg1:string):Promise<Array<vault.SecretNode>>;
 
 export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
 

@@ -24,4 +24,9 @@ type AppSettings struct {
 	AllowCloudModels bool         `json:"allowCloudModels"`
 	LogLevel         LogLevel     `json:"logLevel"`
 	ShowLogPanel     bool         `json:"showLogPanel"`
+	SaveLogsToFile   bool         `json:"saveLogsToFile"`
+	LogRotationSize  int          `json:"logRotationSize"`
+	VaultAddress     string       `json:"vaultAddress"`
+	VaultMountPoint  string       `json:"vaultMountPoint"`
+	VaultToken       string       `json:"vaultToken"`
 }

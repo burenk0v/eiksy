@@ -8,8 +8,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"opsy/internal/domain/ai"
@@ -18,7 +22,9 @@ import (
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	sftpdomain "opsy/internal/domain/sftp"
+	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/domain/workspace"
+	"opsy/internal/llm"
 )
 
 type ShellState struct {
@@ -53,6 +59,8 @@ type Service struct {
 	sshManager   sshManager
 	sftpManager  sftpManager
 	emitFn       func(eventName string, data ...interface{})
+	logMu        sync.Mutex
+	logFilePath  string
 }
 
 type stateStore interface {
@@ -104,13 +112,17 @@ type sftpManager interface {
 }
 
 func NewService(store stateStore, localManager localModelManager, sshManager sshManager, sftpManager sftpManager) *Service {
-	return &Service{
+	service := &Service{
 		store:        store,
 		localManager: localManager,
 		sshManager:   sshManager,
 		sftpManager:  sftpManager,
 		emitFn:       func(string, ...interface{}) {},
 	}
+	if baseDir, err := llm.OpsyDir(); err == nil {
+		service.logFilePath = filepath.Join(baseDir, "opsy.log")
+	}
+	return service
 }
 
 func (s *Service) SetRuntimeContext(ctx context.Context, emitFn func(eventName string, data ...interface{})) {
@@ -121,11 +133,13 @@ func (s *Service) SetRuntimeContext(ctx context.Context, emitFn func(eventName s
 }
 
 func (s *Service) EmitLog(level, message string) {
+	timestamp := time.Now().UTC().Format(time.RFC3339)
 	s.emitFn("app:log", map[string]string{
 		"level":   level,
 		"message": message,
-		"time":    time.Now().UTC().Format(time.RFC3339),
+		"time":    timestamp,
 	})
+	_ = s.writeLogToFile(level, message, timestamp)
 }
 
 func (s *Service) GetShellState() ShellState {
@@ -324,6 +338,80 @@ func (s *Service) SaveSFTPFile(tabID, filePath, content string) error {
 	return s.sftpManager.WriteFile(tabID, filePath, content)
 }
 
+func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
+	cfg := s.store.Settings()
+	if strings.TrimSpace(cfg.VaultAddress) == "" {
+		return nil, fmt.Errorf("vault address is not configured")
+	}
+	if strings.TrimSpace(cfg.VaultMountPoint) == "" {
+		return nil, fmt.Errorf("vault mountpoint is not configured")
+	}
+	if strings.TrimSpace(cfg.VaultToken) == "" {
+		return nil, fmt.Errorf("vault token is not configured")
+	}
+	parsed, err := url.Parse(strings.TrimSpace(cfg.VaultAddress))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("vault address must be a valid http or https url")
+	}
+
+	cleanPath := strings.Trim(strings.TrimSpace(path), "/")
+	metadataRoute := vaultPathJoin(cfg.VaultMountPoint, "metadata", cleanPath)
+	endpoint := strings.TrimRight(parsed.String(), "/") + "/v1/" + metadataRoute + "?list=true"
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build vault request: %w", err)
+	}
+	req.Header.Set("X-Vault-Token", cfg.VaultToken)
+
+	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("vault request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read vault response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("vault API returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var payload struct {
+		Data struct {
+			Keys []string `json:"keys"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("parse vault response: %w", err)
+	}
+
+	result := make([]vaultdomain.SecretNode, 0, len(payload.Data.Keys))
+	for _, key := range payload.Data.Keys {
+		isDir := strings.HasSuffix(key, "/")
+		name := strings.TrimSuffix(strings.TrimSpace(key), "/")
+		if name == "" {
+			continue
+		}
+		fullPath := name
+		if cleanPath != "" {
+			fullPath = cleanPath + "/" + name
+		}
+		result = append(result, vaultdomain.SecretNode{
+			Name:  name,
+			Path:  fullPath,
+			IsDir: isDir,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].IsDir != result[j].IsDir {
+			return result[i].IsDir
+		}
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
+}
+
 func (s *Service) SelectAIProvider(providerID string) error {
 	state := s.store.AIState()
 	index := providerIndexByID(state.Providers, providerID)
@@ -394,6 +482,21 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.LogLevel == "" {
 		updated.LogLevel = current.LogLevel
 	}
+	if updated.LogRotationSize <= 0 {
+		updated.LogRotationSize = current.LogRotationSize
+	}
+	if updated.LogRotationSize <= 0 {
+		updated.LogRotationSize = 10 * 1024 * 1024
+	}
+	if strings.TrimSpace(updated.VaultMountPoint) == "" {
+		updated.VaultMountPoint = current.VaultMountPoint
+	}
+	if strings.TrimSpace(updated.VaultMountPoint) == "" {
+		updated.VaultMountPoint = "secret"
+	}
+	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
+	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
+	updated.VaultToken = strings.TrimSpace(updated.VaultToken)
 	return s.store.UpdateSettings(updated)
 }
 
@@ -631,7 +734,7 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 
 	s.emitFn("ai:status", map[string]string{"status": "thinking"})
 	defer s.emitFn("ai:status", map[string]string{"status": "idle"})
-	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages)
+	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages, state.ChatSessionID)
 	if err != nil {
 		return fmt.Errorf("AI request failed: %w", err)
 	}
@@ -648,6 +751,7 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 func (s *Service) ClearChat() {
 	state := s.store.AIState()
 	state.Messages = nil
+	state.ChatSessionID = fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano())
 	s.store.UpdateAIState(state)
 }
 
@@ -669,7 +773,7 @@ func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) *ai.Provider
 	return nil
 }
 
-func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage) (string, error) {
+func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage, chatSessionID string) (string, error) {
 	type reqMessage struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -681,6 +785,7 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 	body, err := json.Marshal(map[string]interface{}{
 		"model":    provider.Model,
 		"messages": reqMessages,
+		"user":     chatSessionID,
 	})
 	if err != nil {
 		return "", err
@@ -724,4 +829,66 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 		return "", fmt.Errorf("AI returned an empty response")
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+func (s *Service) writeLogToFile(level, message, timestamp string) error {
+	cfg := s.store.Settings()
+	if !cfg.SaveLogsToFile || strings.TrimSpace(s.logFilePath) == "" {
+		return nil
+	}
+
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(s.logFilePath), 0o755); err != nil {
+		return err
+	}
+	line := fmt.Sprintf("%s [%s] %s\n", timestamp, strings.ToUpper(strings.TrimSpace(level)), message)
+	maxSize := cfg.LogRotationSize
+	if maxSize <= 0 {
+		maxSize = 10 * 1024 * 1024
+	}
+	if err := s.rotateLogFileIfNeeded(maxSize, int64(len(line))); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(s.logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.WriteString(line)
+	return err
+}
+
+func (s *Service) rotateLogFileIfNeeded(maxSize int, incomingSize int64) error {
+	info, err := os.Stat(s.logFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if info.Size()+incomingSize <= int64(maxSize) {
+		return nil
+	}
+	rotated := s.logFilePath + ".1"
+	_ = os.Remove(rotated)
+	return os.Rename(s.logFilePath, rotated)
+}
+
+func vaultPathJoin(parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		p := strings.Trim(strings.TrimSpace(part), "/")
+		if p == "" {
+			continue
+		}
+		for _, token := range strings.Split(p, "/") {
+			escaped := url.PathEscape(strings.TrimSpace(token))
+			if escaped != "" {
+				filtered = append(filtered, escaped)
+			}
+		}
+	}
+	return strings.Join(filtered, "/")
 }

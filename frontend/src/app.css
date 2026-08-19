@@ -90,6 +90,35 @@
     border-left: 1px solid var(--border-subtle);
 }
 
+.sidebar-panel-tabs {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem 0;
+}
+
+.panel-tab {
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0.5rem 0.8rem;
+}
+
+.panel-tab.active {
+    border-color: var(--border-active);
+    box-shadow: var(--shadow-active);
+    background: var(--color-accent-subtle);
+    color: var(--color-text);
+}
+
+.hidden {
+    display: none !important;
+}
+
 .workspace-panel {
     background: var(--bg-workspace);
 }

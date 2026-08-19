@@ -36,4 +36,5 @@ type WorkspaceState struct {
 	Providers     []ProviderDescriptor `json:"providers"`
 	ContextPolicy ContextPolicy        `json:"contextPolicy"`
 	Messages      []ChatMessage        `json:"messages"`
+	ChatSessionID string               `json:"chatSessionId"`
 }
