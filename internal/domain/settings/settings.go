@@ -18,19 +18,27 @@ const (
 	DefaultVaultMountPoint          = "secret"
 )
 
+// PortForwardRule describes a single SSH local-port-forwarding rule.
+type PortForwardRule struct {
+	Ports   string `json:"ports"`
+	HostID  string `json:"hostId"`
+	Enabled bool   `json:"enabled"`
+}
+
 type AppSettings struct {
-	Theme            string       `json:"theme"`
-	DefaultProtocol  string       `json:"defaultProtocol"`
-	WindowLayout     WindowLayout `json:"windowLayout"`
-	PromptBeforeAI   bool         `json:"promptBeforeAi"`
-	AllowCloudModels bool         `json:"allowCloudModels"`
-	SSHForwardPorts  string       `json:"sshForwardPorts"`
-	SSHForwardHostID string       `json:"sshForwardHostId"`
-	LogLevel         LogLevel     `json:"logLevel"`
-	ShowLogPanel     bool         `json:"showLogPanel"`
-	SaveLogsToFile   bool         `json:"saveLogsToFile"`
-	LogRotationSize  int          `json:"logRotationSize"`
-	VaultAddress     string       `json:"vaultAddress"`
-	VaultMountPoint  string       `json:"vaultMountPoint"`
-	VaultToken       string       `json:"-"`
+	Theme            string            `json:"theme"`
+	DefaultProtocol  string            `json:"defaultProtocol"`
+	WindowLayout     WindowLayout      `json:"windowLayout"`
+	PromptBeforeAI   bool              `json:"promptBeforeAi"`
+	AllowCloudModels bool              `json:"allowCloudModels"`
+	SSHForwardPorts  string            `json:"sshForwardPorts"`
+	SSHForwardHostID string            `json:"sshForwardHostId"`
+	PortForwardRules []PortForwardRule `json:"portForwardRules"`
+	LogLevel         LogLevel          `json:"logLevel"`
+	ShowLogPanel     bool              `json:"showLogPanel"`
+	SaveLogsToFile   bool              `json:"saveLogsToFile"`
+	LogRotationSize  int               `json:"logRotationSize"`
+	VaultAddress     string            `json:"vaultAddress"`
+	VaultMountPoint  string            `json:"vaultMountPoint"`
+	VaultToken       string            `json:"-"`
 }

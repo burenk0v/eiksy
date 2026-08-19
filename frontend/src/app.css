@@ -53,30 +53,30 @@
 }
 
 :root.green {
-    --bg-base: #071a15;
-    --bg-panel: #0a241d;
-    --bg-workspace: linear-gradient(180deg, #0b1f18 0%, #103128 100%);
-    --bg-card: rgba(14, 40, 33, 0.9);
-    --bg-input: rgba(8, 24, 20, 0.94);
-    --bg-terminal: #04130f;
-    --bg-modal: #102d25;
-    --bg-overlay: rgba(1, 10, 7, 0.72);
-    --bg-btn-secondary: rgba(255, 255, 255, 0.08);
-    --bg-progress: rgba(255, 255, 255, 0.08);
-    --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-card: rgba(124, 255, 217, 0.09);
-    --border-input: rgba(124, 255, 217, 0.15);
-    --border-active: rgba(0, 168, 142, 0.45);
-    --color-text: #e7fff8;
-    --color-muted: #9ccfc2;
-    --color-label: #75ab9d;
-    --color-accent: #00a88e;
-    --color-accent-subtle: rgba(0, 168, 142, 0.14);
-    --color-tag: #7cf1d2;
-    --color-error: #fecaca;
-    --color-error-bg: rgba(127, 29, 29, 0.22);
-    --color-error-border: rgba(248, 113, 113, 0.35);
-    --shadow-active: 0 0 0 1px rgba(0, 168, 142, 0.2);
+    --bg-base: #f0faf5;
+    --bg-panel: #e6f5ec;
+    --bg-workspace: linear-gradient(180deg, #f5fdf8 0%, #ecf7f0 100%);
+    --bg-card: rgba(255, 255, 255, 0.95);
+    --bg-input: rgba(255, 255, 255, 0.97);
+    --bg-terminal: #1a2820;
+    --bg-modal: #ffffff;
+    --bg-overlay: rgba(20, 50, 35, 0.55);
+    --bg-btn-secondary: rgba(0, 0, 0, 0.07);
+    --bg-progress: rgba(0, 0, 0, 0.08);
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-card: rgba(0, 140, 80, 0.14);
+    --border-input: rgba(0, 0, 0, 0.18);
+    --border-active: rgba(0, 150, 85, 0.6);
+    --color-text: #132b1e;
+    --color-muted: #3a6a4a;
+    --color-label: #4a7a5a;
+    --color-accent: #008c50;
+    --color-accent-subtle: rgba(0, 140, 80, 0.10);
+    --color-tag: #006d3d;
+    --color-error: #991b1b;
+    --color-error-bg: rgba(254, 202, 202, 0.5);
+    --color-error-border: rgba(248, 113, 113, 0.5);
+    --shadow-active: 0 0 0 2px rgba(0, 140, 80, 0.22);
 }
 
 .shell-root {
@@ -474,10 +474,10 @@ small {
 .sftp-list-header,
 .sftp-row {
     display: grid;
-    grid-template-columns: minmax(0, 2.1fr) minmax(120px, 1.1fr) 90px 90px minmax(140px, auto);
-    gap: 0.85rem;
+    grid-template-columns: minmax(0, 1fr) 70px 80px minmax(110px, auto);
+    gap: 0.5rem;
     align-items: center;
-    padding: 0.85rem 1rem;
+    padding: 0.55rem 0.75rem;
 }
 
 .sftp-list-header {
@@ -486,7 +486,7 @@ small {
     z-index: 1;
     background: var(--bg-panel);
     color: var(--color-label);
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     border-bottom: 1px solid var(--border-subtle);
@@ -867,4 +867,66 @@ small {
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
+}
+
+.sftp-row-name-inner {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.sftp-row-date {
+    font-size: 0.72rem;
+    color: var(--color-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sftp-row {
+    font-size: 0.85rem;
+}
+
+/* Port forwarding rules list */
+.pf-rules-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin-bottom: 0.25rem;
+}
+
+.pf-rule {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    background: var(--bg-card);
+    font-size: 0.88rem;
+}
+
+.pf-rule-disabled {
+    opacity: 0.55;
+}
+
+.pf-rule-ports {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-weight: 600;
+    color: var(--color-accent);
+}
+
+.pf-rule-arrow {
+    color: var(--color-label);
+}
+
+.pf-rule-host {
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pf-rule-spacer {
+    flex: 1;
 }

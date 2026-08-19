@@ -814,24 +814,56 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 		return profile
 	}
 	cfg := s.store.Settings()
-	ports := strings.TrimSpace(cfg.SSHForwardPorts)
-	hostID := strings.TrimSpace(cfg.SSHForwardHostID)
-	if ports == "" || hostID == "" {
+
+	// Build the combined list of active rules from PortForwardRules.
+	// Fall back to the legacy SSHForwardPorts/SSHForwardHostID fields when
+	// no explicit rules are configured so that existing settings keep working.
+	type ruleEntry struct {
+		ports  string
+		hostID string
+	}
+	var rules []ruleEntry
+	for _, r := range cfg.PortForwardRules {
+		if !r.Enabled {
+			continue
+		}
+		p := strings.TrimSpace(r.Ports)
+		h := strings.TrimSpace(r.HostID)
+		if p != "" && h != "" {
+			rules = append(rules, ruleEntry{ports: p, hostID: h})
+		}
+	}
+	if len(rules) == 0 {
+		legacyPorts := strings.TrimSpace(cfg.SSHForwardPorts)
+		legacyHostID := strings.TrimSpace(cfg.SSHForwardHostID)
+		if legacyPorts != "" && legacyHostID != "" {
+			rules = append(rules, ruleEntry{ports: legacyPorts, hostID: legacyHostID})
+		}
+	}
+	if len(rules) == 0 {
 		return profile
 	}
-	targetProfile, ok := s.store.SessionProfile(hostID)
-	if !ok || targetProfile.ProtocolID != "ssh" || strings.TrimSpace(targetProfile.Host) == "" {
+
+	allSpecs := make([]string, 0)
+	for _, rule := range rules {
+		targetProfile, ok := s.store.SessionProfile(rule.hostID)
+		if !ok || targetProfile.ProtocolID != "ssh" || strings.TrimSpace(targetProfile.Host) == "" {
+			continue
+		}
+		spec := buildPortForwardSpecs(rule.ports, strings.TrimSpace(targetProfile.Host))
+		if strings.TrimSpace(spec) != "" {
+			allSpecs = append(allSpecs, spec)
+		}
+	}
+	if len(allSpecs) == 0 {
 		return profile
 	}
+
 	options := make(map[string]string, len(profile.Options)+1)
 	for key, value := range profile.Options {
 		options[key] = value
 	}
-	forwardSpec := buildPortForwardSpecs(ports, strings.TrimSpace(targetProfile.Host))
-	if strings.TrimSpace(forwardSpec) == "" {
-		return profile
-	}
-	options["local_forwards"] = forwardSpec
+	options["local_forwards"] = strings.Join(allSpecs, ",")
 	profile.Options = options
 	return profile
 }
