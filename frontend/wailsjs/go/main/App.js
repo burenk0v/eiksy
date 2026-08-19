@@ -34,6 +34,10 @@ export function DownloadLocalModelWithProgress() {
   return window['go']['main']['App']['DownloadLocalModelWithProgress']();
 }
 
+export function DownloadSFTPFiles(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DownloadSFTPFiles'](arg1, arg2, arg3);
+}
+
 export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
@@ -62,6 +66,10 @@ export function OpenSessionWindow() {
   return window['go']['main']['App']['OpenSessionWindow']();
 }
 
+export function OpenRDP(arg1, arg2) {
+  return window['go']['main']['App']['OpenRDP'](arg1, arg2);
+}
+
 export function ReadSFTPFile(arg1, arg2) {
   return window['go']['main']['App']['ReadSFTPFile'](arg1, arg2);
 }
@@ -86,8 +94,20 @@ export function SendSSHInput(arg1, arg2) {
   return window['go']['main']['App']['SendSSHInput'](arg1, arg2);
 }
 
+export function SelectDownloadDirectory() {
+  return window['go']['main']['App']['SelectDownloadDirectory']();
+}
+
+export function SelectUploadFiles() {
+  return window['go']['main']['App']['SelectUploadFiles']();
+}
+
 export function StartLocalModel() {
   return window['go']['main']['App']['StartLocalModel']();
+}
+
+export function UploadSFTPFiles(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UploadSFTPFiles'](arg1, arg2, arg3);
 }
 
 export function SendChatMessage(arg1) {

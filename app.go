@@ -118,6 +118,35 @@ func (a *App) SaveSFTPFile(tabID, path, content string) error {
 	return a.currentService().SaveSFTPFile(tabID, path, content)
 }
 
+func (a *App) SelectUploadFiles() ([]string, error) {
+	return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select file(s) to upload",
+	})
+}
+
+func (a *App) SelectDownloadDirectory() (string, error) {
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Select folder for downloaded files",
+	})
+}
+
+func (a *App) UploadSFTPFiles(tabID, remoteDir string, localPaths []string) error {
+	return a.currentService().UploadSFTPFiles(tabID, remoteDir, localPaths)
+}
+
+func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) error {
+	return a.currentService().DownloadSFTPFiles(tabID, localDir, remotePaths)
+}
+
+func (a *App) OpenRDP(tabID, profileID string) error {
+	target, err := a.currentService().OpenRDP(tabID, profileID)
+	if err != nil {
+		return err
+	}
+	runtime.BrowserOpenURL(a.ctx, target)
+	return nil
+}
+
 func (a *App) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
 	return a.currentService().ListVaultSecrets(path)
 }

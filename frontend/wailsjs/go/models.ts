@@ -401,6 +401,8 @@ export namespace settings {
 	    windowLayout: WindowLayout;
 	    promptBeforeAi: boolean;
 	    allowCloudModels: boolean;
+	    sshForwardPorts: string;
+	    sshForwardHostId: string;
 	    logLevel: string;
 	    showLogPanel: boolean;
 	    saveLogsToFile: boolean;
@@ -420,6 +422,8 @@ export namespace settings {
 	        this.windowLayout = this.convertValues(source["windowLayout"], WindowLayout);
 	        this.promptBeforeAi = source["promptBeforeAi"];
 	        this.allowCloudModels = source["allowCloudModels"];
+	        this.sshForwardPorts = source["sshForwardPorts"];
+	        this.sshForwardHostId = source["sshForwardHostId"];
 	        this.logLevel = source["logLevel"];
 	        this.showLogPanel = source["showLogPanel"];
 	        this.saveLogsToFile = source["saveLogsToFile"];

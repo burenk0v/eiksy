@@ -429,12 +429,39 @@ small {
     text-align: left;
 }
 
+.sftp-entry.selected {
+    border-color: var(--border-active);
+}
+
 .sftp-dir {
     color: var(--color-tag);
 }
 
 .sftp-file {
     color: var(--color-text);
+}
+
+.sftp-file-main {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0;
+    cursor: pointer;
+    flex: 1;
+}
+
+.sftp-select-check {
+    display: inline-flex !important;
+    flex-direction: row !important;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--color-muted);
+    font-size: 0.78rem;
 }
 
 .remote-editor {
