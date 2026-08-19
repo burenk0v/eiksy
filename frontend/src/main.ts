@@ -6,13 +6,11 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
-    CancelModelDownload,
     CloseSession,
     ConnectSSH,
     CreateSessionProfile,
     DeleteSessionProfile,
     DisconnectSSH,
-    DownloadLocalModelWithProgress,
     GetShellState,
     LaunchSession,
     ListSFTPFiles,
@@ -24,7 +22,6 @@ import {
     SelectAIProvider,
     SendChatMessage,
     SendSSHInput,
-    StartLocalModel,
     ResizeTerminal,
     UpdateSettings,
 } from '../wailsjs/go/main/App';
@@ -44,6 +41,8 @@ type SessionFormState = {
     port: string;
     username: string;
     password: string;
+    authMethod: 'password' | 'key';
+    privateKeyPath: string;
     protocolId: string;
     tags: string;
     proxyJump: string;
@@ -65,14 +64,6 @@ type SFTPState = {
     editorError: string;
 };
 
-type ModelProgressState = {
-    downloaded: number;
-    total: number;
-    percent: number;
-    active: boolean;
-    error: string;
-};
-
 type TerminalState = {
     terminal: Terminal;
     fitAddon: FitAddon;
@@ -90,6 +81,13 @@ type LogEntry = {
     level: string;
     message: string;
     time: string;
+};
+
+type SessionContextMenuState = {
+    visible: boolean;
+    x: number;
+    y: number;
+    profileId: string;
 };
 
 const THEME_KEY = 'opsy-theme';
@@ -120,9 +118,11 @@ class OpsyShell {
         editorError: '',
     };
     private sshConfigDraft = '';
-    private modelProgress: ModelProgressState = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
     private theme: Theme;
     private logEntries: LogEntry[] = [];
+    private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
+    private includeLastCommandOutput = false;
+    private terminalOutputHistory = new Map<string, string>();
     private readonly MAX_LOG_ENTRIES = 200;
 
     constructor() {
@@ -151,23 +151,6 @@ class OpsyShell {
     }
 
     private registerGlobalEvents(): void {
-        EventsOn('model:progress', (...payload: unknown[]) => {
-            const data = payload[0] as { downloaded?: number; total?: number; percent?: number } | undefined;
-            this.modelProgress = {
-                downloaded: data?.downloaded ?? 0,
-                total: data?.total ?? 0,
-                percent: data?.percent ?? 0,
-                active: true,
-                error: '',
-            };
-            this.render();
-        });
-        EventsOn('model:error', (...payload: unknown[]) => {
-            const data = payload[0] as { error?: string } | undefined;
-            this.modelProgress.error = data?.error ?? 'Model download failed';
-            this.modelProgress.active = false;
-            this.render();
-        });
         EventsOn('app:log', (...payload: unknown[]) => {
             const data = payload[0] as { level?: string; message?: string; time?: string } | undefined;
             if (!data?.message) return;
@@ -214,23 +197,26 @@ class OpsyShell {
                             <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                         </div>
                     </div>
-                    <section class="section">
-                        <div class="section-heading">
-                            <span class="section-title">Sessions</span>
-                        </div>
-                        <div class="session-list">
-                            ${this.renderSessionProfiles()}
-                        </div>
-                    </section>
-                    <section class="section sftp-section">
-                        <div class="section-heading">
-                            <span class="section-title">SFTP Browser</span>
-                            <div class="section-actions">
-                                ${this.renderSFTPActions()}
+                    <div class="sidebar-body">
+                        <section class="section sidebar-section sessions-section">
+                            <div class="section-heading">
+                                <span class="section-title">Sessions</span>
                             </div>
-                        </div>
-                        ${this.renderSFTPBrowser()}
-                    </section>
+                            <div class="section-copy">Right-click a session to manage it.</div>
+                            <div class="session-list">
+                                ${this.renderSessionProfiles()}
+                            </div>
+                        </section>
+                        <section class="section sftp-section sidebar-section">
+                            <div class="section-heading">
+                                <span class="section-title">SFTP Browser</span>
+                                <div class="section-actions">
+                                    ${this.renderSFTPActions()}
+                                </div>
+                            </div>
+                            ${this.renderSFTPBrowser()}
+                        </section>
+                    </div>
                 </aside>
 
                 <main class="panel workspace-panel">
@@ -248,7 +234,6 @@ class OpsyShell {
                             <h2>Chat</h2>
                         </div>
                     </div>
-                    ${this.modelProgress.active || this.modelProgress.error ? this.renderProgress() : ''}
                     <section class="section chat-section">
                         <div class="section-title">Assistant</div>
                         <div class="chat-messages" id="chat-messages">
@@ -257,12 +242,17 @@ class OpsyShell {
                     </section>
                     ${this.hasConfiguredProvider() ? `
                     <form class="chat-input-form" data-chat-form>
+                        <label class="inline-check chat-attach-row">
+                            <span>Attach latest console output</span>
+                            <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
+                        </label>
                         <textarea class="chat-textarea" name="message" placeholder="Ask the assistant…" rows="3"></textarea>
                         <button class="action-button" type="submit">Send</button>
                     </form>
                     ` : ''}
                 </aside>
             </div>
+            ${this.renderSessionContextMenu()}
             ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
@@ -275,6 +265,28 @@ class OpsyShell {
     }
 
     private bindEvents(): void {
+        root?.querySelector<HTMLDivElement>('[data-session-context-overlay]')?.addEventListener('click', () => {
+            this.hideSessionContextMenu();
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-context-open]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const profileID = button.dataset.sessionContextOpen;
+                this.hideSessionContextMenu();
+                if (profileID) {
+                    await this.openProfile(profileID);
+                }
+            });
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-context-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const profileID = button.dataset.sessionContextDelete;
+                this.hideSessionContextMenu();
+                if (profileID) {
+                    await this.runAction(async () => DeleteSessionProfile(profileID), 'Unable to delete session profile');
+                }
+            });
+        });
+
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
             this.showSessionModal = true;
             this.sessionModalTab = 'basic';
@@ -299,14 +311,34 @@ class OpsyShell {
                 this.render();
             });
         });
+        root?.querySelector<HTMLSelectElement>('select[name="authMethod"]')?.addEventListener('change', (event) => {
+            this.sessionForm.authMethod = ((event.currentTarget as HTMLSelectElement).value === 'key' ? 'key' : 'password');
+            this.sessionForm.name = root?.querySelector<HTMLInputElement>('input[name="name"]')?.value ?? this.sessionForm.name;
+            this.sessionForm.group = root?.querySelector<HTMLInputElement>('input[name="group"]')?.value ?? this.sessionForm.group;
+            this.sessionForm.host = root?.querySelector<HTMLInputElement>('input[name="host"]')?.value ?? this.sessionForm.host;
+            this.sessionForm.port = root?.querySelector<HTMLInputElement>('input[name="port"]')?.value ?? this.sessionForm.port;
+            this.sessionForm.username = root?.querySelector<HTMLInputElement>('input[name="username"]')?.value ?? this.sessionForm.username;
+            this.sessionForm.password = root?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? this.sessionForm.password;
+            this.sessionForm.privateKeyPath = root?.querySelector<HTMLInputElement>('input[name="privateKeyPath"]')?.value ?? this.sessionForm.privateKeyPath;
+            this.sessionForm.protocolId = root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.value ?? this.sessionForm.protocolId;
+            this.sessionForm.tags = root?.querySelector<HTMLInputElement>('input[name="tags"]')?.value ?? this.sessionForm.tags;
+            this.render();
+        });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-open-profile]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const profileID = button.dataset.openProfile;
-                if (!profileID || !this.shellState) {
+        root?.querySelectorAll<HTMLElement>('[data-session-item]').forEach((item) => {
+            item.addEventListener('contextmenu', (event) => {
+                event.preventDefault();
+                const profileID = item.dataset.sessionItem;
+                if (!profileID) {
                     return;
                 }
-                await this.openProfile(profileID);
+                this.sessionContextMenu = {
+                    visible: true,
+                    x: event.clientX,
+                    y: event.clientY,
+                    profileId: profileID,
+                };
+                this.render();
             });
         });
 
@@ -323,16 +355,6 @@ class OpsyShell {
                 this.errorMessage = formatError('Unable to import SSH config', error);
                 this.render();
             }
-        });
-
-        root?.querySelectorAll<HTMLButtonElement>('[data-delete-profile]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const profileID = button.dataset.deleteProfile;
-                if (!profileID) {
-                    return;
-                }
-                await this.runAction(async () => DeleteSessionProfile(profileID), 'Unable to delete session profile');
-            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-tab-id]').forEach((button) => {
@@ -390,30 +412,27 @@ class OpsyShell {
                 }
                 await this.loadSFTP(activeTab.id, targetPath);
             });
-
-            root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file]').forEach((button) => {
-                button.addEventListener('click', async () => {
-                    const targetPath = button.dataset.sftpFile;
-                    const activeTab = this.activeTab();
-                    if (!targetPath || !activeTab) {
-                        return;
-                    }
-                    await this.openRemoteFile(activeTab.id, targetPath);
-                });
-            });
-
-            root?.querySelector<HTMLButtonElement>('[data-save-remote-file]')?.addEventListener('click', async () => {
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const targetPath = button.dataset.sftpFile;
                 const activeTab = this.activeTab();
-                if (!activeTab || !this.sftpState.editorPath) {
+                if (!targetPath || !activeTab) {
                     return;
                 }
-                await this.saveRemoteFile(activeTab.id);
+                await this.openRemoteFile(activeTab.id, targetPath);
             });
-
-            root?.querySelector<HTMLTextAreaElement>('[data-remote-editor]')?.addEventListener('input', (event) => {
-                this.sftpState.editorContent = (event.currentTarget as HTMLTextAreaElement).value;
-                this.sftpState.editorDirty = true;
-            });
+        });
+        root?.querySelector<HTMLButtonElement>('[data-save-remote-file]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab || !this.sftpState.editorPath) {
+                return;
+            }
+            await this.saveRemoteFile(activeTab.id);
+        });
+        root?.querySelector<HTMLTextAreaElement>('[data-remote-editor]')?.addEventListener('input', (event) => {
+            this.sftpState.editorContent = (event.currentTarget as HTMLTextAreaElement).value;
+            this.sftpState.editorDirty = true;
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-select-provider]').forEach((button) => {
@@ -426,43 +445,13 @@ class OpsyShell {
             });
         });
 
-        root?.querySelector<HTMLButtonElement>('[data-download-model]')?.addEventListener('click', async () => {
-            this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: true, error: '' };
-            this.render();
-            try {
-                await DownloadLocalModelWithProgress();
-                this.modelProgress.active = false;
-                await this.refresh('');
-            } catch (error) {
-                this.modelProgress.active = false;
-                this.modelProgress.error = formatError('Unable to download local model', error);
-                this.errorMessage = this.modelProgress.error;
-                this.render();
-            }
-        });
-
-        root?.querySelectorAll<HTMLButtonElement>('[data-cancel-download]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                try {
-                    await CancelModelDownload();
-                } catch {
-                    // ignore
-                }
-                this.modelProgress = { downloaded: 0, total: 0, percent: 0, active: false, error: '' };
-                this.render();
-            });
-        });
-
-        root?.querySelector<HTMLButtonElement>('[data-start-model]')?.addEventListener('click', async () => {
-            await this.runAction(async () => StartLocalModel(), 'Unable to start local model');
-        });
-
         root?.querySelector<HTMLFormElement>('[data-cloud-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
+            const model = form.querySelector<HTMLInputElement>('input[name="model"]')?.value ?? '';
             const endpoint = form.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? '';
             const token = form.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '';
-            await this.runAction(async () => SaveCloudProvider(endpoint, token), 'Unable to save cloud provider');
+            await this.runAction(async () => SaveCloudProvider(model, endpoint, token), 'Unable to save cloud provider');
         });
 
         root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
@@ -472,7 +461,10 @@ class OpsyShell {
             const message = textarea?.value ?? '';
             if (!message.trim()) return;
             if (textarea) textarea.value = '';
-            await this.runAction(async () => SendChatMessage(message), 'Unable to send message');
+            const includeLastOutput = form.querySelector<HTMLInputElement>('input[name="includeLastOutput"]')?.checked ?? false;
+            this.includeLastCommandOutput = includeLastOutput;
+            const payload = includeLastOutput ? this.withLatestTerminalOutput(message) : message;
+            await this.runAction(async () => SendChatMessage(payload), 'Unable to send message');
         });
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
@@ -522,6 +514,8 @@ class OpsyShell {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
             const formData = new FormData(form);
+            const authMethod = String(formData.get('authMethod') ?? 'password') === 'key' ? 'key' : 'password';
+            const privateKeyPath = String(formData.get('privateKeyPath') ?? '');
             const profile: SessionProfile = {
                 id: '',
                 name: String(formData.get('name') ?? ''),
@@ -529,7 +523,7 @@ class OpsyShell {
                 host: String(formData.get('host') ?? ''),
                 port: Number(formData.get('port') ?? 22),
                 username: String(formData.get('username') ?? ''),
-                password: String(formData.get('password') ?? ''),
+                password: String(authMethod === 'password' ? (formData.get('password') ?? '') : ''),
                 protocolId: String(formData.get('protocolId') ?? 'ssh'),
                 tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
                 favorite: false,
@@ -537,7 +531,17 @@ class OpsyShell {
             const proxyJump = String(formData.get('proxyJump') ?? '').trim();
             const localForwards = String(formData.get('localForwards') ?? '').trim();
             const useSSHAgent = formData.get('useSSHAgent') === 'on';
+            const keyPath = privateKeyPath.trim();
+            if (authMethod === 'key' && !keyPath) {
+                this.errorMessage = 'Unable to save session profile: private key path is required for key auth';
+                this.render();
+                return;
+            }
             const options: Record<string, string> = {};
+            options.auth_method = authMethod;
+            if (authMethod === 'key' && keyPath) {
+                options.ssh_private_key_path = keyPath;
+            }
             if (proxyJump) {
                 options.proxy_jump = proxyJump;
             }
@@ -591,6 +595,7 @@ class OpsyShell {
         terminal?.terminal.dispose();
         terminal?.wrapper.remove();
         this.terminals.delete(tabID);
+        this.terminalOutputHistory.delete(tabID);
         try {
             await DisconnectSSH(tabID);
         } catch {
@@ -727,7 +732,14 @@ class OpsyShell {
 
         const unsubscribe = EventsOn(`terminal:output:${tabID}`, (...payload: unknown[]) => {
             const data = payload[0] as { data?: string } | undefined;
-            terminal.write(data?.data ?? '');
+            const chunk = data?.data ?? '';
+            terminal.write(chunk);
+            if (!chunk) {
+                return;
+            }
+            const current = this.terminalOutputHistory.get(tabID) ?? '';
+            const updated = `${current}${chunk}`;
+            this.terminalOutputHistory.set(tabID, updated.slice(-12000));
         });
 
         const terminalState: TerminalState = { terminal, fitAddon, wrapper, inner, opened: false, unsubscribe };
@@ -795,7 +807,7 @@ class OpsyShell {
             return '<div class="empty-state">No saved sessions yet.</div>';
         }
         return this.shellState.sessionProfiles.map((profile) => `
-            <article class="session-card">
+            <article class="session-card" data-session-item="${escapeHtml(profile.id)}">
                 <div>
                     <div class="session-title-row">
                         <strong>${escapeHtml(profile.name)}</strong>
@@ -803,10 +815,6 @@ class OpsyShell {
                     </div>
                     <div class="session-meta">${escapeHtml(profile.group || 'Ungrouped')} · ${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
                     <div class="session-tags">${profile.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
-                </div>
-                <div class="session-actions">
-                    <button class="action-button" data-open-profile="${escapeHtml(profile.id)}">Open</button>
-                    <button class="icon-button danger" data-delete-profile="${escapeHtml(profile.id)}">×</button>
                 </div>
             </article>
         `).join('');
@@ -907,35 +915,19 @@ class OpsyShell {
         if (!provider) {
             return '<div class="empty-state">Select an AI provider to configure it.</div>';
         }
-        if (provider.class === 'local') {
-            return `
-                <div class="provider-setup-card">
-                    <div class="section-title">Local model</div>
-                    <div class="session-meta">${escapeHtml(provider.localPath || 'Model not downloaded yet')}</div>
-                    <div class="provider-form-actions">
-                        <button class="action-button" data-download-model ${this.modelProgress.active ? 'disabled' : ''}>
-                            ${this.modelProgress.active ? 'Downloading…' : 'Download Qwen3'}
-                        </button>
-                        ${this.modelProgress.active ? `<button class="action-button secondary" data-cancel-download>Cancel</button>` : ''}
-                        <button class="action-button secondary" data-start-model ${provider.localPath ? '' : 'disabled'}>Start local model</button>
-                    </div>
-                    ${this.modelProgress.active ? `
-                        <div class="progress-bar"><div class="progress-fill" style="width: ${Math.max(0, Math.min(100, this.modelProgress.percent))}%"></div></div>
-                        <div class="session-meta">${escapeHtml(`${formatBytes(this.modelProgress.downloaded)} / ${formatBytes(this.modelProgress.total)}`)}</div>
-                    ` : ''}
-                    ${this.modelProgress.error ? `<div class="error-banner compact">${escapeHtml(this.modelProgress.error)}</div>` : ''}
-                </div>
-            `;
-        }
         return `
             <form class="provider-form" data-cloud-form>
+                <label>
+                    <span>Model name</span>
+                    <input type="text" name="model" value="${escapeHtml(provider.model || '')}" placeholder="gpt-5.6" required />
+                </label>
                 <label>
                     <span>Endpoint</span>
                     <input type="url" name="endpoint" value="${escapeHtml(provider.endpoint || '')}" placeholder="https://api.example.com/v1" required />
                 </label>
                 <label>
-                    <span>API token</span>
-                    <input type="password" name="token" placeholder="sk-..." required />
+                    <span>API token (optional)</span>
+                    <input type="password" name="token" placeholder="sk-..." />
                 </label>
                 <div class="provider-form-actions">
                     <button class="action-button" type="submit">Save cloud provider</button>
@@ -954,21 +946,6 @@ class OpsyShell {
         return this.shellState.ai.messages.map((message) => `
             <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
         `).join('');
-    }
-
-    private renderProgress(): string {
-        return `
-            <section class="section">
-                <div class="section-title">Model download</div>
-                <div class="progress-bar"><div class="progress-fill" style="width: ${Math.max(0, Math.min(100, this.modelProgress.percent))}%"></div></div>
-                <div class="session-meta">${escapeHtml(this.modelProgress.error || `${formatBytes(this.modelProgress.downloaded)} / ${formatBytes(this.modelProgress.total)}`)}</div>
-                ${this.modelProgress.active ? `
-                    <div style="margin-top:0.5rem;">
-                        <button class="action-button secondary" data-cancel-download>Stop download</button>
-                    </div>
-                ` : ''}
-            </section>
-        `;
     }
 
     private renderSettingsModal(): string {
@@ -1073,7 +1050,16 @@ class OpsyShell {
                                 <label><span>Host</span><input name="host" value="${escapeHtml(this.sessionForm.host)}" required /></label>
                                 <label><span>Port</span><input name="port" type="number" value="${escapeHtml(this.sessionForm.port)}" min="1" required /></label>
                                 <label><span>Username</span><input name="username" value="${escapeHtml(this.sessionForm.username)}" required /></label>
-                                <label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
+                                <label>
+                                    <span>Auth method</span>
+                                    <select name="authMethod">
+                                        <option value="password" ${this.sessionForm.authMethod === 'password' ? 'selected' : ''}>Password</option>
+                                        <option value="key" ${this.sessionForm.authMethod === 'key' ? 'selected' : ''}>SSH key</option>
+                                    </select>
+                                </label>
+                                ${this.sessionForm.authMethod === 'key'
+                                    ? `<label><span>Private key path</span><input name="privateKeyPath" value="${escapeHtml(this.sessionForm.privateKeyPath)}" placeholder="~/.ssh/id_ed25519" required /></label>`
+                                    : `<label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>`}
                                 <label>
                                     <span>Protocol</span>
                                     <select name="protocolId">
@@ -1098,6 +1084,53 @@ class OpsyShell {
                 </div>
             </div>
         `;
+    }
+
+    private renderSessionContextMenu(): string {
+        if (!this.sessionContextMenu.visible) {
+            return '';
+        }
+        return `
+            <div class="session-context-overlay" data-session-context-overlay>
+                <div class="session-context-menu" style="left:${this.sessionContextMenu.x}px;top:${this.sessionContextMenu.y}px;">
+                    <button class="session-context-item" data-session-context-open="${escapeHtml(this.sessionContextMenu.profileId)}">Open</button>
+                    <button class="session-context-item danger" data-session-context-delete="${escapeHtml(this.sessionContextMenu.profileId)}">Delete</button>
+                </div>
+            </div>
+        `;
+    }
+
+    private hideSessionContextMenu(): void {
+        if (!this.sessionContextMenu.visible) {
+            return;
+        }
+        this.sessionContextMenu = { visible: false, x: 0, y: 0, profileId: '' };
+        this.render();
+    }
+
+    private withLatestTerminalOutput(message: string): string {
+        const output = this.latestActiveTerminalOutput();
+        if (!output) {
+            return message;
+        }
+        return `${message}\n\n[Latest console output]\n${output}`;
+    }
+
+    private latestActiveTerminalOutput(): string {
+        const activeTab = this.activeTab();
+        if (!activeTab) {
+            return '';
+        }
+        const text = this.terminalOutputHistory.get(activeTab.id) ?? '';
+        if (!text.trim()) {
+            return '';
+        }
+        const normalized = text.replace(/\r/g, '').replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, '');
+        const lines = normalized.split('\n').map((line) => line.trimEnd()).filter((line) => line.trim() !== '');
+        if (lines.length === 0) {
+            return '';
+        }
+        return lines.slice(-24).join('\n');
     }
 
     private pickActiveTabID(preferredID: string): string {
@@ -1138,6 +1171,8 @@ class OpsyShell {
             port: '22',
             username: '',
             password: '',
+            authMethod: 'password',
+            privateKeyPath: '',
             protocolId: 'ssh',
             tags: '',
             proxyJump: '',

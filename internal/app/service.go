@@ -339,14 +339,15 @@ func (s *Service) SelectAIProvider(providerID string) error {
 	return nil
 }
 
-func (s *Service) SaveCloudProvider(endpoint, token string) error {
+func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
+	model = strings.TrimSpace(model)
 	endpoint = strings.TrimSpace(endpoint)
 	token = strings.TrimSpace(token)
+	if model == "" {
+		return fmt.Errorf("model name is required")
+	}
 	if endpoint == "" {
 		return fmt.Errorf("cloud endpoint is required")
-	}
-	if token == "" {
-		return fmt.Errorf("cloud token is required")
 	}
 
 	parsed, err := url.Parse(endpoint)
@@ -364,11 +365,12 @@ func (s *Service) SaveCloudProvider(endpoint, token string) error {
 		state.Providers[i].Selected = i == index
 	}
 
+	state.Providers[index].Model = model
 	state.Providers[index].Endpoint = endpoint
 	state.Providers[index].Token = token
 	state.Providers[index].Status = "ready"
 	state.Providers[index].Configured = true
-	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Saved cloud AI provider %s.", state.Providers[index].Name))
+	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Saved cloud AI provider %s (%s).", state.Providers[index].Name, model))
 	s.store.UpdateAIState(state)
 	return nil
 }

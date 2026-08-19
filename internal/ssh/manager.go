@@ -11,8 +11,9 @@ import (
 	"strings"
 	"sync"
 
+	"opsy/internal/sshauth"
+
 	xssh "golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
@@ -220,56 +221,15 @@ func hostKeyCallback() (xssh.HostKeyCallback, error) {
 }
 
 func buildClientConfig(user, password string, options map[string]string, hostKeyCallback xssh.HostKeyCallback) (*xssh.ClientConfig, error) {
-	authMethods := []xssh.AuthMethod{}
-	if strings.TrimSpace(password) != "" {
-		authMethods = append(authMethods, xssh.Password(password))
-	}
-	if shouldUseAgent(options) {
-		authMethod, err := authMethodFromAgent(options)
-		if err != nil {
-			return nil, err
-		}
-		authMethods = append(authMethods, authMethod)
-	}
-	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no ssh auth method configured; provide a password or enable ssh agent")
+	authMethods, err := sshauth.BuildAuthMethods(password, options)
+	if err != nil {
+		return nil, err
 	}
 	return &xssh.ClientConfig{
 		User:            user,
 		Auth:            authMethods,
 		HostKeyCallback: hostKeyCallback,
 	}, nil
-}
-
-func shouldUseAgent(options map[string]string) bool {
-	if options == nil {
-		return false
-	}
-	value := strings.TrimSpace(options["use_ssh_agent"])
-	if value == "" {
-		value = strings.TrimSpace(options["ssh_agent_socket"])
-		return value != ""
-	}
-	return strings.EqualFold(value, "1") || strings.EqualFold(value, "true") || strings.EqualFold(value, "yes")
-}
-
-func authMethodFromAgent(options map[string]string) (xssh.AuthMethod, error) {
-	socket := strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK"))
-	if options != nil {
-		override := strings.TrimSpace(options["ssh_agent_socket"])
-		if override != "" && !strings.EqualFold(override, "none") {
-			socket = override
-		}
-	}
-	if socket == "" {
-		return nil, fmt.Errorf("ssh agent requested but SSH_AUTH_SOCK is not set")
-	}
-	conn, err := net.Dial("unix", socket)
-	if err != nil {
-		return nil, fmt.Errorf("connect ssh agent: %w", err)
-	}
-	agentClient := agent.NewClient(conn)
-	return xssh.PublicKeysCallback(agentClient.Signers), nil
 }
 
 func dialTarget(ctx context.Context, address string, config *xssh.ClientConfig, options map[string]string) (net.Conn, error) {

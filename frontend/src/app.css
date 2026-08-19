@@ -55,7 +55,8 @@
 .shell {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr) 360px;
-    min-height: 100vh;
+    height: 100vh;
+    overflow: hidden;
     background: var(--bg-base);
     color: var(--color-text);
 }
@@ -63,7 +64,9 @@
 .panel {
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    min-height: 0;
+    height: 100vh;
+    overflow: hidden;
 }
 
 .sidebar-panel,
@@ -114,6 +117,29 @@
     padding: 1rem 1.5rem;
 }
 
+.sidebar-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sidebar-section {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sessions-section {
+    flex: 1;
+}
+
+.sftp-section {
+    flex: 1;
+    overflow: auto;
+}
+
 .section-heading,
 .section-actions,
 .sftp-path-row,
@@ -146,6 +172,10 @@ small {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
+}
+
+.session-list {
+    overflow: auto;
 }
 
 .import-box {
@@ -194,6 +224,10 @@ small {
     justify-content: space-between;
     gap: 1rem;
     padding: 1rem;
+}
+
+.session-card {
+    cursor: context-menu;
 }
 
 .session-title-row,
@@ -286,6 +320,8 @@ small {
 .terminal-shell {
     flex: 1;
     padding: 1rem;
+    min-height: 0;
+    overflow: hidden;
 }
 
 .terminal-container,
@@ -299,7 +335,7 @@ small {
     border-radius: 18px;
     background: var(--bg-terminal);
     padding: 0.25rem;
-    min-height: calc(100vh - 6rem);
+    min-height: 0;
 }
 
 .provider-setup-card,
@@ -344,7 +380,7 @@ small {
 }
 
 .sftp-list {
-    max-height: 42vh;
+    max-height: 35vh;
     overflow: auto;
 }
 
@@ -587,15 +623,15 @@ small {
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.75rem 1rem 1rem;
-    border-top: 1px solid var(--color-border);
+    border-top: 1px solid var(--border-subtle);
     flex-shrink: 0;
 }
 
 .chat-textarea {
     width: 100%;
     resize: vertical;
-    background: var(--color-surface);
-    border: 1px solid var(--color-border);
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
     border-radius: 6px;
     color: var(--color-text);
     font-family: inherit;
@@ -615,4 +651,50 @@ small {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    min-height: 0;
+}
+
+.chat-section {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.chat-attach-row {
+    margin-bottom: 0.2rem;
+}
+
+.session-context-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 110;
+}
+
+.session-context-menu {
+    position: fixed;
+    min-width: 180px;
+    border: 1px solid var(--border-card);
+    border-radius: 12px;
+    background: var(--bg-modal);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+}
+
+.session-context-item {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: var(--color-text);
+    text-align: left;
+    font: inherit;
+    cursor: pointer;
+    padding: 0.65rem 0.85rem;
+}
+
+.session-context-item:hover {
+    background: var(--color-accent-subtle);
+}
+
+.session-context-item.danger {
+    color: var(--color-error);
 }

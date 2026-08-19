@@ -37,7 +37,7 @@ export function ReadSFTPFile(arg1:string,arg2:string):Promise<string>;
 
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
 
-export function SaveCloudProvider(arg1:string,arg2:string):Promise<void>;
+export function SaveCloudProvider(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SaveSFTPFile(arg1:string,arg2:string,arg3:string):Promise<void>;
 

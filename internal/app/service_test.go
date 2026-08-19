@@ -1,33 +1,12 @@
 package app
 
 import (
-	"context"
 	"testing"
 
 	"opsy/internal/domain/ai"
 	"opsy/internal/domain/sessions"
 	"opsy/internal/storage/memory"
 )
-
-type fakeLocalModelManager struct {
-	downloadPath string
-	endpoint     string
-	command      string
-	downloadErr  error
-	startErr     error
-}
-
-func (f fakeLocalModelManager) DownloadQwen3Model(context.Context) (string, error) {
-	return f.downloadPath, f.downloadErr
-}
-
-func (f fakeLocalModelManager) DownloadQwen3ModelWithProgress(context.Context, func(downloaded, total int64)) (string, error) {
-	return f.downloadPath, f.downloadErr
-}
-
-func (f fakeLocalModelManager) StartLocalServer(context.Context, string) (string, string, error) {
-	return f.endpoint, f.command, f.startErr
-}
 
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil, nil)
@@ -43,8 +22,8 @@ func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	if len(state.CredentialProviders) != 0 {
 		t.Fatalf("expected 0 credential providers, got %d", len(state.CredentialProviders))
 	}
-	if len(state.AI.Providers) != 2 {
-		t.Fatalf("expected 2 ai providers, got %d", len(state.AI.Providers))
+	if len(state.AI.Providers) != 1 {
+		t.Fatalf("expected 1 ai provider, got %d", len(state.AI.Providers))
 	}
 }
 
@@ -110,19 +89,15 @@ func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
 
 	state := service.GetShellState()
 	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
-	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
 	if !cloudProvider.Selected {
 		t.Fatal("expected cloud provider to be selected")
-	}
-	if localProvider.Selected {
-		t.Fatal("expected local provider to be deselected")
 	}
 }
 
 func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil, nil)
 
-	if err := service.SaveCloudProvider("https://models.example.com/v1", "secret-token"); err != nil {
+	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
 	}
 
@@ -137,41 +112,11 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 	if cloudProvider.Endpoint != "https://models.example.com/v1" {
 		t.Fatalf("expected cloud endpoint to be saved, got %q", cloudProvider.Endpoint)
 	}
+	if cloudProvider.Model != "gpt-5.6" {
+		t.Fatalf("expected cloud model to be saved, got %q", cloudProvider.Model)
+	}
 	if cloudProvider.Status != "ready" {
 		t.Fatalf("expected cloud provider status ready, got %q", cloudProvider.Status)
-	}
-}
-
-func TestDownloadAndStartLocalModelUpdatesProviderState(t *testing.T) {
-	service := NewService(memory.NewStore(), fakeLocalModelManager{
-		downloadPath: "testdata/qwen3.gguf",
-		endpoint:     "http://127.0.0.1:8012/v1",
-		command:      "llama-server -m testdata/qwen3.gguf --host 127.0.0.1 --port 8012",
-	}, nil, nil)
-
-	if err := service.DownloadLocalModel(context.Background()); err != nil {
-		t.Fatalf("download local model: %v", err)
-	}
-	if err := service.StartLocalModel(context.Background()); err != nil {
-		t.Fatalf("start local model: %v", err)
-	}
-
-	state := service.GetShellState()
-	localProvider := mustFindProviderByID(t, state, "llama-cpp-local")
-	if !localProvider.Selected {
-		t.Fatal("expected local provider to be selected")
-	}
-	if !localProvider.Configured {
-		t.Fatal("expected local provider to be configured")
-	}
-	if localProvider.LocalPath != "testdata/qwen3.gguf" {
-		t.Fatalf("expected local model path to be saved, got %q", localProvider.LocalPath)
-	}
-	if localProvider.Endpoint != "http://127.0.0.1:8012/v1" {
-		t.Fatalf("expected local endpoint to be saved, got %q", localProvider.Endpoint)
-	}
-	if localProvider.Status != "running via llama.cpp" {
-		t.Fatalf("expected local provider status to reflect llama.cpp, got %q", localProvider.Status)
 	}
 }
 
