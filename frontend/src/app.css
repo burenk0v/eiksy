@@ -52,6 +52,33 @@
     --shadow-active: 0 0 0 2px rgba(84, 130, 255, 0.22);
 }
 
+:root.green {
+    --bg-base: #071a15;
+    --bg-panel: #0a241d;
+    --bg-workspace: linear-gradient(180deg, #0b1f18 0%, #103128 100%);
+    --bg-card: rgba(14, 40, 33, 0.9);
+    --bg-input: rgba(8, 24, 20, 0.94);
+    --bg-terminal: #04130f;
+    --bg-modal: #102d25;
+    --bg-overlay: rgba(1, 10, 7, 0.72);
+    --bg-btn-secondary: rgba(255, 255, 255, 0.08);
+    --bg-progress: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-card: rgba(124, 255, 217, 0.09);
+    --border-input: rgba(124, 255, 217, 0.15);
+    --border-active: rgba(0, 168, 142, 0.45);
+    --color-text: #e7fff8;
+    --color-muted: #9ccfc2;
+    --color-label: #75ab9d;
+    --color-accent: #00a88e;
+    --color-accent-subtle: rgba(0, 168, 142, 0.14);
+    --color-tag: #7cf1d2;
+    --color-error: #fecaca;
+    --color-error-bg: rgba(127, 29, 29, 0.22);
+    --color-error-border: rgba(248, 113, 113, 0.35);
+    --shadow-active: 0 0 0 1px rgba(0, 168, 142, 0.2);
+}
+
 .shell-root {
     display: flex;
     flex-direction: column;
@@ -174,7 +201,7 @@
 
 .sftp-section {
     flex: 1;
-    overflow: auto;
+    overflow: hidden;
 }
 
 .section-heading,
@@ -247,7 +274,6 @@ small {
 .message,
 .provider-setup-card,
 .provider-form,
-.sftp-entry,
 .tab,
 .modal-dialog {
     border: 1px solid var(--border-card);
@@ -418,11 +444,6 @@ small {
     background: var(--color-accent-subtle);
 }
 
-.sftp-list {
-    max-height: 35vh;
-    overflow: auto;
-}
-
 .sftp-actions {
     display: flex;
     gap: 0.4rem;
@@ -436,54 +457,112 @@ small {
     line-height: 1;
 }
 
-.sftp-entry {
+.sftp-explorer {
     display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    min-height: 0;
+}
+
+.sftp-list {
+    border: 1px solid var(--border-card);
+    border-radius: 14px;
+    background: var(--bg-card);
+    overflow: auto;
+}
+
+.sftp-list-header,
+.sftp-row {
+    display: grid;
+    grid-template-columns: minmax(0, 2.1fr) minmax(120px, 1.1fr) 90px 90px minmax(140px, auto);
+    gap: 0.85rem;
     align-items: center;
-    justify-content: space-between;
-    padding: 0.8rem 0.9rem;
+    padding: 0.85rem 1rem;
+}
+
+.sftp-list-header {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-panel);
+    color: var(--color-label);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.sftp-row {
+    border-top: 1px solid var(--border-subtle);
+    color: var(--color-text);
+}
+
+.sftp-row:first-of-type {
+    border-top: 0;
+}
+
+.sftp-row.selected {
+    background: var(--color-accent-subtle);
+}
+
+.sftp-row-button {
+    width: 100%;
+    border: 0;
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
     text-align: left;
 }
 
-.sftp-entry.selected {
-    border-color: var(--border-active);
+.sftp-row-name,
+.sftp-row-actions,
+.sftp-select-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
 }
 
+.sftp-row-name {
+    min-width: 0;
+}
+
+.sftp-row-name > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sftp-entry-icon,
+.sftp-row-open,
 .sftp-dir {
     color: var(--color-tag);
 }
 
-.sftp-file {
-    color: var(--color-text);
+.sftp-row-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
 }
 
-.sftp-file-main {
-    border: 0;
-    background: transparent;
-    color: inherit;
-    text-align: left;
-    font: inherit;
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    padding: 0;
-    cursor: pointer;
-    flex: 1;
+.sftp-inline-button {
+    padding: 0.4rem 0.75rem;
 }
 
 .sftp-select-check {
-    display: inline-flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 0.4rem;
     color: var(--color-muted);
     font-size: 0.78rem;
 }
 
-.remote-editor {
-    margin-top: 0.85rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.6rem;
+.remote-editor-dialog {
+    width: min(960px, 100%);
+}
+
+.remote-editor-body {
+    padding: 1rem 1.5rem 1.5rem;
+}
+
+.remote-editor-input {
+    width: 100%;
+    min-height: min(70vh, 560px);
 }
 
 .inline-check {
@@ -503,7 +582,7 @@ small {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #5482ff, #6ee7ff);
+    background: linear-gradient(90deg, var(--color-accent), var(--color-tag));
 }
 
 .error-banner {

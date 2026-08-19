@@ -197,6 +197,27 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	}
 }
 
+func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+
+	if err := service.SendChatMessage(nil, "hello"); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") {
+		t.Fatalf("expected provider configuration error, got %v", err)
+	}
+
+	service.ClearChat()
+
+	state := service.GetShellState()
+	if state.AI.Messages == nil {
+		t.Fatal("expected clear chat to leave an empty message slice")
+	}
+	if len(state.AI.Messages) != 0 {
+		t.Fatalf("expected chat messages to be cleared, got %d", len(state.AI.Messages))
+	}
+	if state.AI.ChatSessionID == "" {
+		t.Fatal("expected chat session id to be regenerated")
+	}
+}
+
 func seedStore(t *testing.T) *memory.Store {
 	t.Helper()
 	store := memory.NewStore()
