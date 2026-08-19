@@ -72,9 +72,12 @@ jobs:
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
+        timeout-minutes: 10
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get update -o DPkg::Lock::Timeout=60
+          sudo apt-get install -y --no-install-recommends -o DPkg::Lock::Timeout=60 build-essential libgtk-3-dev libwebkit2gtk-4.1-dev
 
       - name: Build Linux binary
         if: runner.os == 'Linux'
