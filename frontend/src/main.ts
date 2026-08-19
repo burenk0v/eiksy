@@ -72,6 +72,7 @@ type VaultState = {
     entries: VaultSecretNode[];
     loading: boolean;
     error: string;
+    loaded: boolean;
 };
 
 type TerminalState = {
@@ -140,7 +141,7 @@ class OpsyShell {
         editorError: '',
     };
     private sshConfigDraft = '';
-    private vaultState: VaultState = { path: '', entries: [], loading: false, error: '' };
+    private vaultState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
     private theme: Theme;
     private logEntries: LogEntry[] = [];
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
@@ -482,7 +483,7 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-vault]')?.addEventListener('click', async () => {
-            await this.loadVaultSecrets(this.vaultState.path);
+            await this.loadVaultSecrets('');
         });
 
         root?.querySelector<HTMLButtonElement>('[data-refresh-vault]')?.addEventListener('click', async () => {
@@ -619,7 +620,7 @@ class OpsyShell {
                 ...this.shellState.settings,
                 vaultAddress: form.querySelector<HTMLInputElement>('input[name="vaultAddress"]')?.value ?? '',
                 vaultMountPoint: form.querySelector<HTMLInputElement>('input[name="vaultMountPoint"]')?.value ?? '',
-                vaultToken: (form.querySelector<HTMLInputElement>('input[name="vaultToken"]')?.value ?? '').trim() || this.shellState.settings.vaultToken,
+                vaultToken: form.querySelector<HTMLInputElement>('input[name="vaultToken"]')?.value ?? '',
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
         });
@@ -872,12 +873,14 @@ class OpsyShell {
                 entries,
                 loading: false,
                 error: '',
+                loaded: true,
             };
         } catch (error) {
             this.vaultState = {
                 ...this.vaultState,
                 loading: false,
                 error: formatError('Unable to load Vault secrets', error),
+                loaded: true,
             };
         }
         this.render();
@@ -907,7 +910,7 @@ class OpsyShell {
             terminalState.fitAddon.fit();
             terminalState.opened = true;
             terminalState.terminal.focus();
-            terminalState.terminal.onData((data) => {
+            terminalState.terminal.onData((data: string) => {
                 void SendSSHInput(activeTab.id, data).catch((error) => {
                     this.errorMessage = formatError('Unable to send terminal input', error);
                     this.render();
@@ -1111,18 +1114,21 @@ class OpsyShell {
         if (this.vaultState.error) {
             return `<div class="error-banner compact">${escapeHtml(this.vaultState.error)}</div>`;
         }
-        if (this.vaultState.entries.length === 0) {
+        if (!this.vaultState.loaded) {
             return '<div class="empty-state">Open Vault browser to load secrets.</div>';
         }
+        const entriesBlock = this.vaultState.entries.length > 0
+            ? this.vaultState.entries.map((entry) => entry.isDir
+                ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
+                : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`).join('')
+            : '<div class="empty-state">No secrets in this path.</div>';
         return `
             <div class="sftp-path-row">
                 <span class="sftp-path">${escapeHtml(this.vaultState.path || '/')}</span>
                 <button class="action-button secondary" data-vault-up>..</button>
             </div>
             <div class="sftp-list">
-                ${this.vaultState.entries.map((entry) => entry.isDir
-                    ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
-                    : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`).join('')}
+                ${entriesBlock}
             </div>
         `;
     }
@@ -1490,22 +1496,22 @@ function parentPath(value: string): string {
     if (!value || value === '.' || value === '/') {
         return '.';
     }
-
-    function parentVaultPath(value: string): string {
-        if (!value || value === '/') {
-            return '';
-        }
-        const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
-        const index = normalized.lastIndexOf('/');
-        if (index < 0) {
-            return '';
-        }
-        return normalized.slice(0, index);
-    }
     const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
     const index = normalized.lastIndexOf('/');
     if (index <= 0) {
         return '.';
+    }
+    return normalized.slice(0, index);
+}
+
+function parentVaultPath(value: string): string {
+    if (!value || value === '/') {
+        return '';
+    }
+    const normalized = value.endsWith('/') ? value.slice(0, -1) : value;
+    const index = normalized.lastIndexOf('/');
+    if (index < 0) {
+        return '';
     }
     return normalized.slice(0, index);
 }

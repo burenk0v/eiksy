@@ -58,6 +58,7 @@ type Service struct {
 	localManager localModelManager
 	sshManager   sshManager
 	sftpManager  sftpManager
+	httpClient   *http.Client
 	emitFn       func(eventName string, data ...interface{})
 	logMu        sync.Mutex
 	logFilePath  string
@@ -117,6 +118,7 @@ func NewService(store stateStore, localManager localModelManager, sshManager ssh
 		localManager: localManager,
 		sshManager:   sshManager,
 		sftpManager:  sftpManager,
+		httpClient:   &http.Client{Timeout: 120 * time.Second},
 		emitFn:       func(string, ...interface{}) {},
 	}
 	if baseDir, err := llm.OpsyDir(); err == nil {
@@ -363,7 +365,7 @@ func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error
 	}
 	req.Header.Set("X-Vault-Token", cfg.VaultToken)
 
-	resp, err := (&http.Client{Timeout: 20 * time.Second}).Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("vault request failed: %w", err)
 	}
@@ -486,13 +488,16 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 		updated.LogRotationSize = current.LogRotationSize
 	}
 	if updated.LogRotationSize <= 0 {
-		updated.LogRotationSize = 10 * 1024 * 1024
+		updated.LogRotationSize = settings.DefaultLogRotationSize
 	}
 	if strings.TrimSpace(updated.VaultMountPoint) == "" {
 		updated.VaultMountPoint = current.VaultMountPoint
 	}
 	if strings.TrimSpace(updated.VaultMountPoint) == "" {
-		updated.VaultMountPoint = "secret"
+		updated.VaultMountPoint = settings.DefaultVaultMountPoint
+	}
+	if strings.TrimSpace(updated.VaultToken) == "" {
+		updated.VaultToken = current.VaultToken
 	}
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
@@ -801,7 +806,7 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 		req.Header.Set("Authorization", "Bearer "+provider.Token)
 	}
 
-	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -846,7 +851,7 @@ func (s *Service) writeLogToFile(level, message, timestamp string) error {
 	line := fmt.Sprintf("%s [%s] %s\n", timestamp, strings.ToUpper(strings.TrimSpace(level)), message)
 	maxSize := cfg.LogRotationSize
 	if maxSize <= 0 {
-		maxSize = 10 * 1024 * 1024
+		maxSize = settings.DefaultLogRotationSize
 	}
 	if err := s.rotateLogFileIfNeeded(maxSize, int64(len(line))); err != nil {
 		return err

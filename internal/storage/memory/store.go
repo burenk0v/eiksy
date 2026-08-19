@@ -310,8 +310,8 @@ func defaultSettings() settings.AppSettings {
 		LogLevel:         settings.LogLevelInfo,
 		ShowLogPanel:     false,
 		SaveLogsToFile:   false,
-		LogRotationSize:  10 * 1024 * 1024,
-		VaultMountPoint:  "secret",
+		LogRotationSize:  settings.DefaultLogRotationSize,
+		VaultMountPoint:  settings.DefaultVaultMountPoint,
 	}
 }
 
