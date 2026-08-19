@@ -78,7 +78,9 @@ func (e EncryptedString) MarshalJSON() ([]byte, error) {
 }
 
 // UnmarshalJSON decrypts the stored value when loading from disk.
-// If decryption fails (e.g. legacy data), the password is silently reset to empty.
+// If decryption fails (e.g. legacy base64-only data from an older version of the
+// application), the password is silently reset to empty so that startup succeeds;
+// the user will need to re-enter the password for affected sessions when reconnecting.
 func (e *EncryptedString) UnmarshalJSON(data []byte) error {
 	var encoded string
 	if err := json.Unmarshal(data, &encoded); err != nil {
@@ -91,6 +93,7 @@ func (e *EncryptedString) UnmarshalJSON(data []byte) error {
 	plaintext, err := decryptPassword(encoded)
 	if err != nil {
 		// Legacy or corrupt data: reset to empty rather than failing startup.
+		// The user will be prompted to re-enter the password when connecting.
 		*e = ""
 		return nil
 	}

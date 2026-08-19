@@ -675,7 +675,7 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 		req.Header.Set("Authorization", "Bearer "+provider.Token)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
 	if err != nil {
 		return "", err
 	}
