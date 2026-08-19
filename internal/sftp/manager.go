@@ -138,6 +138,59 @@ func (m *Manager) WriteFile(tabID, targetPath, content string) error {
 	return nil
 }
 
+func (m *Manager) UploadFile(tabID, localPath, remotePath string) error {
+	m.mu.RLock()
+	conn := m.connections[tabID]
+	m.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("sftp tab %q is not connected", tabID)
+	}
+	source, err := os.Open(localPath)
+	if err != nil {
+		return fmt.Errorf("open local file %q: %w", localPath, err)
+	}
+	defer source.Close()
+
+	target, err := conn.sftpClient.OpenFile(remotePath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE)
+	if err != nil {
+		return fmt.Errorf("open remote file %q for write: %w", remotePath, err)
+	}
+	defer target.Close()
+
+	if _, err := io.Copy(target, source); err != nil {
+		return fmt.Errorf("upload file %q to %q: %w", localPath, remotePath, err)
+	}
+	return nil
+}
+
+func (m *Manager) DownloadFile(tabID, remotePath, localPath string) error {
+	m.mu.RLock()
+	conn := m.connections[tabID]
+	m.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("sftp tab %q is not connected", tabID)
+	}
+	source, err := conn.sftpClient.Open(remotePath)
+	if err != nil {
+		return fmt.Errorf("open remote file %q: %w", remotePath, err)
+	}
+	defer source.Close()
+
+	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
+		return fmt.Errorf("create local directory for %q: %w", localPath, err)
+	}
+	target, err := os.OpenFile(localPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("open local file %q for write: %w", localPath, err)
+	}
+	defer target.Close()
+
+	if _, err := io.Copy(target, source); err != nil {
+		return fmt.Errorf("download file %q to %q: %w", remotePath, localPath, err)
+	}
+	return nil
+}
+
 func (m *Manager) Disconnect(tabID string) error {
 	m.mu.Lock()
 	conn := m.connections[tabID]

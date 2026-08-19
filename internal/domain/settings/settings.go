@@ -24,6 +24,8 @@ type AppSettings struct {
 	WindowLayout     WindowLayout `json:"windowLayout"`
 	PromptBeforeAI   bool         `json:"promptBeforeAi"`
 	AllowCloudModels bool         `json:"allowCloudModels"`
+	SSHForwardPorts  string       `json:"sshForwardPorts"`
+	SSHForwardHostID string       `json:"sshForwardHostId"`
 	LogLevel         LogLevel     `json:"logLevel"`
 	ShowLogPanel     bool         `json:"showLogPanel"`
 	SaveLogsToFile   bool         `json:"saveLogsToFile"`

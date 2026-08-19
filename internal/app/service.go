@@ -9,9 +9,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -109,6 +111,8 @@ type sftpManager interface {
 	ListDir(string, string) ([]sftpdomain.FileEntry, error)
 	ReadFile(string, string) (string, error)
 	WriteFile(string, string, string) error
+	UploadFile(string, string, string) error
+	DownloadFile(string, string, string) error
 	Disconnect(string) error
 }
 
@@ -254,6 +258,7 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 		s.emitFn(fmt.Sprintf("terminal:output:%s", tabID), map[string]string{"data": data})
 	})
 	_ = s.updateTabStatus(tabID, "connecting")
+	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options); err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
@@ -262,6 +267,20 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	}
 	s.EmitLog("info", fmt.Sprintf("SSH connected to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	return s.updateTabStatus(tabID, "connected")
+}
+
+func (s *Service) OpenRDP(tabID, profileID string) (string, error) {
+	profile, ok := s.store.SessionProfile(profileID)
+	if !ok {
+		return "", fmt.Errorf("session profile %q not found", profileID)
+	}
+	if profile.ProtocolID != "rdp" {
+		return "", fmt.Errorf("session profile %q does not use rdp", profileID)
+	}
+	if err := s.updateTabStatus(tabID, "connected"); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("rdp://%s:%d", profile.Host, profile.Port), nil
 }
 
 func (s *Service) SendSSHInput(tabID, data string) error {
@@ -338,6 +357,60 @@ func (s *Service) SaveSFTPFile(tabID, filePath, content string) error {
 		return fmt.Errorf("file path is required")
 	}
 	return s.sftpManager.WriteFile(tabID, filePath, content)
+}
+
+func (s *Service) UploadSFTPFiles(tabID, remoteDir string, localPaths []string) error {
+	if s.sftpManager == nil {
+		return fmt.Errorf("sftp manager is not configured")
+	}
+	if err := s.ensureSFTPConnection(tabID); err != nil {
+		return err
+	}
+	remoteDir = strings.TrimSpace(remoteDir)
+	if remoteDir == "" {
+		return fmt.Errorf("remote directory is required")
+	}
+	if len(localPaths) == 0 {
+		return fmt.Errorf("at least one local file is required")
+	}
+	for _, localPath := range localPaths {
+		localPath = strings.TrimSpace(localPath)
+		if localPath == "" {
+			continue
+		}
+		remotePath := path.Join(remoteDir, filepath.Base(localPath))
+		if err := s.sftpManager.UploadFile(tabID, localPath, remotePath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) error {
+	if s.sftpManager == nil {
+		return fmt.Errorf("sftp manager is not configured")
+	}
+	if err := s.ensureSFTPConnection(tabID); err != nil {
+		return err
+	}
+	localDir = strings.TrimSpace(localDir)
+	if localDir == "" {
+		return fmt.Errorf("local directory is required")
+	}
+	if len(remotePaths) == 0 {
+		return fmt.Errorf("at least one remote file is required")
+	}
+	for _, remotePath := range remotePaths {
+		remotePath = strings.TrimSpace(remotePath)
+		if remotePath == "" {
+			continue
+		}
+		localPath := filepath.Join(localDir, path.Base(remotePath))
+		if err := s.sftpManager.DownloadFile(tabID, remotePath, localPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
@@ -505,6 +578,8 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
 	updated.VaultToken = strings.TrimSpace(updated.VaultToken)
+	updated.SSHForwardPorts = sanitizeForwardPorts(updated.SSHForwardPorts)
+	updated.SSHForwardHostID = strings.TrimSpace(updated.SSHForwardHostID)
 	return s.store.UpdateSettings(updated)
 }
 
@@ -665,6 +740,76 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	}
 	profile.Tags = normalizeTags(profile.Tags)
 	return profile
+}
+
+func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.Profile {
+	if profile.ProtocolID != "ssh" {
+		return profile
+	}
+	cfg := s.store.Settings()
+	ports := strings.TrimSpace(cfg.SSHForwardPorts)
+	hostID := strings.TrimSpace(cfg.SSHForwardHostID)
+	if ports == "" || hostID == "" {
+		return profile
+	}
+	targetProfile, ok := s.store.SessionProfile(hostID)
+	if !ok || targetProfile.ProtocolID != "ssh" || strings.TrimSpace(targetProfile.Host) == "" {
+		return profile
+	}
+	options := make(map[string]string, len(profile.Options)+1)
+	for key, value := range profile.Options {
+		options[key] = value
+	}
+	forwardSpec := buildPortForwardSpecs(ports, strings.TrimSpace(targetProfile.Host))
+	if strings.TrimSpace(forwardSpec) == "" {
+		return profile
+	}
+	options["local_forwards"] = forwardSpec
+	profile.Options = options
+	return profile
+}
+
+func buildPortForwardSpecs(ports, host string) string {
+	const maxRangeSpan = 256
+	parts := strings.Split(ports, ",")
+	specs := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		if strings.Contains(token, "-") {
+			rangeParts := strings.SplitN(token, "-", 2)
+			start := strings.TrimSpace(rangeParts[0])
+			end := strings.TrimSpace(rangeParts[1])
+			startPort, errStart := strconv.Atoi(start)
+			endPort, errEnd := strconv.Atoi(end)
+			if errStart == nil && errEnd == nil && startPort > 0 && endPort >= startPort && endPort <= 65535 && (endPort-startPort+1) <= maxRangeSpan {
+				for port := startPort; port <= endPort; port++ {
+					specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
+				}
+			}
+			continue
+		}
+		port, err := strconv.Atoi(token)
+		if err == nil && port > 0 && port <= 65535 {
+			specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
+		}
+	}
+	return strings.Join(specs, ",")
+}
+
+func sanitizeForwardPorts(value string) string {
+	parts := strings.Split(value, ",")
+	normalized := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		normalized = append(normalized, token)
+	}
+	return strings.Join(normalized, ",")
 }
 
 func normalizeTags(tags []string) []string {

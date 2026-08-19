@@ -22,6 +22,8 @@ export function DownloadLocalModel():Promise<void>;
 
 export function DownloadLocalModelWithProgress():Promise<void>;
 
+export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
+
 export function GetShellState():Promise<app.ShellState>;
 
 export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
@@ -36,6 +38,8 @@ export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEnt
 
 export function OpenSessionWindow():Promise<void>;
 
+export function OpenRDP(arg1:string,arg2:string):Promise<void>;
+
 export function ReadSFTPFile(arg1:string,arg2:string):Promise<string>;
 
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
@@ -48,7 +52,13 @@ export function SelectAIProvider(arg1:string):Promise<void>;
 
 export function SendSSHInput(arg1:string,arg2:string):Promise<void>;
 
+export function SelectDownloadDirectory():Promise<string>;
+
+export function SelectUploadFiles():Promise<Array<string>>;
+
 export function StartLocalModel():Promise<void>;
+
+export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
 export function SendChatMessage(arg1:string):Promise<void>;
 

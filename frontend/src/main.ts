@@ -11,9 +11,11 @@ import {
     CloseSession,
     ConnectSSH,
     CreateSessionProfile,
+    DownloadSFTPFiles,
     DeleteSessionProfile,
     DisconnectSSH,
     GetShellState,
+    OpenRDP,
     LaunchSession,
     ListSFTPFiles,
     ListVaultSecrets,
@@ -22,9 +24,12 @@ import {
     ReadSFTPFile,
     SaveCloudProvider,
     SaveSFTPFile,
+    SelectDownloadDirectory,
+    SelectUploadFiles,
     SendChatMessage,
     SendSSHInput,
     ResizeTerminal,
+    UploadSFTPFiles,
     UpdateSettings,
 } from '../wailsjs/go/main/App';
 import { EventsOn } from '../wailsjs/runtime/runtime';
@@ -65,6 +70,7 @@ type SFTPState = {
     editorSaving: boolean;
     editorDirty: boolean;
     editorError: string;
+    selectedFiles: string[];
 };
 
 type VaultState = {
@@ -85,7 +91,7 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light';
-type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'theme' | 'logs';
+type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme' | 'logs';
 type SessionModalTab = 'basic' | 'advanced';
 type LeftPanelTab = 'sessions' | 'sftp';
 type RightPanelTab = 'ai' | 'vault';
@@ -139,6 +145,7 @@ class OpsyShell {
         editorSaving: false,
         editorDirty: false,
         editorError: '',
+        selectedFiles: [],
     };
     private sshConfigDraft = '';
     private vaultState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
@@ -481,6 +488,20 @@ class OpsyShell {
             }
             await this.loadSFTP(activeTab.id, parentPath(this.sftpState.path));
         });
+        root?.querySelector<HTMLButtonElement>('[data-sftp-upload]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab) {
+                return;
+            }
+            await this.uploadToSFTP(activeTab.id);
+        });
+        root?.querySelector<HTMLButtonElement>('[data-sftp-download]')?.addEventListener('click', async () => {
+            const activeTab = this.activeTab();
+            if (!activeTab) {
+                return;
+            }
+            await this.downloadFromSFTP(activeTab.id);
+        });
 
         root?.querySelector<HTMLButtonElement>('[data-open-vault]')?.addEventListener('click', async () => {
             await this.loadVaultSecrets('');
@@ -512,14 +533,23 @@ class OpsyShell {
                 await this.loadSFTP(activeTab.id, targetPath);
             });
         });
-        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file]').forEach((button) => {
+        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file-open]').forEach((button) => {
             button.addEventListener('click', async () => {
-                const targetPath = button.dataset.sftpFile;
+                const targetPath = button.dataset.sftpFileOpen;
                 const activeTab = this.activeTab();
                 if (!targetPath || !activeTab) {
                     return;
                 }
                 await this.openRemoteFile(activeTab.id, targetPath);
+            });
+        });
+        root?.querySelectorAll<HTMLInputElement>('[data-sftp-select-file]').forEach((input) => {
+            input.addEventListener('change', () => {
+                const targetPath = input.dataset.sftpSelectFile;
+                if (!targetPath) {
+                    return;
+                }
+                this.toggleSFTPFileSelection(targetPath, input.checked);
             });
         });
         root?.querySelector<HTMLButtonElement>('[data-save-remote-file]')?.addEventListener('click', async () => {
@@ -641,6 +671,17 @@ class OpsyShell {
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save log file settings');
         });
+        root?.querySelector<HTMLFormElement>('[data-port-forward-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!this.shellState) return;
+            const form = event.currentTarget as HTMLFormElement;
+            const updated = {
+                ...this.shellState.settings,
+                sshForwardPorts: form.querySelector<HTMLInputElement>('input[name="sshForwardPorts"]')?.value ?? '',
+                sshForwardHostId: form.querySelector<HTMLSelectElement>('select[name="sshForwardHostId"]')?.value ?? '',
+            } as unknown as settingsModels.AppSettings;
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to save SSH port forwarding settings');
+        });
 
         root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
             if (!this.shellState) return;
@@ -735,7 +776,8 @@ class OpsyShell {
                 await this.connectSSHWithHostKeyHandling(tab.id, profileID);
                 this.fitActiveTerminal();
             } else if (profile.protocolId === 'rdp') {
-                this.errorMessage = 'RDP tab created. Native desktop stream is not yet wired in this build.';
+                await OpenRDP(tab.id, profileID);
+                this.errorMessage = '';
                 this.render();
             }
         } catch (error) {
@@ -805,6 +847,7 @@ class OpsyShell {
                 entries,
                 loading: false,
                 error: '',
+                selectedFiles: [],
             };
         } catch (error) {
             this.sftpState = {
@@ -859,6 +902,59 @@ class OpsyShell {
                 editorError: formatError('Unable to save remote file', error),
             };
         }
+        this.render();
+    }
+
+    private async uploadToSFTP(tabID: string): Promise<void> {
+        this.sftpState = { ...this.sftpState, error: '' };
+        this.render();
+        try {
+            const localPaths = await SelectUploadFiles();
+            if (!localPaths || localPaths.length === 0) {
+                return;
+            }
+            await UploadSFTPFiles(tabID, this.sftpState.path || '.', localPaths);
+            await this.loadSFTP(tabID, this.sftpState.path || '.');
+        } catch (error) {
+            this.sftpState = {
+                ...this.sftpState,
+                error: formatError('Unable to upload files', error),
+            };
+            this.render();
+        }
+    }
+
+    private async downloadFromSFTP(tabID: string): Promise<void> {
+        if (this.sftpState.selectedFiles.length === 0) {
+            this.sftpState = { ...this.sftpState, error: 'Select at least one file to download.' };
+            this.render();
+            return;
+        }
+        try {
+            const localDir = await SelectDownloadDirectory();
+            if (!localDir) {
+                return;
+            }
+            await DownloadSFTPFiles(tabID, localDir, this.sftpState.selectedFiles);
+            this.sftpState = { ...this.sftpState, selectedFiles: [], error: '' };
+            this.render();
+        } catch (error) {
+            this.sftpState = {
+                ...this.sftpState,
+                error: formatError('Unable to download files', error),
+            };
+            this.render();
+        }
+    }
+
+    private toggleSFTPFileSelection(targetPath: string, checked: boolean): void {
+        const selected = new Set(this.sftpState.selectedFiles);
+        if (checked) {
+            selected.add(targetPath);
+        } else {
+            selected.delete(targetPath);
+        }
+        this.sftpState = { ...this.sftpState, selectedFiles: Array.from(selected) };
         this.render();
     }
 
@@ -1051,9 +1147,12 @@ class OpsyShell {
             return '<span class="section-copy">Select an SSH tab</span>';
         }
         const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Refresh';
+        const canTransfer = !this.sftpState.loading && !this.sftpState.error;
         return `
             <button class="action-button secondary" data-open-sftp>${openLabel}</button>
             ${this.sftpState.entries.length > 0 ? '<button class="action-button secondary" data-refresh-sftp>Reload</button>' : ''}
+            ${canTransfer ? '<button class="action-button secondary" data-sftp-upload>Upload</button>' : ''}
+            ${canTransfer ? `<button class="action-button secondary" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''}>Download (${this.sftpState.selectedFiles.length})</button>` : ''}
         `;
     }
 
@@ -1082,7 +1181,10 @@ class OpsyShell {
             <div class="sftp-list">
                 ${this.sftpState.entries.map((entry) => entry.isDir
                     ? `<button class="sftp-entry sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(entry.modTime)}</small></button>`
-                    : `<button class="sftp-entry sftp-file" data-sftp-file="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></button>`).join('')}
+                    : `<div class="sftp-entry sftp-file ${this.sftpState.selectedFiles.includes(entry.path) ? 'selected' : ''}">
+                        <button class="sftp-file-main" data-sftp-file-open="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></button>
+                        <label class="sftp-select-check"><input type="checkbox" data-sftp-select-file="${escapeHtml(entry.path)}" ${this.sftpState.selectedFiles.includes(entry.path) ? 'checked' : ''} /><span>Select</span></label>
+                    </div>`).join('')}
             </div>
             ${this.renderRemoteEditor()}
         `;
@@ -1176,6 +1278,7 @@ class OpsyShell {
             { id: 'ai', label: 'AI' },
             { id: 'vault', label: 'Vault' },
             { id: 'sshconfig', label: 'SSH Config' },
+            { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
             { id: 'logs', label: 'Logs' },
         ];
@@ -1185,6 +1288,9 @@ class OpsyShell {
         const logRotationMB = Math.max(1, Math.round((this.shellState?.settings.logRotationSize ?? (10 * 1024 * 1024)) / (1024 * 1024)));
         const vaultAddress = this.shellState?.settings.vaultAddress ?? '';
         const vaultMountPoint = this.shellState?.settings.vaultMountPoint ?? 'secret';
+        const sshForwardPorts = this.shellState?.settings.sshForwardPorts ?? '';
+        const sshForwardHostId = this.shellState?.settings.sshForwardHostId ?? '';
+        const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
         const logLevels = [
             { value: 'debug', label: 'Debug' },
             { value: 'info', label: 'Info' },
@@ -1236,6 +1342,25 @@ class OpsyShell {
                                 <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
                                 <button class="action-button secondary" data-import-ssh-config>Import</button>
                             </div>
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'portforward' ? 'active' : ''}">
+                            <div class="section-title">SSH port forwarding</div>
+                            <form class="provider-form" data-port-forward-form>
+                                <label>
+                                    <span>Local port or range</span>
+                                    <input type="text" name="sshForwardPorts" value="${escapeHtml(sshForwardPorts)}" placeholder="8080,9000-9005" />
+                                </label>
+                                <label>
+                                    <span>Target SSH host</span>
+                                    <select name="sshForwardHostId">
+                                        <option value="">Select host</option>
+                                        ${sshProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${sshForwardHostId === profile.id ? 'selected' : ''}>${escapeHtml(profile.name)} (${escapeHtml(profile.host)})</option>`).join('')}
+                                    </select>
+                                </label>
+                                <div class="provider-form-actions">
+                                    <button class="action-button" type="submit">Save forwarding settings</button>
+                                </div>
+                            </form>
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'theme' ? 'active' : ''}">
                             <div class="section-title">Appearance</div>
@@ -1477,6 +1602,7 @@ class OpsyShell {
             editorSaving: false,
             editorDirty: false,
             editorError: '',
+            selectedFiles: [],
         };
     }
 }
