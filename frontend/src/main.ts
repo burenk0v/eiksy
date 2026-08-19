@@ -531,13 +531,16 @@ class OpsyShell {
             const proxyJump = String(formData.get('proxyJump') ?? '').trim();
             const localForwards = String(formData.get('localForwards') ?? '').trim();
             const useSSHAgent = formData.get('useSSHAgent') === 'on';
+            const keyPath = privateKeyPath.trim();
+            if (authMethod === 'key' && !keyPath) {
+                this.errorMessage = 'Unable to save session profile: private key path is required for key auth';
+                this.render();
+                return;
+            }
             const options: Record<string, string> = {};
             options.auth_method = authMethod;
-            if (authMethod === 'key') {
-                const keyPath = privateKeyPath.trim();
-                if (keyPath) {
-                    options.ssh_private_key_path = keyPath;
-                }
+            if (authMethod === 'key' && keyPath) {
+                options.ssh_private_key_path = keyPath;
             }
             if (proxyJump) {
                 options.proxy_jump = proxyJump;
@@ -547,11 +550,6 @@ class OpsyShell {
             }
             if (useSSHAgent) {
                 options.use_ssh_agent = 'true';
-            }
-            if (authMethod === 'key' && !options.ssh_private_key_path) {
-                this.errorMessage = 'Unable to save session profile: private key path is required for key auth';
-                this.render();
-                return;
             }
             if (Object.keys(options).length > 0) {
                 profile.options = options;

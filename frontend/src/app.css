@@ -137,6 +137,7 @@
 
 .sftp-section {
     flex: 1;
+    overflow: auto;
 }
 
 .section-heading,
@@ -380,10 +381,6 @@ small {
 
 .sftp-list {
     max-height: 35vh;
-    overflow: auto;
-}
-
-.sftp-section {
     overflow: auto;
 }
 
