@@ -1,33 +1,103 @@
 package sessions
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"io"
 )
 
-// Кастомный тип для автоматической конвертации в Base64
-// ts_type string
-type Base64String string
+const masterKey = "zg4ewf1u"
 
-// MarshalJSON кодирует строку в Base64 при сохранении в JSON
-func (b Base64String) MarshalJSON() ([]byte, error) {
-	encoded := base64.StdEncoding.EncodeToString([]byte(b))
-	return json.Marshal(encoded)
+// EncryptedString stores the plaintext password in memory and transparently
+// encrypts it with AES-256-GCM when serialising to JSON (e.g. sessions.json).
+// The master key is compiled into the binary.
+// ts_type string
+type EncryptedString string
+
+func derivedKey() []byte {
+	sum := sha256.Sum256([]byte(masterKey))
+	return sum[:]
 }
 
-// UnmarshalJSON декодирует Base64 обратно в обычную строку при чтении JSON
-func (b *Base64String) UnmarshalJSON(data []byte) error {
+func encryptPassword(plaintext string) (string, error) {
+	block, err := aes.NewCipher(derivedKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return base64.StdEncoding.EncodeToString(ciphertext), nil
+}
+
+func decryptPassword(encoded string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(derivedKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+// MarshalJSON encrypts the plaintext password before writing to disk.
+func (e EncryptedString) MarshalJSON() ([]byte, error) {
+	if string(e) == "" {
+		return json.Marshal("")
+	}
+	encrypted, err := encryptPassword(string(e))
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(encrypted)
+}
+
+// UnmarshalJSON decrypts the stored value when loading from disk.
+// If decryption fails (e.g. legacy base64-only data from an older version of the
+// application), the password is silently reset to empty so that startup succeeds;
+// the user will need to re-enter the password for affected sessions when reconnecting.
+func (e *EncryptedString) UnmarshalJSON(data []byte) error {
 	var encoded string
 	if err := json.Unmarshal(data, &encoded); err != nil {
 		return err
 	}
-
-	decoded, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return err
+	if encoded == "" {
+		*e = ""
+		return nil
 	}
-
-	*b = Base64String(decoded)
+	plaintext, err := decryptPassword(encoded)
+	if err != nil {
+		// Legacy or corrupt data: reset to empty rather than failing startup.
+		// The user will be prompted to re-enter the password when connecting.
+		*e = ""
+		return nil
+	}
+	*e = EncryptedString(plaintext)
 	return nil
 }
 
@@ -41,7 +111,7 @@ type Profile struct {
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`
 	Username       string            `json:"username"`
-	Password       Base64String      `json:"password,omitempty"`
+	Password       EncryptedString   `json:"password,omitempty"`
 	SecretRef      string            `json:"secretRef,omitempty"`
 	Options        map[string]string `json:"options,omitempty"`
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
@@ -61,7 +131,7 @@ type ProfileInput struct {
 	Host           string            `json:"host"`
 	Port           int               `json:"port"`
 	Username       string            `json:"username"`
-	Password       Base64String      `json:"password,omitempty"`
+	Password       string            `json:"password,omitempty"`
 	SecretRef      string            `json:"secretRef,omitempty"`
 	Options        map[string]string `json:"options,omitempty"`
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
@@ -80,7 +150,7 @@ func (p ProfileInput) ToProfile() Profile {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
-		Password:       p.Password,
+		Password:       EncryptedString(p.Password),
 		SecretRef:      p.SecretRef,
 		Options:        p.Options,
 		LastLaunchedAt: p.LastLaunchedAt,

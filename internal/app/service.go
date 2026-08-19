@@ -1,8 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -541,7 +545,7 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID))
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
-	profile.Password = sessions.Base64String(strings.TrimSpace(string(profile.Password)))
+	profile.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
 	if profile.Port <= 0 {
 		profile.Port = 22
 	}
@@ -603,4 +607,100 @@ func appendStatusMessage(messages []ai.ChatMessage, content string) []ai.ChatMes
 		Content: content,
 	})
 	return updated
+}
+
+// SendChatMessage adds the user message to the conversation, calls the
+// configured AI provider, and appends the assistant reply.
+func (s *Service) SendChatMessage(ctx context.Context, message string) error {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return fmt.Errorf("message cannot be empty")
+	}
+
+	state := s.store.AIState()
+	provider := s.activeConfiguredProvider(state)
+	if provider == nil {
+		return fmt.Errorf("no AI provider is configured; configure one in Settings first")
+	}
+
+	state.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})
+	s.store.UpdateAIState(state)
+
+	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages)
+	if err != nil {
+		return fmt.Errorf("AI request failed: %w", err)
+	}
+
+	state = s.store.AIState()
+	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: reply})
+	s.store.UpdateAIState(state)
+
+	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": reply})
+	return nil
+}
+
+func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) *ai.ProviderDescriptor {
+	for i := range state.Providers {
+		if state.Providers[i].Selected && state.Providers[i].Configured {
+			return &state.Providers[i]
+		}
+	}
+	return nil
+}
+
+func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage) (string, error) {
+	type reqMessage struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	reqMessages := make([]reqMessage, len(messages))
+	for i, m := range messages {
+		reqMessages[i] = reqMessage{Role: m.Role, Content: m.Content}
+	}
+	body, err := json.Marshal(map[string]interface{}{
+		"model":    provider.Model,
+		"messages": reqMessages,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	endpoint := strings.TrimRight(provider.Endpoint, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if provider.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+provider.Token)
+	}
+
+	resp, err := (&http.Client{Timeout: 120 * time.Second}).Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("AI API returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("parse AI response: %w", err)
+	}
+	if len(result.Choices) == 0 || result.Choices[0].Message.Content == "" {
+		return "", fmt.Errorf("AI returned an empty response")
+	}
+	return result.Choices[0].Message.Content, nil
 }

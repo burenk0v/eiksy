@@ -86,6 +86,10 @@ export function StartLocalModel() {
   return window['go']['main']['App']['StartLocalModel']();
 }
 
+export function SendChatMessage(arg1) {
+  return window['go']['main']['App']['SendChatMessage'](arg1);
+}
+
 export function UpdateSettings(arg1) {
   return window['go']['main']['App']['UpdateSettings'](arg1);
 }

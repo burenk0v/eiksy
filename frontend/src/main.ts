@@ -22,6 +22,7 @@ import {
     SaveCloudProvider,
     SaveSFTPFile,
     SelectAIProvider,
+    SendChatMessage,
     SendSSHInput,
     StartLocalModel,
     ResizeTerminal,
@@ -250,8 +251,16 @@ class OpsyShell {
                     ${this.modelProgress.active || this.modelProgress.error ? this.renderProgress() : ''}
                     <section class="section chat-section">
                         <div class="section-title">Assistant</div>
-                        ${this.renderMessages()}
+                        <div class="chat-messages" id="chat-messages">
+                            ${this.renderMessages()}
+                        </div>
                     </section>
+                    ${this.hasConfiguredProvider() ? `
+                    <form class="chat-input-form" data-chat-form>
+                        <textarea class="chat-textarea" name="message" placeholder="Ask the assistant…" rows="3"></textarea>
+                        <button class="action-button" type="submit">Send</button>
+                    </form>
+                    ` : ''}
                 </aside>
             </div>
             ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
@@ -262,6 +271,7 @@ class OpsyShell {
         this.bindEvents();
         this.attachActiveTerminal();
         this.scrollLogPanelToBottom();
+        this.scrollChatToBottom();
     }
 
     private bindEvents(): void {
@@ -453,6 +463,16 @@ class OpsyShell {
             const endpoint = form.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? '';
             const token = form.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '';
             await this.runAction(async () => SaveCloudProvider(endpoint, token), 'Unable to save cloud provider');
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const form = event.currentTarget as HTMLFormElement;
+            const textarea = form.querySelector<HTMLTextAreaElement>('[name="message"]');
+            const message = textarea?.value ?? '';
+            if (!message.trim()) return;
+            if (textarea) textarea.value = '';
+            await this.runAction(async () => SendChatMessage(message), 'Unable to send message');
         });
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
@@ -737,6 +757,13 @@ class OpsyShell {
         const body = document.querySelector<HTMLDivElement>('#log-panel-body');
         if (body) {
             body.scrollTop = body.scrollHeight;
+        }
+    }
+
+    private scrollChatToBottom(): void {
+        const messages = document.querySelector<HTMLDivElement>('#chat-messages');
+        if (messages) {
+            messages.scrollTop = messages.scrollHeight;
         }
     }
 
