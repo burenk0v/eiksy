@@ -52,6 +52,33 @@
     --shadow-active: 0 0 0 2px rgba(84, 130, 255, 0.22);
 }
 
+:root.green {
+    --bg-base: #071a15;
+    --bg-panel: #0a241d;
+    --bg-workspace: linear-gradient(180deg, #0b1f18 0%, #103128 100%);
+    --bg-card: rgba(14, 40, 33, 0.9);
+    --bg-input: rgba(8, 24, 20, 0.94);
+    --bg-terminal: #04130f;
+    --bg-modal: #102d25;
+    --bg-overlay: rgba(1, 10, 7, 0.72);
+    --bg-btn-secondary: rgba(255, 255, 255, 0.08);
+    --bg-progress: rgba(255, 255, 255, 0.08);
+    --border-subtle: rgba(255, 255, 255, 0.06);
+    --border-card: rgba(124, 255, 217, 0.09);
+    --border-input: rgba(124, 255, 217, 0.15);
+    --border-active: rgba(0, 168, 142, 0.45);
+    --color-text: #e7fff8;
+    --color-muted: #9ccfc2;
+    --color-label: #75ab9d;
+    --color-accent: #00a88e;
+    --color-accent-subtle: rgba(0, 168, 142, 0.14);
+    --color-tag: #7cf1d2;
+    --color-error: #fecaca;
+    --color-error-bg: rgba(127, 29, 29, 0.22);
+    --color-error-border: rgba(248, 113, 113, 0.35);
+    --shadow-active: 0 0 0 1px rgba(0, 168, 142, 0.2);
+}
+
 .shell-root {
     display: flex;
     flex-direction: column;
@@ -555,7 +582,7 @@ small {
 
 .progress-fill {
     height: 100%;
-    background: linear-gradient(90deg, #5482ff, #6ee7ff);
+    background: linear-gradient(90deg, var(--color-accent), var(--color-tag));
 }
 
 .error-banner {

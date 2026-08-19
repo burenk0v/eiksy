@@ -92,7 +92,7 @@ type TerminalState = {
     unsubscribe: (() => void) | null;
 };
 
-type Theme = 'dark' | 'light';
+type Theme = 'dark' | 'light' | 'green';
 type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme' | 'logs';
 type SessionModalTab = 'basic' | 'advanced';
 type LeftPanelTab = 'sessions' | 'sftp';
@@ -120,6 +120,11 @@ type HostKeyDialogState = {
 };
 
 const THEME_KEY = 'opsy-theme';
+const THEMES: Theme[] = ['dark', 'light', 'green'];
+
+function isTheme(value: string | null | undefined): value is Theme {
+    return !!value && THEMES.includes(value as Theme);
+}
 
 const root = document.querySelector<HTMLDivElement>('#app');
 
@@ -166,16 +171,15 @@ class OpsyShell {
     private cloudModelsError = '';
 
     constructor() {
-        const saved = localStorage.getItem(THEME_KEY) as Theme | null;
-        this.theme = saved === 'light' ? 'light' : 'dark';
+        const saved = localStorage.getItem(THEME_KEY);
+        this.theme = isTheme(saved) ? saved : 'dark';
         this.applyTheme();
     }
 
     private applyTheme(): void {
-        if (this.theme === 'light') {
-            document.documentElement.classList.add('light');
-        } else {
-            document.documentElement.classList.remove('light');
+        document.documentElement.classList.remove('light', 'green');
+        if (this.theme !== 'dark') {
+            document.documentElement.classList.add(this.theme);
         }
         localStorage.setItem(THEME_KEY, this.theme);
     }
@@ -647,7 +651,7 @@ class OpsyShell {
         root?.querySelectorAll<HTMLButtonElement>('[data-set-theme]').forEach((button) => {
             button.addEventListener('click', () => {
                 const t = button.dataset.setTheme as Theme;
-                if (t === 'light' || t === 'dark') {
+                if (isTheme(t)) {
                     this.theme = t;
                     this.applyTheme();
                     this.render();
@@ -1490,6 +1494,7 @@ class OpsyShell {
                                 <div class="theme-switch">
                                     <button class="${this.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 Dark</button>
                                     <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
+                                    <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
                                 </div>
                             </div>
                         </div>
