@@ -118,6 +118,32 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 	if cloudProvider.Status != "ready" {
 		t.Fatalf("expected cloud provider status ready, got %q", cloudProvider.Status)
 	}
+	if cloudProvider.Token != "secret-token" {
+		t.Fatalf("expected cloud token to be saved, got %q", cloudProvider.Token)
+	}
+}
+
+func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+
+	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil {
+		t.Fatalf("save cloud provider: %v", err)
+	}
+	if err := service.SaveCloudProvider("gpt-5.7", "https://models.example.com/v2", ""); err != nil {
+		t.Fatalf("save cloud provider with empty token: %v", err)
+	}
+
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	if cloudProvider.Token != "secret-token" {
+		t.Fatalf("expected cloud token to be preserved, got %q", cloudProvider.Token)
+	}
+	if cloudProvider.Model != "gpt-5.7" {
+		t.Fatalf("expected updated model to be saved, got %q", cloudProvider.Model)
+	}
+	if cloudProvider.Endpoint != "https://models.example.com/v2" {
+		t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint)
+	}
 }
 
 func seedStore(t *testing.T) *memory.Store {

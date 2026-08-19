@@ -458,6 +458,9 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 
 	state.Providers[index].Model = model
 	state.Providers[index].Endpoint = endpoint
+	if token == "" {
+		token = state.Providers[index].Token
+	}
 	state.Providers[index].Token = token
 	state.Providers[index].Status = "ready"
 	state.Providers[index].Configured = true
