@@ -1185,10 +1185,11 @@ class OpsyShell {
         if (!activeTab || activeTab.protocolId !== 'ssh') {
             return '<span class="section-copy">Select an SSH tab</span>';
         }
+        const showRefresh = !this.sftpState.loading && (this.sftpState.entries.length > 0 || !!this.sftpState.error);
         const canTransfer = !this.sftpState.loading && !this.sftpState.error && this.sftpState.entries.length > 0;
         return `
             <div class="sftp-actions">
-                <button class="icon-button sftp-action-button" data-refresh-sftp title="Reload current path" aria-label="Reload current path">↻</button>
+                ${showRefresh ? '<button class="icon-button sftp-action-button" data-refresh-sftp title="Reload current path" aria-label="Reload current path">↻</button>' : ''}
                 ${canTransfer ? '<button class="icon-button sftp-action-button" data-sftp-upload title="Upload files" aria-label="Upload files">⤴</button>' : ''}
                 ${canTransfer ? `<button class="icon-button sftp-action-button" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''} title="Download selected files" aria-label="Download selected files">⤵${this.sftpState.selectedFiles.length > 0 ? ` ${this.sftpState.selectedFiles.length}` : ''}</button>` : ''}
             </div>
@@ -1270,7 +1271,9 @@ class OpsyShell {
                         <div class="modal-body remote-editor-body">
                             ${this.sftpState.editorLoading ? '<div class="empty-state">Loading file…</div>' : `
                                 ${this.sftpState.editorError ? `<div class="error-banner compact">${escapeHtml(this.sftpState.editorError)}</div>` : ''}
-                                <textarea class="remote-editor-input" data-remote-editor>${escapeHtml(this.sftpState.editorContent)}</textarea>
+                                ${this.sftpState.editorError && !this.sftpState.editorContent
+                                    ? ''
+                                    : `<textarea class="remote-editor-input" data-remote-editor>${escapeHtml(this.sftpState.editorContent)}</textarea>`}
                             `}
                         </div>
                     </div>
