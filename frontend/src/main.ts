@@ -65,6 +65,7 @@ type SFTPState = {
     entries: FileEntry[];
     loading: boolean;
     error: string;
+    editorOpen: boolean;
     editorPath: string;
     editorContent: string;
     editorLoading: boolean;
@@ -140,6 +141,7 @@ class OpsyShell {
         entries: [],
         loading: false,
         error: '',
+        editorOpen: false,
         editorPath: '',
         editorContent: '',
         editorLoading: false,
@@ -222,6 +224,20 @@ class OpsyShell {
         if (this.sftpState.tabId !== this.activeTabId) {
             this.sftpState = this.defaultSFTPState(this.activeTabId || null);
         }
+        this.render();
+    }
+
+    private closeRemoteEditor(): void {
+        this.sftpState = {
+            ...this.sftpState,
+            editorOpen: false,
+            editorPath: '',
+            editorContent: '',
+            editorLoading: false,
+            editorSaving: false,
+            editorDirty: false,
+            editorError: '',
+        };
         this.render();
     }
 
@@ -324,6 +340,7 @@ class OpsyShell {
             </div>
             ${this.renderSessionContextMenu()}
             ${this.hostKeyDialog.visible ? this.renderHostKeyDialog() : ''}
+            ${this.renderRemoteEditorModal()}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
         `;
@@ -372,9 +389,10 @@ class OpsyShell {
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-left-panel-tab]').forEach((button) => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', async () => {
                 this.leftPanelTab = (button.dataset.leftPanelTab as LeftPanelTab) ?? 'sessions';
                 this.render();
+                await this.ensureActiveSFTPLoaded();
             });
         });
 
@@ -455,13 +473,17 @@ class OpsyShell {
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-tab-id]').forEach((button) => {
-            button.addEventListener('click', () => {
+            button.addEventListener('click', async () => {
                 const tabID = button.dataset.tabId;
                 if (!tabID) {
                     return;
                 }
                 this.activeTabId = tabID;
+                if (this.sftpState.tabId !== tabID) {
+                    this.sftpState = this.defaultSFTPState(tabID);
+                }
                 this.render();
+                await this.ensureActiveSFTPLoaded();
             });
         });
 
@@ -474,14 +496,6 @@ class OpsyShell {
                 }
                 await this.closeTab(tabID);
             });
-        });
-
-        root?.querySelector<HTMLButtonElement>('[data-open-sftp]')?.addEventListener('click', async () => {
-            const activeTab = this.activeTab();
-            if (!activeTab) {
-                return;
-            }
-            await this.loadSFTP(activeTab.id, '');
         });
 
         root?.querySelector<HTMLButtonElement>('[data-refresh-sftp]')?.addEventListener('click', async () => {
@@ -544,9 +558,9 @@ class OpsyShell {
                 await this.loadSFTP(activeTab.id, targetPath);
             });
         });
-        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file-open]').forEach((button) => {
+        root?.querySelectorAll<HTMLButtonElement>('[data-sftp-file-edit]').forEach((button) => {
             button.addEventListener('click', async () => {
-                const targetPath = button.dataset.sftpFileOpen;
+                const targetPath = button.dataset.sftpFileEdit;
                 const activeTab = this.activeTab();
                 if (!targetPath || !activeTab) {
                     return;
@@ -569,6 +583,9 @@ class OpsyShell {
                 return;
             }
             await this.saveRemoteFile(activeTab.id);
+        });
+        root?.querySelector<HTMLButtonElement>('[data-close-remote-editor]')?.addEventListener('click', () => {
+            this.closeRemoteEditor();
         });
         root?.querySelector<HTMLTextAreaElement>('[data-remote-editor]')?.addEventListener('input', (event) => {
             this.sftpState.editorContent = (event.currentTarget as HTMLTextAreaElement).value;
@@ -787,8 +804,10 @@ class OpsyShell {
             await this.refresh('');
             if (profile.protocolId === 'ssh') {
                 this.ensureTerminalSubscription(tab.id);
-                await this.connectSSHWithHostKeyHandling(tab.id, profileID);
-                this.fitActiveTerminal();
+                if (await this.connectSSHWithHostKeyHandling(tab.id, profileID)) {
+                    this.fitActiveTerminal();
+                    await this.ensureActiveSFTPLoaded(true);
+                }
             } else if (profile.protocolId === 'rdp') {
                 await OpenRDP(tab.id, profileID);
                 this.errorMessage = '';
@@ -800,9 +819,10 @@ class OpsyShell {
         }
     }
 
-    private async connectSSHWithHostKeyHandling(tabId: string, profileId: string): Promise<void> {
+    private async connectSSHWithHostKeyHandling(tabId: string, profileId: string): Promise<boolean> {
         try {
             await ConnectSSH(tabId, profileId);
+            return true;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             if (msg.includes('unknown host key')) {
@@ -816,7 +836,7 @@ class OpsyShell {
                     hostname: hostMatch ? hostMatch[1] : '',
                 };
                 this.render();
-                return;
+                return false;
             }
             throw error;
         }
@@ -828,6 +848,7 @@ class OpsyShell {
             await ConnectSSH(tabId, profileId);
             this.fitActiveTerminal();
             await this.refresh('');
+            await this.ensureActiveSFTPLoaded(true);
         } catch (error) {
             this.errorMessage = formatError('Unable to connect SSH', error);
             this.render();
@@ -847,6 +868,7 @@ class OpsyShell {
             // ignored - backend CloseSession will clean up too.
         }
         await this.runAction(async () => CloseSession(tabID), 'Unable to close session');
+        await this.ensureActiveSFTPLoaded(true);
     }
 
     private async loadSFTP(tabID: string, targetPath: string): Promise<void> {
@@ -878,6 +900,7 @@ class OpsyShell {
         this.sftpState = {
             ...this.sftpState,
             tabId: tabID,
+            editorOpen: true,
             editorPath: targetPath,
             editorLoading: true,
             editorError: '',
@@ -887,6 +910,7 @@ class OpsyShell {
             const content = await ReadSFTPFile(tabID, targetPath);
             this.sftpState = {
                 ...this.sftpState,
+                editorOpen: true,
                 editorPath: targetPath,
                 editorContent: content,
                 editorLoading: false,
@@ -896,6 +920,7 @@ class OpsyShell {
         } catch (error) {
             this.sftpState = {
                 ...this.sftpState,
+                editorOpen: true,
                 editorLoading: false,
                 editorError: formatError('Unable to read remote file', error),
             };
@@ -1160,12 +1185,10 @@ class OpsyShell {
         if (!activeTab || activeTab.protocolId !== 'ssh') {
             return '<span class="section-copy">Select an SSH tab</span>';
         }
-        const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Open root';
-        const canTransfer = !this.sftpState.loading && !this.sftpState.error;
+        const canTransfer = !this.sftpState.loading && !this.sftpState.error && this.sftpState.entries.length > 0;
         return `
             <div class="sftp-actions">
-                <button class="icon-button sftp-action-button" data-open-sftp title="${escapeHtml(openLabel)}" aria-label="${escapeHtml(openLabel)}">📂</button>
-                ${this.sftpState.entries.length > 0 ? '<button class="icon-button sftp-action-button" data-refresh-sftp title="Reload current path" aria-label="Reload current path">↻</button>' : ''}
+                <button class="icon-button sftp-action-button" data-refresh-sftp title="Reload current path" aria-label="Reload current path">↻</button>
                 ${canTransfer ? '<button class="icon-button sftp-action-button" data-sftp-upload title="Upload files" aria-label="Upload files">⤴</button>' : ''}
                 ${canTransfer ? `<button class="icon-button sftp-action-button" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''} title="Download selected files" aria-label="Download selected files">⤵${this.sftpState.selectedFiles.length > 0 ? ` ${this.sftpState.selectedFiles.length}` : ''}</button>` : ''}
             </div>
@@ -1187,40 +1210,71 @@ class OpsyShell {
             return `<div class="error-banner compact">${escapeHtml(this.sftpState.error)}</div>`;
         }
         if (this.sftpState.entries.length === 0) {
-            return '<div class="empty-state">Click "Open SFTP" to browse the active session.</div>';
+            return '<div class="empty-state">SFTP opens automatically for the active SSH session.</div>';
         }
         return `
-            <div class="sftp-path-row">
-                <span class="sftp-path">${escapeHtml(this.sftpState.path || '.')}</span>
-                <button class="icon-button sftp-action-button" data-sftp-up title="Go to parent directory" aria-label="Go to parent directory">↑</button>
+            <div class="sftp-explorer">
+                <div class="sftp-path-row">
+                    <span class="sftp-path">${escapeHtml(this.sftpState.path || '.')}</span>
+                    <button class="icon-button sftp-action-button" data-sftp-up title="Go to parent directory" aria-label="Go to parent directory">↑</button>
+                </div>
+                <div class="sftp-list">
+                    <div class="sftp-list-header">
+                        <span>Name</span>
+                        <span>Modified</span>
+                        <span>Size</span>
+                        <span>Mode</span>
+                        <span>Actions</span>
+                    </div>
+                    ${this.sftpState.entries.map((entry) => entry.isDir
+                        ? `<button class="sftp-row sftp-row-button sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}">
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📁</span><span>${escapeHtml(entry.name)}</span></span>
+                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span>—</span>
+                            <span>${escapeHtml(entry.mode || '—')}</span>
+                            <span class="sftp-row-open">Open</span>
+                        </button>`
+                        : `<div class="sftp-row sftp-file ${this.sftpState.selectedFiles.includes(entry.path) ? 'selected' : ''}">
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📄</span><span>${escapeHtml(entry.name)}</span></span>
+                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span>${escapeHtml(formatBytes(entry.size))}</span>
+                            <span>${escapeHtml(entry.mode || '—')}</span>
+                            <div class="sftp-row-actions">
+                                <button class="action-button secondary sftp-inline-button" data-sftp-file-edit="${escapeHtml(entry.path)}">Edit</button>
+                                <label class="sftp-select-check"><input type="checkbox" data-sftp-select-file="${escapeHtml(entry.path)}" ${this.sftpState.selectedFiles.includes(entry.path) ? 'checked' : ''} /><span>Select</span></label>
+                            </div>
+                        </div>`).join('')}
+                </div>
             </div>
-            <div class="sftp-list">
-                ${this.sftpState.entries.map((entry) => entry.isDir
-                    ? `<button class="sftp-entry sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(entry.modTime)}</small></button>`
-                    : `<div class="sftp-entry sftp-file ${this.sftpState.selectedFiles.includes(entry.path) ? 'selected' : ''}">
-                        <button class="sftp-file-main" data-sftp-file-open="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>${escapeHtml(formatFileMeta(entry))}</small></button>
-                        <label class="sftp-select-check"><input type="checkbox" data-sftp-select-file="${escapeHtml(entry.path)}" ${this.sftpState.selectedFiles.includes(entry.path) ? 'checked' : ''} /><span>Select</span></label>
-                    </div>`).join('')}
-            </div>
-            ${this.renderRemoteEditor()}
         `;
     }
 
-    private renderRemoteEditor(): string {
-        if (!this.sftpState.editorPath) {
-            return '<div class="empty-state">Select a file to open remote editor.</div>';
-        }
-        if (this.sftpState.editorLoading) {
-            return '<div class="empty-state">Loading file…</div>';
+    private renderRemoteEditorModal(): string {
+        if (!this.sftpState.editorOpen) {
+            return '';
         }
         return `
             <div class="remote-editor">
-                <div class="sftp-path-row">
-                    <span class="sftp-path">${escapeHtml(this.sftpState.editorPath)}</span>
-                    <button class="action-button secondary" data-save-remote-file ${this.sftpState.editorSaving ? 'disabled' : ''}>${this.sftpState.editorSaving ? 'Saving…' : 'Save'}</button>
+                <div class="modal-overlay">
+                    <div class="modal-dialog wide remote-editor-dialog">
+                        <div class="panel-header compact-header">
+                            <div>
+                                <div class="eyebrow">SFTP editor</div>
+                                <h2>${escapeHtml(this.sftpState.editorPath || 'Remote file')}</h2>
+                            </div>
+                            <div class="section-actions">
+                                <button class="action-button secondary" data-close-remote-editor>Close</button>
+                                <button class="action-button secondary" data-save-remote-file ${this.sftpState.editorSaving || this.sftpState.editorLoading ? 'disabled' : ''}>${this.sftpState.editorSaving ? 'Saving…' : 'Save'}</button>
+                            </div>
+                        </div>
+                        <div class="modal-body remote-editor-body">
+                            ${this.sftpState.editorLoading ? '<div class="empty-state">Loading file…</div>' : `
+                                ${this.sftpState.editorError ? `<div class="error-banner compact">${escapeHtml(this.sftpState.editorError)}</div>` : ''}
+                                <textarea class="remote-editor-input" data-remote-editor>${escapeHtml(this.sftpState.editorContent)}</textarea>
+                            `}
+                        </div>
+                    </div>
                 </div>
-                ${this.sftpState.editorError ? `<div class="error-banner compact">${escapeHtml(this.sftpState.editorError)}</div>` : ''}
-                <textarea class="remote-editor-input" data-remote-editor>${escapeHtml(this.sftpState.editorContent)}</textarea>
             </div>
         `;
     }
@@ -1332,7 +1386,7 @@ class OpsyShell {
         if (!this.hasConfiguredProvider()) {
             return '<div class="empty-state">Configure a provider in Settings to start chatting.</div>';
         }
-        return this.shellState.ai.messages.map((message) => `
+        return (this.shellState.ai.messages ?? []).map((message) => `
             <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
         `).join('');
     }
@@ -1625,6 +1679,22 @@ class OpsyShell {
         return (this.shellState?.ai.providers ?? []).some((provider) => provider.configured);
     }
 
+    private async ensureActiveSFTPLoaded(force = false): Promise<void> {
+        if (this.leftPanelTab !== 'sftp') {
+            return;
+        }
+        const activeTab = this.activeTab();
+        if (!activeTab || activeTab.protocolId !== 'ssh') {
+            return;
+        }
+        const sameTab = this.sftpState.tabId === activeTab.id;
+        if (!force && sameTab && (this.sftpState.loading || this.sftpState.entries.length > 0 || this.sftpState.error)) {
+            return;
+        }
+        const targetPath = sameTab && this.sftpState.path ? this.sftpState.path : '';
+        await this.loadSFTP(activeTab.id, targetPath);
+    }
+
     private async runAction(action: () => Promise<void>, prefix: string): Promise<void> {
         try {
             await action();
@@ -1660,6 +1730,7 @@ class OpsyShell {
             entries: [],
             loading: false,
             error: '',
+            editorOpen: false,
             editorPath: '',
             editorContent: '',
             editorLoading: false,
@@ -1704,10 +1775,6 @@ function parentVaultPath(value: string): string {
         return '';
     }
     return normalized.slice(0, index);
-}
-
-function formatFileMeta(entry: FileEntry): string {
-    return `${formatBytes(entry.size)} · ${entry.mode}`;
 }
 
 function formatBytes(value: number): string {

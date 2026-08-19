@@ -970,7 +970,7 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 // ClearChat removes all messages from the AI chat history.
 func (s *Service) ClearChat() {
 	state := s.store.AIState()
-	state.Messages = nil
+	state.Messages = []ai.ChatMessage{}
 	state.ChatSessionID = fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano())
 	s.store.UpdateAIState(state)
 }
