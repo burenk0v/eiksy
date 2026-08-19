@@ -47,4 +47,6 @@ export function SendSSHInput(arg1:string,arg2:string):Promise<void>;
 
 export function StartLocalModel():Promise<void>;
 
+export function SendChatMessage(arg1:string):Promise<void>;
+
 export function UpdateSettings(arg1:settings.AppSettings):Promise<void>;

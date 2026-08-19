@@ -184,6 +184,10 @@ func (a *App) StartLocalModel() error {
 	return a.currentService().StartLocalModel(a.ctx)
 }
 
+func (a *App) SendChatMessage(message string) error {
+	return a.currentService().SendChatMessage(a.ctx, message)
+}
+
 func (a *App) currentService() *app.Service {
 	if a.service == nil {
 		svc := app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())

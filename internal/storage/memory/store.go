@@ -336,13 +336,13 @@ func cloneWorkspaceLayout(layout workspace.Layout) workspace.Layout {
 
 func cloneProfile(profile sessions.Profile) sessions.Profile {
 	cloned := profile
-	cloned.Tags = append([]string(nil), profile.Tags...)
+	cloned.Tags = append([]string{}, profile.Tags...)
 	if profile.Options != nil {
 		cloned.Options = make(map[string]string, len(profile.Options))
 		for key, value := range profile.Options {
 			cloned.Options[key] = value
 		}
 	}
-	cloned.Password = sessions.Base64String(strings.TrimSpace(string(profile.Password)))
+	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
 	return cloned
 }
