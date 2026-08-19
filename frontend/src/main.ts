@@ -98,6 +98,12 @@ type SessionModalTab = 'basic' | 'advanced';
 type LeftPanelTab = 'sessions' | 'sftp';
 type RightPanelTab = 'ai' | 'vault';
 
+type PortForwardRule = {
+    ports: string;
+    hostId: string;
+    enabled: boolean;
+};
+
 type LogEntry = {
     level: string;
     message: string;
@@ -169,6 +175,8 @@ class OpsyShell {
     private cloudModelsEndpoint = '';
     private cloudModelsLoading = false;
     private cloudModelsError = '';
+    private pfNewPorts = '';
+    private pfNewHostId = '';
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY);
@@ -706,16 +714,38 @@ class OpsyShell {
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save log file settings');
         });
-        root?.querySelector<HTMLFormElement>('[data-port-forward-form]')?.addEventListener('submit', async (event) => {
+        root?.querySelector<HTMLFormElement>('[data-pf-add-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!this.shellState) return;
             const form = event.currentTarget as HTMLFormElement;
-            const updated = {
-                ...this.shellState.settings,
-                sshForwardPorts: form.querySelector<HTMLInputElement>('input[name="sshForwardPorts"]')?.value ?? '',
-                sshForwardHostId: form.querySelector<HTMLSelectElement>('select[name="sshForwardHostId"]')?.value ?? '',
-            } as unknown as settingsModels.AppSettings;
-            await this.runAction(async () => UpdateSettings(updated), 'Unable to save SSH port forwarding settings');
+            const ports = (form.querySelector<HTMLInputElement>('input[name="pfPorts"]')?.value ?? '').trim();
+            const hostId = (form.querySelector<HTMLSelectElement>('select[name="pfHostId"]')?.value ?? '').trim();
+            if (!ports || !hostId) return;
+            const rules: PortForwardRule[] = [...(this.shellState.settings.portForwardRules ?? []), { ports, hostId, enabled: true }];
+            const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
+            this.pfNewPorts = '';
+            this.pfNewHostId = '';
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to save port forwarding rule');
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-pf-toggle]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                if (!this.shellState) return;
+                const idx = Number(button.dataset.pfToggle);
+                const rules: PortForwardRule[] = (this.shellState.settings.portForwardRules ?? []).map((r, i) =>
+                    i === idx ? { ...r, enabled: !r.enabled } : r
+                );
+                const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
+                await this.runAction(async () => UpdateSettings(updated), 'Unable to toggle port forwarding rule');
+            });
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-pf-delete]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                if (!this.shellState) return;
+                const idx = Number(button.dataset.pfDelete);
+                const rules: PortForwardRule[] = (this.shellState.settings.portForwardRules ?? []).filter((_, i) => i !== idx);
+                const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
+                await this.runAction(async () => UpdateSettings(updated), 'Unable to delete port forwarding rule');
+            });
         });
 
         root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
@@ -1226,22 +1256,19 @@ class OpsyShell {
                 <div class="sftp-list">
                     <div class="sftp-list-header">
                         <span>Name</span>
-                        <span>Modified</span>
                         <span>Size</span>
                         <span>Mode</span>
                         <span>Actions</span>
                     </div>
                     ${this.sftpState.entries.map((entry) => entry.isDir
                         ? `<button class="sftp-row sftp-row-button sftp-dir" data-sftp-dir="${escapeHtml(entry.path)}">
-                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📁</span><span>${escapeHtml(entry.name)}</span></span>
-                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📁</span><span class="sftp-row-name-inner"><span>${escapeHtml(entry.name)}</span>${entry.modTime ? `<span class="sftp-row-date">${escapeHtml(entry.modTime)}</span>` : ''}</span></span>
                             <span>—</span>
                             <span>${escapeHtml(entry.mode || '—')}</span>
                             <span class="sftp-row-open">Open</span>
                         </button>`
                         : `<div class="sftp-row sftp-file ${this.sftpState.selectedFiles.includes(entry.path) ? 'selected' : ''}">
-                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📄</span><span>${escapeHtml(entry.name)}</span></span>
-                            <span>${escapeHtml(entry.modTime || '—')}</span>
+                            <span class="sftp-row-name"><span class="sftp-entry-icon" aria-hidden="true">📄</span><span class="sftp-row-name-inner"><span>${escapeHtml(entry.name)}</span>${entry.modTime ? `<span class="sftp-row-date">${escapeHtml(entry.modTime)}</span>` : ''}</span></span>
                             <span>${escapeHtml(formatBytes(entry.size))}</span>
                             <span>${escapeHtml(entry.mode || '—')}</span>
                             <div class="sftp-row-actions">
@@ -1386,6 +1413,32 @@ class OpsyShell {
         `;
     }
 
+    private renderPortForwardRules(): string {
+        const rules: PortForwardRule[] = this.shellState?.settings.portForwardRules ?? [];
+        const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((p) => p.protocolId === 'ssh');
+        const profileName = (hostId: string) => {
+            const p = sshProfiles.find((s) => s.id === hostId);
+            return p ? `${p.name} (${p.host})` : hostId;
+        };
+        if (rules.length === 0) {
+            return '<div class="empty-state" style="padding:0.75rem 0;">No rules yet. Add one below.</div>';
+        }
+        return `
+            <div class="pf-rules-list">
+                ${rules.map((rule, idx) => `
+                    <div class="pf-rule ${rule.enabled ? 'pf-rule-enabled' : 'pf-rule-disabled'}">
+                        <span class="pf-rule-ports">${escapeHtml(rule.ports)}</span>
+                        <span class="pf-rule-arrow">→</span>
+                        <span class="pf-rule-host">${escapeHtml(profileName(rule.hostId))}</span>
+                        <span class="pf-rule-spacer"></span>
+                        <button class="action-button secondary" data-pf-toggle="${idx}" title="${rule.enabled ? 'Disable' : 'Enable'}">${rule.enabled ? 'On' : 'Off'}</button>
+                        <button class="icon-button danger" data-pf-delete="${idx}" title="Delete rule">✕</button>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
     private renderMessages(): string {
         if (!this.shellState) {
             return '';
@@ -1413,8 +1466,6 @@ class OpsyShell {
         const logRotationMB = Math.max(1, Math.round((this.shellState?.settings.logRotationSize ?? (10 * 1024 * 1024)) / (1024 * 1024)));
         const vaultAddress = this.shellState?.settings.vaultAddress ?? '';
         const vaultMountPoint = this.shellState?.settings.vaultMountPoint ?? 'secret';
-        const sshForwardPorts = this.shellState?.settings.sshForwardPorts ?? '';
-        const sshForwardHostId = this.shellState?.settings.sshForwardHostId ?? '';
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
         const logLevels = [
             { value: 'debug', label: 'Debug' },
@@ -1469,21 +1520,18 @@ class OpsyShell {
                             </div>
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'portforward' ? 'active' : ''}">
-                            <div class="section-title">SSH port forwarding</div>
-                            <form class="provider-form" data-port-forward-form>
-                                <label>
-                                    <span>Local port or range</span>
-                                    <input type="text" name="sshForwardPorts" value="${escapeHtml(sshForwardPorts)}" placeholder="8080,9000-9005" />
-                                </label>
-                                <label>
-                                    <span>Target SSH host</span>
-                                    <select name="sshForwardHostId">
-                                        <option value="">Select host</option>
-                                        ${sshProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${sshForwardHostId === profile.id ? 'selected' : ''}>${escapeHtml(profile.name)} (${escapeHtml(profile.host)})</option>`).join('')}
-                                    </select>
-                                </label>
-                                <div class="provider-form-actions">
-                                    <button class="action-button" type="submit">Save forwarding settings</button>
+                            <div class="section-title">Port forwarding rules</div>
+                            ${this.renderPortForwardRules()}
+                            <form class="provider-form" data-pf-add-form style="margin-top:0.5rem;">
+                                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:0.5rem;align-items:end;">
+                                    <label style="margin:0;"><span style="font-size:0.78rem;">Ports / range</span><input type="text" name="pfPorts" value="${escapeHtml(this.pfNewPorts)}" placeholder="8080,9000-9005" /></label>
+                                    <label style="margin:0;"><span style="font-size:0.78rem;">Target SSH host</span>
+                                        <select name="pfHostId">
+                                            <option value="">Select host</option>
+                                            ${sshProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${this.pfNewHostId === profile.id ? 'selected' : ''}>${escapeHtml(profile.name)} (${escapeHtml(profile.host)})</option>`).join('')}
+                                        </select>
+                                    </label>
+                                    <button class="action-button" type="submit" style="align-self:flex-end;">Add rule</button>
                                 </div>
                             </form>
                         </div>

@@ -395,6 +395,22 @@ export namespace settings {
 	        this.assistantWidth = source["assistantWidth"];
 	    }
 	}
+	export class PortForwardRule {
+	    ports: string;
+	    hostId: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PortForwardRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ports = source["ports"];
+	        this.hostId = source["hostId"];
+	        this.enabled = source["enabled"];
+	    }
+	}
 	export class AppSettings {
 	    theme: string;
 	    defaultProtocol: string;
@@ -403,6 +419,7 @@ export namespace settings {
 	    allowCloudModels: boolean;
 	    sshForwardPorts: string;
 	    sshForwardHostId: string;
+	    portForwardRules: PortForwardRule[];
 	    logLevel: string;
 	    showLogPanel: boolean;
 	    saveLogsToFile: boolean;
@@ -424,6 +441,7 @@ export namespace settings {
 	        this.allowCloudModels = source["allowCloudModels"];
 	        this.sshForwardPorts = source["sshForwardPorts"];
 	        this.sshForwardHostId = source["sshForwardHostId"];
+	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
 	        this.logLevel = source["logLevel"];
 	        this.showLogPanel = source["showLogPanel"];
 	        this.saveLogsToFile = source["saveLogsToFile"];
