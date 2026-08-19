@@ -49,4 +49,8 @@ export function StartLocalModel():Promise<void>;
 
 export function SendChatMessage(arg1:string):Promise<void>;
 
+export function ClearChat():Promise<void>;
+
+export function AcceptSSHHostKey(arg1:string):Promise<void>;
+
 export function UpdateSettings(arg1:settings.AppSettings):Promise<void>;

@@ -6,6 +6,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import {
+    AcceptSSHHostKey,
+    ClearChat,
     CloseSession,
     ConnectSSH,
     CreateSessionProfile,
@@ -19,7 +21,6 @@ import {
     ReadSFTPFile,
     SaveCloudProvider,
     SaveSFTPFile,
-    SelectAIProvider,
     SendChatMessage,
     SendSSHInput,
     ResizeTerminal,
@@ -90,6 +91,14 @@ type SessionContextMenuState = {
     profileId: string;
 };
 
+type HostKeyDialogState = {
+    visible: boolean;
+    tabId: string;
+    profileId: string;
+    fingerprint: string;
+    hostname: string;
+};
+
 const THEME_KEY = 'opsy-theme';
 
 const root = document.querySelector<HTMLDivElement>('#app');
@@ -121,9 +130,11 @@ class OpsyShell {
     private theme: Theme;
     private logEntries: LogEntry[] = [];
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
+    private hostKeyDialog: HostKeyDialogState = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
     private includeLastCommandOutput = false;
     private terminalOutputHistory = new Map<string, string>();
     private readonly MAX_LOG_ENTRIES = 200;
+    private aiStatus: 'idle' | 'thinking' = 'idle';
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY) as Theme | null;
@@ -166,6 +177,14 @@ class OpsyShell {
                 this.render();
             }
         });
+        EventsOn('ai:status', (...payload: unknown[]) => {
+            const data = payload[0] as { status?: string } | undefined;
+            this.aiStatus = data?.status === 'thinking' ? 'thinking' : 'idle';
+            this.render();
+        });
+        EventsOn('ai:message', () => {
+            void this.refresh('');
+        });
     }
 
     private async refresh(errorMessage = this.errorMessage): Promise<void> {
@@ -185,75 +204,80 @@ class OpsyShell {
         }
 
         root.innerHTML = `
-            <div class="shell">
-                <aside class="panel sidebar-panel">
-                    <div class="panel-header">
-                        <div>
-                            <div class="eyebrow">Session manager</div>
-                            <h1>opsy</h1>
-                        </div>
-                        <div style="display:flex;gap:0.5rem;align-items:center;">
-                            <button class="icon-button" data-open-session-modal title="New session">+</button>
-                            <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
-                        </div>
-                    </div>
-                    <div class="sidebar-body">
-                        <section class="section sidebar-section sessions-section">
-                            <div class="section-heading">
-                                <span class="section-title">Sessions</span>
+            <div class="shell-root">
+                <div class="shell">
+                    <aside class="panel sidebar-panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="eyebrow">Session manager</div>
+                                <h1>opsy</h1>
                             </div>
-                            <div class="section-copy">Right-click a session to manage it.</div>
-                            <div class="session-list">
-                                ${this.renderSessionProfiles()}
+                            <div style="display:flex;gap:0.5rem;align-items:center;">
+                                <button class="icon-button" data-open-session-modal title="New session">+</button>
+                                <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                             </div>
-                        </section>
-                        <section class="section sftp-section sidebar-section">
-                            <div class="section-heading">
-                                <span class="section-title">SFTP Browser</span>
-                                <div class="section-actions">
-                                    ${this.renderSFTPActions()}
+                        </div>
+                        <div class="sidebar-body">
+                            <section class="section sidebar-section sessions-section">
+                                <div class="section-heading">
+                                    <span class="section-title">Sessions</span>
                                 </div>
+                                <div class="section-copy">Double-click a session to open it. Right-click to manage.</div>
+                                <div class="session-list">
+                                    ${this.renderSessionProfiles()}
+                                </div>
+                            </section>
+                            <section class="section sftp-section sidebar-section">
+                                <div class="section-heading">
+                                    <span class="section-title">SFTP Browser</span>
+                                    <div class="section-actions">
+                                        ${this.renderSFTPActions()}
+                                    </div>
+                                </div>
+                                ${this.renderSFTPBrowser()}
+                            </section>
+                        </div>
+                    </aside>
+
+                    <main class="panel workspace-panel">
+                        <div class="tab-bar">${this.renderTabs()}</div>
+                        ${this.errorMessage ? `<div class="error-banner">${escapeHtml(this.errorMessage)}</div>` : ''}
+                        <div class="terminal-shell">
+                            <div id="terminal-host" class="terminal-container"></div>
+                        </div>
+                    </main>
+
+                    <aside class="panel assistant-panel">
+                        <div class="panel-header">
+                            <div>
+                                <div class="eyebrow">AI assistant</div>
+                                <h2>Chat</h2>
                             </div>
-                            ${this.renderSFTPBrowser()}
+                            ${this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
+                        </div>
+                        <section class="section chat-section">
+                            <div class="section-title">Assistant</div>
+                            <div class="chat-messages" id="chat-messages">
+                                ${this.renderMessages()}
+                            </div>
                         </section>
-                    </div>
-                </aside>
-
-                <main class="panel workspace-panel">
-                    <div class="tab-bar">${this.renderTabs()}</div>
-                    ${this.errorMessage ? `<div class="error-banner">${escapeHtml(this.errorMessage)}</div>` : ''}
-                    <div class="terminal-shell">
-                        <div id="terminal-host" class="terminal-container"></div>
-                    </div>
-                </main>
-
-                <aside class="panel assistant-panel">
-                    <div class="panel-header">
-                        <div>
-                            <div class="eyebrow">AI assistant</div>
-                            <h2>Chat</h2>
-                        </div>
-                    </div>
-                    <section class="section chat-section">
-                        <div class="section-title">Assistant</div>
-                        <div class="chat-messages" id="chat-messages">
-                            ${this.renderMessages()}
-                        </div>
-                    </section>
-                    ${this.hasConfiguredProvider() ? `
-                    <form class="chat-input-form" data-chat-form>
-                        <label class="inline-check chat-attach-row">
-                            <span>Attach latest console output</span>
-                            <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
-                        </label>
-                        <textarea class="chat-textarea" name="message" placeholder="Ask the assistant…" rows="3"></textarea>
-                        <button class="action-button" type="submit">Send</button>
-                    </form>
-                    ` : ''}
-                </aside>
+                        ${this.hasConfiguredProvider() ? `
+                        <form class="chat-input-form" data-chat-form>
+                            <label class="inline-check chat-attach-row">
+                                <span>Attach latest console output</span>
+                                <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
+                            </label>
+                            ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
+                            <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
+                            <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
+                        </form>
+                        ` : ''}
+                    </aside>
+                </div>
+                ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
             </div>
             ${this.renderSessionContextMenu()}
-            ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
+            ${this.hostKeyDialog.visible ? this.renderHostKeyDialog() : ''}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
         `;
@@ -326,6 +350,13 @@ class OpsyShell {
         });
 
         root?.querySelectorAll<HTMLElement>('[data-session-item]').forEach((item) => {
+            item.addEventListener('dblclick', async () => {
+                const profileID = item.dataset.sessionItem;
+                if (!profileID) {
+                    return;
+                }
+                await this.openProfile(profileID);
+            });
             item.addEventListener('contextmenu', (event) => {
                 event.preventDefault();
                 const profileID = item.dataset.sessionItem;
@@ -435,16 +466,6 @@ class OpsyShell {
             this.sftpState.editorDirty = true;
         });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-select-provider]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const providerID = button.dataset.selectProvider;
-                if (!providerID) {
-                    return;
-                }
-                await this.runAction(async () => SelectAIProvider(providerID), 'Unable to switch AI provider');
-            });
-        });
-
         root?.querySelector<HTMLFormElement>('[data-cloud-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
@@ -465,6 +486,18 @@ class OpsyShell {
             this.includeLastCommandOutput = includeLastOutput;
             const payload = includeLastOutput ? this.withLatestTerminalOutput(message) : message;
             await this.runAction(async () => SendChatMessage(payload), 'Unable to send message');
+        });
+
+        root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('keydown', (event) => {
+            if (event.ctrlKey && event.key === 'Enter') {
+                event.preventDefault();
+                const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
+                form?.requestSubmit();
+            }
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-clear-chat]')?.addEventListener('click', async () => {
+            await this.runAction(async () => ClearChat(), 'Unable to clear chat');
         });
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
@@ -564,6 +597,23 @@ class OpsyShell {
                 this.render();
             }
         });
+
+        root?.querySelector<HTMLButtonElement>('[data-accept-host-key]')?.addEventListener('click', async () => {
+            const { tabId, profileId } = this.hostKeyDialog;
+            this.hostKeyDialog = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
+            try {
+                await AcceptSSHHostKey(tabId);
+                await this.retrySSHConnect(tabId, profileId);
+            } catch (error) {
+                this.errorMessage = formatError('Unable to accept host key', error);
+                this.render();
+            }
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-reject-host-key]')?.addEventListener('click', () => {
+            this.hostKeyDialog = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
+            this.render();
+        });
     }
 
     private async openProfile(profileID: string): Promise<void> {
@@ -577,7 +627,7 @@ class OpsyShell {
             await this.refresh('');
             if (profile.protocolId === 'ssh') {
                 this.ensureTerminalSubscription(tab.id);
-                await ConnectSSH(tab.id, profileID);
+                await this.connectSSHWithHostKeyHandling(tab.id, profileID);
                 this.fitActiveTerminal();
             } else if (profile.protocolId === 'rdp') {
                 this.errorMessage = 'RDP tab created. Native desktop stream is not yet wired in this build.';
@@ -585,6 +635,40 @@ class OpsyShell {
             }
         } catch (error) {
             this.errorMessage = formatError('Unable to open session', error);
+            this.render();
+        }
+    }
+
+    private async connectSSHWithHostKeyHandling(tabId: string, profileId: string): Promise<void> {
+        try {
+            await ConnectSSH(tabId, profileId);
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : String(error);
+            if (msg.includes('unknown host key')) {
+                const fpMatch = msg.match(/fingerprint\s+(\S+)/);
+                const hostMatch = msg.match(/unknown host key:\s*(\S+)/);
+                this.hostKeyDialog = {
+                    visible: true,
+                    tabId,
+                    profileId,
+                    fingerprint: fpMatch ? fpMatch[1] : '',
+                    hostname: hostMatch ? hostMatch[1] : '',
+                };
+                this.render();
+                return;
+            }
+            throw error;
+        }
+    }
+
+    private async retrySSHConnect(tabId: string, profileId: string): Promise<void> {
+        try {
+            this.ensureTerminalSubscription(tabId);
+            await ConnectSSH(tabId, profileId);
+            this.fitActiveTerminal();
+            await this.refresh('');
+        } catch (error) {
+            this.errorMessage = formatError('Unable to connect SSH', error);
             this.render();
         }
     }
@@ -895,25 +979,10 @@ class OpsyShell {
         `;
     }
 
-    private renderAIProviders(): string {
-        if (!this.shellState) {
-            return '';
-        }
-        return this.shellState.ai.providers.map((provider) => `
-            <article class="provider-card ${provider.selected ? 'selected-provider' : ''}">
-                <div>
-                    <strong>${escapeHtml(provider.name)}</strong>
-                    <div class="session-meta">${escapeHtml(provider.model)} · ${escapeHtml(provider.status)}</div>
-                </div>
-                <button class="action-button secondary" data-select-provider="${escapeHtml(provider.id)}">${provider.selected ? 'Selected' : 'Use'}</button>
-            </article>
-        `).join('');
-    }
-
     private renderProviderSetup(): string {
         const provider = this.selectedProvider();
         if (!provider) {
-            return '<div class="empty-state">Select an AI provider to configure it.</div>';
+            return '<div class="empty-state">No AI provider configured yet.</div>';
         }
         return `
             <form class="provider-form" data-cloud-form>
@@ -978,10 +1047,7 @@ class OpsyShell {
                     </nav>
                     <div class="modal-body">
                         <div class="modal-tab-panel ${this.settingsTab === 'ai' ? 'active' : ''}">
-                            <div class="section-title">AI Providers</div>
-                            <div class="provider-list">
-                                ${this.renderAIProviders()}
-                            </div>
+                            <div class="section-title">AI Provider</div>
                             ${this.renderProviderSetup()}
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'sshconfig' ? 'active' : ''}">
@@ -1106,6 +1172,31 @@ class OpsyShell {
         }
         this.sessionContextMenu = { visible: false, x: 0, y: 0, profileId: '' };
         this.render();
+    }
+
+    private renderHostKeyDialog(): string {
+        const { hostname, fingerprint } = this.hostKeyDialog;
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">Security alert</div>
+                            <h2>Unknown host key</h2>
+                        </div>
+                    </div>
+                    <div class="modal-body">
+                        <p>The authenticity of host <strong>${escapeHtml(hostname)}</strong> cannot be established.</p>
+                        <p>Key fingerprint:<br><code>${escapeHtml(fingerprint)}</code></p>
+                        <p>Do you want to trust this host and add it to your known_hosts file?</p>
+                        <div style="display:flex;gap:0.75rem;justify-content:flex-end;padding-top:1rem;">
+                            <button class="action-button secondary" data-reject-host-key>Reject</button>
+                            <button class="action-button" data-accept-host-key>Trust &amp; Connect</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
     }
 
     private withLatestTerminalOutput(message: string): string {

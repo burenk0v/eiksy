@@ -2,6 +2,7 @@ package sshmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -17,10 +18,23 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// ErrUnknownHostKey is the sentinel prefix used when a host key is not in known_hosts.
+const ErrUnknownHostKey = "unknown host key"
+
+// PendingHostKey holds the key info captured when a host is not in known_hosts.
+type PendingHostKey struct {
+	Hostname    string
+	Remote      net.Addr
+	Key         xssh.PublicKey
+	Fingerprint string
+	KeyType     string
+}
+
 type Manager struct {
 	mu          sync.RWMutex
 	connections map[string]*connection
 	handlers    map[string]func(string)
+	pendingKeys map[string]*PendingHostKey // keyed by tabID
 }
 
 type connection struct {
@@ -32,7 +46,11 @@ type connection struct {
 }
 
 func NewManager() *Manager {
-	return &Manager{connections: map[string]*connection{}, handlers: map[string]func(string){}}
+	return &Manager{
+		connections: map[string]*connection{},
+		handlers:    map[string]func(string){},
+		pendingKeys: map[string]*PendingHostKey{},
+	}
 }
 
 func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, user, password string, options map[string]string) error {
@@ -41,7 +59,7 @@ func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, use
 	}
 	_ = m.Disconnect(tabID)
 
-	hostKey, err := hostKeyCallback()
+	hostKey, err := m.hostKeyCallback(tabID)
 	if err != nil {
 		return err
 	}
@@ -208,16 +226,88 @@ func (m *Manager) streamOutput(tabID string, reader io.Reader) {
 	}
 }
 
-func hostKeyCallback() (xssh.HostKeyCallback, error) {
+func (m *Manager) hostKeyCallback(tabID string) (xssh.HostKeyCallback, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("resolve user home dir: %w", err)
 	}
 	knownHostsPath := filepath.Join(homeDir, ".ssh", "known_hosts")
-	if _, err := os.Stat(knownHostsPath); os.IsNotExist(err) {
-		return xssh.InsecureIgnoreHostKey(), nil //nolint:gosec
+
+	var trustedCb xssh.HostKeyCallback
+	if _, err := os.Stat(knownHostsPath); !os.IsNotExist(err) {
+		trustedCb, err = knownhosts.New(knownHostsPath)
+		if err != nil {
+			return nil, fmt.Errorf("load known_hosts: %w", err)
+		}
 	}
-	return knownhosts.New(knownHostsPath)
+
+	return func(hostname string, remote net.Addr, key xssh.PublicKey) error {
+		if trustedCb != nil {
+			err := trustedCb(hostname, remote, key)
+			if err == nil {
+				return nil
+			}
+			var keyErr *knownhosts.KeyError
+			if errors.As(err, &keyErr) && len(keyErr.Want) > 0 {
+				// Key mismatch — return as-is (possible MITM).
+				return err
+			}
+			// Host not found — fall through to prompt user.
+		}
+		fp := xssh.FingerprintSHA256(key)
+		m.mu.Lock()
+		m.pendingKeys[tabID] = &PendingHostKey{
+			Hostname:    hostname,
+			Remote:      remote,
+			Key:         key,
+			Fingerprint: fp,
+			KeyType:     key.Type(),
+		}
+		m.mu.Unlock()
+		return fmt.Errorf("%s: %s fingerprint %s", ErrUnknownHostKey, hostname, fp)
+	}, nil
+}
+
+// GetPendingHostKey returns the pending host key for the given tab, if any.
+func (m *Manager) GetPendingHostKey(tabID string) *PendingHostKey {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.pendingKeys[tabID]
+}
+
+// AcceptHostKey appends the pending host key for tabID to known_hosts and
+// removes it from the pending map.
+func (m *Manager) AcceptHostKey(tabID string) error {
+	m.mu.Lock()
+	pending := m.pendingKeys[tabID]
+	if pending != nil {
+		delete(m.pendingKeys, tabID)
+	}
+	m.mu.Unlock()
+
+	if pending == nil {
+		return fmt.Errorf("no pending host key for tab %q", tabID)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve user home dir: %w", err)
+	}
+	sshDir := filepath.Join(homeDir, ".ssh")
+	if err := os.MkdirAll(sshDir, 0700); err != nil {
+		return fmt.Errorf("create .ssh dir: %w", err)
+	}
+	knownHostsPath := filepath.Join(sshDir, "known_hosts")
+	f, err := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return fmt.Errorf("open known_hosts: %w", err)
+	}
+	defer f.Close()
+	line := knownhosts.Line([]string{pending.Hostname}, pending.Key)
+	if _, err := fmt.Fprintln(f, line); err != nil {
+		return fmt.Errorf("write known_hosts: %w", err)
+	}
+	return nil
 }
 
 func buildClientConfig(user, password string, options map[string]string, hostKeyCallback xssh.HostKeyCallback) (*xssh.ClientConfig, error) {
