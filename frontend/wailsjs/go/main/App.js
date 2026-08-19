@@ -50,6 +50,10 @@ export function LaunchSession(arg1) {
   return window['go']['main']['App']['LaunchSession'](arg1);
 }
 
+export function ListCloudModels(arg1, arg2) {
+  return window['go']['main']['App']['ListCloudModels'](arg1, arg2);
+}
+
 export function ListSFTPFiles(arg1, arg2) {
   return window['go']['main']['App']['ListSFTPFiles'](arg1, arg2);
 }

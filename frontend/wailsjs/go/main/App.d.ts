@@ -30,6 +30,8 @@ export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
 
 export function LaunchSession(arg1:string):Promise<app.RuntimeSessionView>;
 
+export function ListCloudModels(arg1:string,arg2:string):Promise<Array<string>>;
+
 export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
 
 export function ListVaultSecrets(arg1:string):Promise<Array<vault.SecretNode>>;

@@ -171,6 +171,10 @@ func (a *App) SaveCloudProvider(model string, endpoint string, token string) err
 	return a.currentService().SaveCloudProvider(model, endpoint, token)
 }
 
+func (a *App) ListCloudModels(endpoint string, token string) ([]string, error) {
+	return a.currentService().ListCloudModels(endpoint, token)
+}
+
 func (a *App) DownloadLocalModel() error {
 	return a.currentService().DownloadLocalModel(a.ctx)
 }

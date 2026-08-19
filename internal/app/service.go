@@ -542,6 +542,73 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 	return nil
 }
 
+func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
+	endpoint = strings.TrimSpace(endpoint)
+	token = strings.TrimSpace(token)
+	if endpoint == "" {
+		return nil, fmt.Errorf("cloud endpoint is required")
+	}
+
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return nil, fmt.Errorf("cloud endpoint must be a valid http or https url")
+	}
+
+	if token == "" {
+		state := s.store.AIState()
+		if index := providerIndexByClass(state.Providers, ai.ProviderClassOpenAICompatible); index >= 0 {
+			token = strings.TrimSpace(state.Providers[index].Token)
+		}
+	}
+
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, strings.TrimRight(endpoint, "/")+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("AI API returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &payload); err != nil {
+		return nil, fmt.Errorf("parse model list response: %w", err)
+	}
+
+	unique := map[string]struct{}{}
+	models := make([]string, 0, len(payload.Data))
+	for _, entry := range payload.Data {
+		id := strings.TrimSpace(entry.ID)
+		if id == "" {
+			continue
+		}
+		if _, exists := unique[id]; exists {
+			continue
+		}
+		unique[id] = struct{}{}
+		models = append(models, id)
+	}
+	sort.Strings(models)
+	return models, nil
+}
+
 func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	current := s.store.Settings()
 	// Preserve fields that are not exposed in the update call.

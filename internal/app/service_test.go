@@ -1,6 +1,10 @@
 package app
 
 import (
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 
 	"opsy/internal/domain/ai"
@@ -143,6 +147,53 @@ func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
 	}
 	if cloudProvider.Endpoint != "https://models.example.com/v2" {
 		t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint)
+	}
+}
+
+func TestListCloudModelsFetchesAndSortsUniqueModels(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		if r.URL.Path != "/v1/models" {
+			t.Fatalf("expected /v1/models path, got %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6"},{"id":"gpt-4.1"},{"id":"gpt-5.6"},{"id":" "}]}`))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil, nil)
+	models, err := service.ListCloudModels(server.URL+"/v1", "secret-token")
+	if err != nil {
+		t.Fatalf("list cloud models: %v", err)
+	}
+	if !slices.Equal(models, []string{"gpt-4.1", "gpt-5.6"}) {
+		t.Fatalf("unexpected models list: %#v", models)
+	}
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		t.Fatalf("expected bearer authorization header, got %q", authHeader)
+	}
+}
+
+func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6"}]}`))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil, nil)
+	if err := service.SaveCloudProvider("gpt-5.6", server.URL+"/v1", "saved-token"); err != nil {
+		t.Fatalf("save cloud provider: %v", err)
+	}
+
+	if _, err := service.ListCloudModels(server.URL+"/v1", ""); err != nil {
+		t.Fatalf("list cloud models: %v", err)
+	}
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		t.Fatalf("expected bearer authorization header, got %q", authHeader)
 	}
 }
 
