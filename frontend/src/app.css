@@ -52,10 +52,18 @@
     --shadow-active: 0 0 0 2px rgba(84, 130, 255, 0.22);
 }
 
+.shell-root {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+}
+
 .shell {
     display: grid;
     grid-template-columns: 300px minmax(0, 1fr) 360px;
-    height: 100vh;
+    flex: 1;
+    min-height: 0;
     overflow: hidden;
     background: var(--bg-base);
     color: var(--color-text);
@@ -65,7 +73,7 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
-    height: 100vh;
+    height: 100%;
     overflow: hidden;
 }
 
@@ -546,11 +554,7 @@ small {
 
 /* Log panel */
 .log-panel {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 90;
+    flex-shrink: 0;
     background: var(--bg-panel);
     border-top: 1px solid var(--border-subtle);
     display: flex;
@@ -697,4 +701,20 @@ small {
 
 .session-context-item.danger {
     color: var(--color-error);
+}
+
+/* AI status indicator */
+.ai-status-indicator {
+    font-size: 0.8rem;
+    color: var(--color-label);
+    padding: 0.25rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
 }

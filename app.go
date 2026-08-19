@@ -188,6 +188,14 @@ func (a *App) SendChatMessage(message string) error {
 	return a.currentService().SendChatMessage(a.ctx, message)
 }
 
+func (a *App) ClearChat() {
+	a.currentService().ClearChat()
+}
+
+func (a *App) AcceptSSHHostKey(tabID string) error {
+	return a.currentService().AcceptSSHHostKey(tabID)
+}
+
 func (a *App) currentService() *app.Service {
 	if a.service == nil {
 		svc := app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())

@@ -91,6 +91,7 @@ type sshManager interface {
 	Disconnect(string) error
 	SetOutputHandler(string, func(data string))
 	GetCurrentDir(string) (string, error)
+	AcceptHostKey(string) error
 }
 
 type sftpManager interface {
@@ -628,6 +629,8 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 	state.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})
 	s.store.UpdateAIState(state)
 
+	s.emitFn("ai:status", map[string]string{"status": "thinking"})
+	defer s.emitFn("ai:status", map[string]string{"status": "idle"})
 	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages)
 	if err != nil {
 		return fmt.Errorf("AI request failed: %w", err)
@@ -639,6 +642,22 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 
 	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": reply})
 	return nil
+}
+
+// ClearChat removes all messages from the AI chat history.
+func (s *Service) ClearChat() {
+	state := s.store.AIState()
+	state.Messages = nil
+	s.store.UpdateAIState(state)
+}
+
+// AcceptSSHHostKey trusts the pending unknown host key for the given tab and
+// adds it to the known_hosts file, so that a subsequent ConnectSSH succeeds.
+func (s *Service) AcceptSSHHostKey(tabID string) error {
+	if s.sshManager == nil {
+		return fmt.Errorf("ssh manager is not configured")
+	}
+	return s.sshManager.AcceptHostKey(tabID)
 }
 
 func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) *ai.ProviderDescriptor {

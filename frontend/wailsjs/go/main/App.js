@@ -90,6 +90,14 @@ export function SendChatMessage(arg1) {
   return window['go']['main']['App']['SendChatMessage'](arg1);
 }
 
+export function ClearChat() {
+  return window['go']['main']['App']['ClearChat']();
+}
+
+export function AcceptSSHHostKey(arg1) {
+  return window['go']['main']['App']['AcceptSSHHostKey'](arg1);
+}
+
 export function UpdateSettings(arg1) {
   return window['go']['main']['App']['UpdateSettings'](arg1);
 }
