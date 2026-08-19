@@ -327,7 +327,7 @@ func defaultWorkspaceLayout() workspace.Layout {
 func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 	cloned := state
 	cloned.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
-	cloned.Messages = append([]ai.ChatMessage(nil), state.Messages...)
+	cloned.Messages = append([]ai.ChatMessage{}, state.Messages...)
 	return cloned
 }
 
