@@ -190,6 +190,7 @@
 .section-heading {
     justify-content: space-between;
     margin-bottom: 0.85rem;
+    align-items: flex-start;
 }
 
 .section-copy,
@@ -385,6 +386,7 @@ small {
 }
 
 .provider-form input,
+.provider-form select,
 .session-form input,
 .session-form select {
     width: 100%;
@@ -419,6 +421,19 @@ small {
 .sftp-list {
     max-height: 35vh;
     overflow: auto;
+}
+
+.sftp-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.sftp-action-button {
+    min-width: 2.1rem;
+    padding: 0.42rem 0.5rem;
+    line-height: 1;
 }
 
 .sftp-entry {

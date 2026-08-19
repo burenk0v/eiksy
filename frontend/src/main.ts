@@ -22,6 +22,7 @@ import {
     NavigateSFTP,
     ImportSSHConfig,
     ReadSFTPFile,
+    ListCloudModels,
     SaveCloudProvider,
     SaveSFTPFile,
     SelectDownloadDirectory,
@@ -157,6 +158,10 @@ class OpsyShell {
     private terminalOutputHistory = new Map<string, string>();
     private readonly MAX_LOG_ENTRIES = 200;
     private aiStatus: 'idle' | 'thinking' = 'idle';
+    private cloudModels: string[] = [];
+    private cloudModelsEndpoint = '';
+    private cloudModelsLoading = false;
+    private cloudModelsError = '';
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY) as Theme | null;
@@ -361,6 +366,9 @@ class OpsyShell {
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
             this.showSettingsModal = true;
             this.render();
+            if (this.settingsTab === 'ai') {
+                void this.loadCloudModels(false);
+            }
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-left-panel-tab]').forEach((button) => {
@@ -381,6 +389,9 @@ class OpsyShell {
             button.addEventListener('click', () => {
                 this.settingsTab = (button.dataset.settingsTab as SettingsTab) ?? 'ai';
                 this.render();
+                if (this.settingsTab === 'ai') {
+                    void this.loadCloudModels(false);
+                }
             });
         });
 
@@ -567,10 +578,13 @@ class OpsyShell {
         root?.querySelector<HTMLFormElement>('[data-cloud-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
-            const model = form.querySelector<HTMLInputElement>('input[name="model"]')?.value ?? '';
+            const model = form.querySelector<HTMLSelectElement>('select[name="model"]')?.value ?? '';
             const endpoint = form.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? '';
             const token = form.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '';
             await this.runAction(async () => SaveCloudProvider(model, endpoint, token), 'Unable to save cloud provider');
+        });
+        root?.querySelector<HTMLButtonElement>('[data-load-cloud-models]')?.addEventListener('click', async () => {
+            await this.loadCloudModels(true);
         });
 
         root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
@@ -1146,13 +1160,15 @@ class OpsyShell {
         if (!activeTab || activeTab.protocolId !== 'ssh') {
             return '<span class="section-copy">Select an SSH tab</span>';
         }
-        const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Refresh';
+        const openLabel = this.sftpState.entries.length === 0 ? 'Open SFTP' : 'Open root';
         const canTransfer = !this.sftpState.loading && !this.sftpState.error;
         return `
-            <button class="action-button secondary" data-open-sftp>${openLabel}</button>
-            ${this.sftpState.entries.length > 0 ? '<button class="action-button secondary" data-refresh-sftp>Reload</button>' : ''}
-            ${canTransfer ? '<button class="action-button secondary" data-sftp-upload>Upload</button>' : ''}
-            ${canTransfer ? `<button class="action-button secondary" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''}>Download (${this.sftpState.selectedFiles.length})</button>` : ''}
+            <div class="sftp-actions">
+                <button class="icon-button sftp-action-button" data-open-sftp title="${escapeHtml(openLabel)}" aria-label="${escapeHtml(openLabel)}">📂</button>
+                ${this.sftpState.entries.length > 0 ? '<button class="icon-button sftp-action-button" data-refresh-sftp title="Reload current path" aria-label="Reload current path">↻</button>' : ''}
+                ${canTransfer ? '<button class="icon-button sftp-action-button" data-sftp-upload title="Upload files" aria-label="Upload files">⤴</button>' : ''}
+                ${canTransfer ? `<button class="icon-button sftp-action-button" data-sftp-download ${this.sftpState.selectedFiles.length === 0 ? 'disabled' : ''} title="Download selected files" aria-label="Download selected files">⤵${this.sftpState.selectedFiles.length > 0 ? ` ${this.sftpState.selectedFiles.length}` : ''}</button>` : ''}
+            </div>
         `;
     }
 
@@ -1176,7 +1192,7 @@ class OpsyShell {
         return `
             <div class="sftp-path-row">
                 <span class="sftp-path">${escapeHtml(this.sftpState.path || '.')}</span>
-                <button class="action-button secondary" data-sftp-up>..</button>
+                <button class="icon-button sftp-action-button" data-sftp-up title="Go to parent directory" aria-label="Go to parent directory">↑</button>
             </div>
             <div class="sftp-list">
                 ${this.sftpState.entries.map((entry) => entry.isDir
@@ -1235,16 +1251,60 @@ class OpsyShell {
         `;
     }
 
+    private async loadCloudModels(force: boolean): Promise<void> {
+        const provider = this.selectedProvider();
+        if (!provider) {
+            return;
+        }
+        const form = root?.querySelector<HTMLFormElement>('[data-cloud-form]');
+        const endpoint = (form?.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? provider.endpoint ?? '').trim();
+        const token = (form?.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '').trim();
+        if (!endpoint) {
+            this.cloudModels = [];
+            this.cloudModelsEndpoint = '';
+            this.cloudModelsError = 'Enter endpoint first.';
+            this.render();
+            return;
+        }
+        if (!force && endpoint === this.cloudModelsEndpoint && this.cloudModels.length > 0) {
+            return;
+        }
+        this.cloudModelsLoading = true;
+        this.cloudModelsError = '';
+        this.render();
+        try {
+            const models = await ListCloudModels(endpoint, token);
+            this.cloudModels = models;
+            this.cloudModelsEndpoint = endpoint;
+            this.cloudModelsError = models.length > 0 ? '' : 'No models returned by API.';
+        } catch (error) {
+            this.cloudModels = [];
+            this.cloudModelsEndpoint = endpoint;
+            this.cloudModelsError = formatError('Unable to load models', error);
+        } finally {
+            this.cloudModelsLoading = false;
+            this.render();
+        }
+    }
+
     private renderProviderSetup(): string {
         const provider = this.selectedProvider();
         if (!provider) {
             return '<div class="empty-state">No AI provider configured yet.</div>';
         }
+        const selectedModel = provider.model || '';
+        const availableModels = selectedModel && !this.cloudModels.includes(selectedModel)
+            ? [selectedModel, ...this.cloudModels]
+            : this.cloudModels;
         return `
             <form class="provider-form" data-cloud-form>
                 <label>
-                    <span>Model name</span>
-                    <input type="text" name="model" value="${escapeHtml(provider.model || '')}" placeholder="gpt-5.6" required />
+                    <span>Model</span>
+                    <select name="model" ${availableModels.length === 0 ? 'disabled' : ''} required>
+                        ${availableModels.length === 0
+                            ? '<option value="">Load models from API first</option>'
+                            : availableModels.map((model) => `<option value="${escapeHtml(model)}" ${model === selectedModel ? 'selected' : ''}>${escapeHtml(model)}</option>`).join('')}
+                    </select>
                 </label>
                 <label>
                     <span>Endpoint</span>
@@ -1255,7 +1315,11 @@ class OpsyShell {
                     <input type="password" name="token" placeholder="sk-..." />
                 </label>
                 <div class="provider-form-actions">
-                    <button class="action-button" type="submit">Save cloud provider</button>
+                    <button class="action-button secondary" type="button" data-load-cloud-models ${this.cloudModelsLoading ? 'disabled' : ''}>${this.cloudModelsLoading ? 'Loading models…' : 'Load models'}</button>
+                    ${this.cloudModelsError ? `<span class="section-copy">${escapeHtml(this.cloudModelsError)}</span>` : ''}
+                </div>
+                <div class="provider-form-actions">
+                    <button class="action-button" type="submit" ${availableModels.length === 0 ? 'disabled' : ''}>Save cloud provider</button>
                 </div>
             </form>
         `;
