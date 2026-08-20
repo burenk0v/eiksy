@@ -428,6 +428,11 @@ func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("vault address must be a valid http or https url")
 	}
+	if cfg.VaultAutoRenewToken {
+		if err := s.renewVaultToken(parsed, cfg.VaultToken); err != nil {
+			return nil, err
+		}
+	}
 
 	cleanPath := strings.Trim(strings.TrimSpace(path), "/")
 	metadataRoute := vaultPathJoin(cfg.VaultMountPoint, "metadata", cleanPath)
@@ -435,6 +440,31 @@ func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error
 	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build vault request: %w", err)
+	}
+
+	func (s *Service) renewVaultToken(baseURL *url.URL, token string) error {
+		endpoint := strings.TrimRight(baseURL.String(), "/") + "/v1/auth/token/renew-self"
+		req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodPost, endpoint, bytes.NewReader([]byte(`{}`)))
+		if err != nil {
+			return fmt.Errorf("build vault token renewal request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Vault-Token", token)
+
+		resp, err := s.httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("vault token renewal failed: %w", err)
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read vault token renewal response: %w", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("vault token renewal returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+		}
+		return nil
 	}
 	req.Header.Set("X-Vault-Token", cfg.VaultToken)
 

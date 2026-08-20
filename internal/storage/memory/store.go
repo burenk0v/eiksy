@@ -312,6 +312,7 @@ func defaultSettings() settings.AppSettings {
 		SaveLogsToFile:   false,
 		LogRotationSize:  settings.DefaultLogRotationSize,
 		VaultMountPoint:  settings.DefaultVaultMountPoint,
+		VaultAutoRenewToken: false,
 	}
 }
 

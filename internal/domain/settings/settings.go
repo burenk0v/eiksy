@@ -40,5 +40,6 @@ type AppSettings struct {
 	LogRotationSize  int               `json:"logRotationSize"`
 	VaultAddress     string            `json:"vaultAddress"`
 	VaultMountPoint  string            `json:"vaultMountPoint"`
+	VaultAutoRenewToken bool           `json:"vaultAutoRenewToken"`
 	VaultToken       string            `json:"-"`
 }

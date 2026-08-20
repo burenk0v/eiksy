@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"net/url"
+	"os/exec"
+	stdruntime "runtime"
 	"sync"
 
 	"opsy/internal/app"
@@ -143,8 +146,31 @@ func (a *App) OpenRDP(tabID, profileID string) error {
 	if err != nil {
 		return err
 	}
-	runtime.BrowserOpenURL(a.ctx, target)
+	if err := openRDPTarget(a.ctx, target); err != nil {
+		return err
+	}
 	return nil
+}
+
+func openRDPTarget(ctx context.Context, target string) error {
+	if command, args, ok := rdpLaunchCommand(target, stdruntime.GOOS); ok {
+		if err := exec.Command(command, args...).Start(); err == nil {
+			return nil
+		}
+	}
+	runtime.BrowserOpenURL(ctx, target)
+	return nil
+}
+
+func rdpLaunchCommand(target, goos string) (string, []string, bool) {
+	if goos != "windows" {
+		return "", nil, false
+	}
+	parsed, err := url.Parse(target)
+	if err != nil || parsed.Host == "" {
+		return "", nil, false
+	}
+	return "mstsc", []string{"/v:" + parsed.Host}, true
 }
 
 func (a *App) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
