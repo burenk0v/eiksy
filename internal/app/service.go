@@ -184,8 +184,13 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	if profile.ID == "" {
 		profile.ID = s.nextProfileID(profile.Name)
 	}
-	if existing, found := s.store.SessionProfile(profile.ID); found && profile.LastLaunchedAt == "" {
-		profile.LastLaunchedAt = existing.LastLaunchedAt
+	if existing, found := s.store.SessionProfile(profile.ID); found {
+		if profile.LastLaunchedAt == "" {
+			profile.LastLaunchedAt = existing.LastLaunchedAt
+		}
+		if string(profile.Password) == "" {
+			profile.Password = existing.Password
+		}
 	}
 
 	if err := mutator.UpsertSessionProfile(profile); err != nil {

@@ -94,7 +94,7 @@ type TerminalState = {
 
 type Theme = 'dark' | 'light' | 'green';
 type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme' | 'logs';
-type SessionModalTab = 'host' | 'auth' | 'other';
+type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type RightPanelTab = 'ai' | 'vault';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
 
@@ -140,6 +140,8 @@ class OpsyShell {
     private errorMessage = '';
     private showSessionModal = false;
     private sessionModalTab: SessionModalTab = 'host';
+    private editingProfileID = '';
+    private sessionNameAuto = true;
     private showSettingsModal = false;
     private settingsTab: SettingsTab = 'ai';
     private rightPanelTab: RightPanelTab = 'ai';
@@ -392,11 +394,18 @@ class OpsyShell {
                 }
             });
         });
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-context-edit]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const profileID = button.dataset.sessionContextEdit;
+                this.hideSessionContextMenu();
+                if (profileID) {
+                    this.openSessionModalForEdit(profileID);
+                }
+            });
+        });
 
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
-            this.showSessionModal = true;
-            this.sessionModalTab = 'host';
-            this.render();
+            this.openSessionModalForCreate();
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
@@ -436,9 +445,13 @@ class OpsyShell {
 
         root?.querySelectorAll<HTMLButtonElement>('[data-session-modal-tab]').forEach((button) => {
             button.addEventListener('click', () => {
+                this.syncSessionFormFromDOM();
                 this.sessionModalTab = (button.dataset.sessionModalTab as SessionModalTab) ?? 'host';
                 this.render();
             });
+        });
+        root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('input', (event) => {
+            this.syncSessionFormFromDOM(event.target);
         });
         root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.addEventListener('change', (event) => {
             const select = event.currentTarget as HTMLSelectElement;
@@ -672,8 +685,15 @@ class OpsyShell {
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
             button.addEventListener('click', () => {
+                const wasSessionModalOpen = this.showSessionModal;
                 this.showSessionModal = false;
                 this.showSettingsModal = false;
+                if (wasSessionModalOpen) {
+                    this.editingProfileID = '';
+                    this.sessionForm = this.defaultSessionForm();
+                    this.sessionNameAuto = true;
+                    this.sessionModalTab = 'host';
+                }
                 this.render();
             });
         });
@@ -798,11 +818,13 @@ class OpsyShell {
             const protocolId = String(formData.get('protocolId') ?? 'ssh');
             const authMethod = protocolId === 'rdp' ? 'password' : (String(formData.get('authMethod') ?? 'password') === 'key' ? 'key' : 'password');
             const privateKeyPath = String(formData.get('privateKeyPath') ?? '');
+            const host = String(formData.get('host') ?? '').trim();
+            const name = String(formData.get('name') ?? '').trim() || host;
             const profile: SessionProfile = {
-                id: '',
-                name: String(formData.get('name') ?? ''),
+                id: this.editingProfileID,
+                name,
                 group: String(formData.get('group') ?? ''),
-                host: String(formData.get('host') ?? ''),
+                host,
                 port: Number(formData.get('port') ?? (protocolId === 'rdp' ? 3389 : 22)),
                 username: String(formData.get('username') ?? ''),
                 password: String(authMethod === 'password' ? (formData.get('password') ?? '') : ''),
@@ -839,7 +861,10 @@ class OpsyShell {
             try {
                 await CreateSessionProfile(profile);
                 this.showSessionModal = false;
+                this.editingProfileID = '';
                 this.sessionForm = this.defaultSessionForm();
+                this.sessionNameAuto = true;
+                this.sessionModalTab = 'host';
                 await this.refresh('');
             } catch (error) {
                 this.errorMessage = formatError('Unable to save session profile', error);
@@ -1628,21 +1653,65 @@ class OpsyShell {
         `;
     }
 
+    private openSessionModalForCreate(): void {
+        this.editingProfileID = '';
+        this.sessionForm = this.defaultSessionForm();
+        this.sessionNameAuto = true;
+        this.sessionModalTab = 'host';
+        this.showSessionModal = true;
+        this.render();
+    }
+
+    private openSessionModalForEdit(profileID: string): void {
+        const profile = this.shellState?.sessionProfiles.find((entry) => entry.id === profileID);
+        if (!profile) {
+            return;
+        }
+        this.editingProfileID = profileID;
+        this.sessionForm = this.sessionFormFromProfile(profile);
+        this.sessionNameAuto = false;
+        this.sessionModalTab = 'host';
+        this.showSessionModal = true;
+        this.render();
+    }
+
+    private sessionFormFromProfile(profile: sessions.Profile): SessionFormState {
+        const options = profile.options ?? {};
+        const authMethod = options.auth_method === 'key' && this.supportsKeyAuth(profile.protocolId) ? 'key' : 'password';
+        return {
+            name: profile.name || profile.host || '',
+            group: profile.group || '',
+            host: profile.host || '',
+            port: String(profile.port || (profile.protocolId === 'rdp' ? 3389 : 22)),
+            username: profile.username || '',
+            password: '',
+            authMethod,
+            privateKeyPath: options.ssh_private_key_path ?? '',
+            protocolId: profile.protocolId || 'ssh',
+            tags: Array.isArray(profile.tags) ? profile.tags.join(', ') : '',
+            proxyJump: options.proxy_jump ?? '',
+            localForwards: options.local_forwards ?? '',
+            useSSHAgent: options.use_ssh_agent === 'true',
+        };
+    }
+
     private renderSessionModal(): string {
         const tabs: Array<{ id: SessionModalTab; label: string }> = [
             { id: 'host', label: 'Host' },
             { id: 'auth', label: 'Authorization' },
+            { id: 'network', label: 'Network' },
             { id: 'other', label: 'Other' },
         ];
         const supportsKeyAuth = this.supportsKeyAuth(this.sessionForm.protocolId);
         const supportsSSHAdvancedOptions = this.supportsSSHAdvancedOptions(this.sessionForm.protocolId);
+        const isEditing = this.editingProfileID !== '';
         return `
             <div class="modal-overlay">
                 <div class="modal-dialog">
                     <div class="panel-header compact-header">
                         <div>
-                            <div class="eyebrow">New session</div>
-                            <h2>Create session profile</h2>
+                            <div class="eyebrow">${isEditing ? 'Session settings' : 'New session'}</div>
+                            <h2>${isEditing ? 'Edit session profile' : 'Create session profile'}</h2>
                         </div>
                         <button class="icon-button" data-close-modal>×</button>
                     </div>
@@ -1683,14 +1752,18 @@ class OpsyShell {
                                 <label><span>Group</span><input name="group" value="${escapeHtml(this.sessionForm.group)}" /></label>
                                 <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
                                 ${supportsSSHAdvancedOptions ? `
-                                <label><span>ProxyJump</span><input name="proxyJump" value="${escapeHtml(this.sessionForm.proxyJump)}" placeholder="bastion or user@bastion:22" /></label>
-                                <label><span>Local tunnels</span><input name="localForwards" value="${escapeHtml(this.sessionForm.localForwards)}" placeholder="15432:db.internal:5432,18080:127.0.0.1:8080" /></label>
                                 <label class="inline-check"><span>Use SSH agent</span><input name="useSSHAgent" type="checkbox" ${this.sessionForm.useSSHAgent ? 'checked' : ''} /></label>
                                 ` : ''}
                             </div>
+                            <div class="modal-tab-panel ${this.sessionModalTab === 'network' ? 'active' : ''}">
+                                ${supportsSSHAdvancedOptions ? `
+                                <label><span>ProxyJump</span><input name="proxyJump" value="${escapeHtml(this.sessionForm.proxyJump)}" placeholder="bastion or user@bastion:22" /></label>
+                                <label><span>Local tunnels</span><input name="localForwards" value="${escapeHtml(this.sessionForm.localForwards)}" placeholder="15432:db.internal:5432,18080:127.0.0.1:8080" /></label>
+                                ` : '<div class="empty-state">Network settings are available only for SSH and SFTP sessions.</div>'}
+                            </div>
                             <div style="padding: 0 1.5rem 1.25rem; display:flex; gap:0.75rem; justify-content:flex-end;">
                                 <button type="button" class="action-button secondary" data-close-modal>Cancel</button>
-                                <button type="submit" class="action-button">Save</button>
+                                <button type="submit" class="action-button">${isEditing ? 'Update' : 'Save'}</button>
                             </div>
                         </form>
                     </div>
@@ -1707,6 +1780,7 @@ class OpsyShell {
             <div class="session-context-overlay" data-session-context-overlay>
                 <div class="session-context-menu" style="left:${this.sessionContextMenu.x}px;top:${this.sessionContextMenu.y}px;">
                     <button class="session-context-item" data-session-context-open="${escapeHtml(this.sessionContextMenu.profileId)}">Open</button>
+                    <button class="session-context-item" data-session-context-edit="${escapeHtml(this.sessionContextMenu.profileId)}">Edit settings</button>
                     <button class="session-context-item danger" data-session-context-delete="${escapeHtml(this.sessionContextMenu.profileId)}">Delete</button>
                 </div>
             </div>
@@ -1840,14 +1914,28 @@ class OpsyShell {
         await this.loadSFTP(activeTab.id, targetPath);
     }
 
-    private syncSessionFormFromDOM(): void {
-        this.sessionForm.name = root?.querySelector<HTMLInputElement>('input[name="name"]')?.value ?? this.sessionForm.name;
+    private syncSessionFormFromDOM(source?: EventTarget | null): void {
+        const hostValue = root?.querySelector<HTMLInputElement>('input[name="host"]')?.value ?? this.sessionForm.host;
+        const nameInput = root?.querySelector<HTMLInputElement>('input[name="name"]');
+        const nameValue = nameInput?.value ?? this.sessionForm.name;
+        if (source instanceof HTMLInputElement && source.name === 'name') {
+            this.sessionNameAuto = !nameValue.trim();
+        }
+        this.sessionForm.host = hostValue;
+        if (this.sessionNameAuto) {
+            this.sessionForm.name = hostValue;
+        } else {
+            this.sessionForm.name = nameValue;
+        }
         this.sessionForm.group = root?.querySelector<HTMLInputElement>('input[name="group"]')?.value ?? this.sessionForm.group;
-        this.sessionForm.host = root?.querySelector<HTMLInputElement>('input[name="host"]')?.value ?? this.sessionForm.host;
         this.sessionForm.port = root?.querySelector<HTMLInputElement>('input[name="port"]')?.value ?? this.sessionForm.port;
         this.sessionForm.username = root?.querySelector<HTMLInputElement>('input[name="username"]')?.value ?? this.sessionForm.username;
         this.sessionForm.password = root?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? this.sessionForm.password;
         this.sessionForm.privateKeyPath = root?.querySelector<HTMLInputElement>('input[name="privateKeyPath"]')?.value ?? this.sessionForm.privateKeyPath;
+        const authMethodValue = root?.querySelector<HTMLSelectElement>('select[name="authMethod"]')?.value;
+        this.sessionForm.authMethod = authMethodValue === 'key'
+            ? 'key'
+            : (authMethodValue === 'password' ? 'password' : this.sessionForm.authMethod);
         this.sessionForm.protocolId = root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.value ?? this.sessionForm.protocolId;
         this.sessionForm.tags = root?.querySelector<HTMLInputElement>('input[name="tags"]')?.value ?? this.sessionForm.tags;
         this.sessionForm.proxyJump = root?.querySelector<HTMLInputElement>('input[name="proxyJump"]')?.value ?? this.sessionForm.proxyJump;
