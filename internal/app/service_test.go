@@ -84,6 +84,38 @@ func TestLaunchHistoryIsCapped(t *testing.T) {
 	}
 }
 
+func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *testing.T) {
+	store := memory.NewStore()
+	original := sessions.Profile{
+		ID:         "prod-ssh",
+		Name:       "prod-ssh",
+		ProtocolID: "ssh",
+		Host:       "prod.internal",
+		Port:       22,
+		Username:   "ops",
+		Password:   sessions.EncryptedString("keep-me"),
+	}
+	if err := store.UpsertSessionProfile(original); err != nil {
+		t.Fatalf("seed session profile: %v", err)
+	}
+	service := NewService(store, nil, nil, nil)
+
+	updated := original
+	updated.Name = "prod-ssh-renamed"
+	updated.Password = ""
+	if err := service.CreateSessionProfile(updated); err != nil {
+		t.Fatalf("update session profile: %v", err)
+	}
+
+	profile, ok := store.SessionProfile("prod-ssh")
+	if !ok {
+		t.Fatal("updated profile not found")
+	}
+	if string(profile.Password) != "keep-me" {
+		t.Fatalf("expected password to be preserved, got %q", profile.Password)
+	}
+}
+
 func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil, nil)
 
