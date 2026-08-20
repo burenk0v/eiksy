@@ -188,7 +188,7 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 		if profile.LastLaunchedAt == "" {
 			profile.LastLaunchedAt = existing.LastLaunchedAt
 		}
-		if strings.TrimSpace(string(profile.Password)) == "" {
+		if string(profile.Password) == "" {
 			profile.Password = existing.Password
 		}
 	}

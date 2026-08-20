@@ -141,6 +141,7 @@ class OpsyShell {
     private showSessionModal = false;
     private sessionModalTab: SessionModalTab = 'host';
     private editingProfileID = '';
+    private sessionNameAuto = true;
     private showSettingsModal = false;
     private settingsTab: SettingsTab = 'ai';
     private rightPanelTab: RightPanelTab = 'ai';
@@ -449,8 +450,8 @@ class OpsyShell {
                 this.render();
             });
         });
-        root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('input', () => {
-            this.syncSessionFormFromDOM();
+        root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('input', (event) => {
+            this.syncSessionFormFromDOM(event.target);
         });
         root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.addEventListener('change', (event) => {
             const select = event.currentTarget as HTMLSelectElement;
@@ -690,6 +691,7 @@ class OpsyShell {
                 if (wasSessionModalOpen) {
                     this.editingProfileID = '';
                     this.sessionForm = this.defaultSessionForm();
+                    this.sessionNameAuto = true;
                     this.sessionModalTab = 'host';
                 }
                 this.render();
@@ -861,6 +863,7 @@ class OpsyShell {
                 this.showSessionModal = false;
                 this.editingProfileID = '';
                 this.sessionForm = this.defaultSessionForm();
+                this.sessionNameAuto = true;
                 this.sessionModalTab = 'host';
                 await this.refresh('');
             } catch (error) {
@@ -1653,6 +1656,7 @@ class OpsyShell {
     private openSessionModalForCreate(): void {
         this.editingProfileID = '';
         this.sessionForm = this.defaultSessionForm();
+        this.sessionNameAuto = true;
         this.sessionModalTab = 'host';
         this.showSessionModal = true;
         this.render();
@@ -1665,6 +1669,7 @@ class OpsyShell {
         }
         this.editingProfileID = profileID;
         this.sessionForm = this.sessionFormFromProfile(profile);
+        this.sessionNameAuto = false;
         this.sessionModalTab = 'host';
         this.showSessionModal = true;
         this.render();
@@ -1909,19 +1914,28 @@ class OpsyShell {
         await this.loadSFTP(activeTab.id, targetPath);
     }
 
-    private syncSessionFormFromDOM(): void {
-        const previousHost = this.sessionForm.host;
-        const previousName = this.sessionForm.name;
+    private syncSessionFormFromDOM(source?: EventTarget | null): void {
         const hostValue = root?.querySelector<HTMLInputElement>('input[name="host"]')?.value ?? this.sessionForm.host;
-        const nameValue = root?.querySelector<HTMLInputElement>('input[name="name"]')?.value ?? this.sessionForm.name;
+        const nameInput = root?.querySelector<HTMLInputElement>('input[name="name"]');
+        const nameValue = nameInput?.value ?? this.sessionForm.name;
+        if (source instanceof HTMLInputElement && source.name === 'name') {
+            this.sessionNameAuto = !nameValue.trim();
+        }
         this.sessionForm.host = hostValue;
-        this.sessionForm.name = !nameValue.trim() || previousName === previousHost ? hostValue : nameValue;
+        if (this.sessionNameAuto) {
+            this.sessionForm.name = hostValue;
+        } else {
+            this.sessionForm.name = nameValue;
+        }
         this.sessionForm.group = root?.querySelector<HTMLInputElement>('input[name="group"]')?.value ?? this.sessionForm.group;
         this.sessionForm.port = root?.querySelector<HTMLInputElement>('input[name="port"]')?.value ?? this.sessionForm.port;
         this.sessionForm.username = root?.querySelector<HTMLInputElement>('input[name="username"]')?.value ?? this.sessionForm.username;
         this.sessionForm.password = root?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? this.sessionForm.password;
         this.sessionForm.privateKeyPath = root?.querySelector<HTMLInputElement>('input[name="privateKeyPath"]')?.value ?? this.sessionForm.privateKeyPath;
-        this.sessionForm.authMethod = (root?.querySelector<HTMLSelectElement>('select[name="authMethod"]')?.value === 'key' ? 'key' : 'password');
+        const authMethodValue = root?.querySelector<HTMLSelectElement>('select[name="authMethod"]')?.value;
+        this.sessionForm.authMethod = authMethodValue === 'key'
+            ? 'key'
+            : (authMethodValue === 'password' ? 'password' : this.sessionForm.authMethod);
         this.sessionForm.protocolId = root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.value ?? this.sessionForm.protocolId;
         this.sessionForm.tags = root?.querySelector<HTMLInputElement>('input[name="tags"]')?.value ?? this.sessionForm.tags;
         this.sessionForm.proxyJump = root?.querySelector<HTMLInputElement>('input[name="proxyJump"]')?.value ?? this.sessionForm.proxyJump;
