@@ -154,7 +154,11 @@ func (a *App) OpenRDP(tabID, profileID string) error {
 
 func openRDPTarget(ctx context.Context, target string) error {
 	if command, args, ok := rdpLaunchCommand(target, stdruntime.GOOS); ok {
-		if err := exec.Command(command, args...).Start(); err == nil {
+		cmd := exec.Command(command, args...)
+		if err := cmd.Start(); err == nil {
+			go func() {
+				_ = cmd.Wait()
+			}()
 			return nil
 		}
 	}
