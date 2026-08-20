@@ -430,7 +430,7 @@ func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error
 	}
 	if cfg.VaultAutoRenewToken {
 		if err := s.renewVaultToken(parsed, cfg.VaultToken); err != nil {
-			return nil, err
+			s.EmitLog("warn", fmt.Sprintf("Vault token auto-renew failed: %v", err))
 		}
 	}
 

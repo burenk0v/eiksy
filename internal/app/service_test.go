@@ -248,6 +248,40 @@ func TestListVaultSecretsRenewsTokenWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/token/renew-self":
+			http.Error(w, "renew denied", http.StatusForbidden)
+		case "/v1/secret/metadata/team":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := memory.NewStore()
+	cfg := store.Settings()
+	cfg.VaultAddress = server.URL
+	cfg.VaultMountPoint = "secret"
+	cfg.VaultToken = "vault-token"
+	cfg.VaultAutoRenewToken = true
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	service := NewService(store, nil, nil, nil)
+	entries, err := service.ListVaultSecrets("team")
+	if err != nil {
+		t.Fatalf("list vault secrets: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name != "prod" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil, nil)
 

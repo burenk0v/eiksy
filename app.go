@@ -160,6 +160,8 @@ func openRDPTarget(ctx context.Context, target string) error {
 				_ = cmd.Wait()
 			}()
 			return nil
+		} else {
+			return err
 		}
 	}
 	runtime.BrowserOpenURL(ctx, target)
