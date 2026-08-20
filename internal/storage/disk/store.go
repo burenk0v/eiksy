@@ -457,16 +457,17 @@ func defaultAIState() ai.WorkspaceState {
 
 func defaultSettings() settings.AppSettings {
 	return settings.AppSettings{
-		Theme:            "dark",
-		DefaultProtocol:  "ssh",
-		WindowLayout:     settings.WindowLayout{SidebarWidth: 300, AssistantWidth: 360},
-		PromptBeforeAI:   true,
-		AllowCloudModels: true,
-		LogLevel:         settings.LogLevelInfo,
-		ShowLogPanel:     false,
-		SaveLogsToFile:   false,
-		LogRotationSize:  settings.DefaultLogRotationSize,
-		VaultMountPoint:  settings.DefaultVaultMountPoint,
+		Theme:               "dark",
+		DefaultProtocol:     "ssh",
+		WindowLayout:        settings.WindowLayout{SidebarWidth: 300, AssistantWidth: 360},
+		PromptBeforeAI:      true,
+		AllowCloudModels:    true,
+		LogLevel:            settings.LogLevelInfo,
+		ShowLogPanel:        false,
+		SaveLogsToFile:      false,
+		LogRotationSize:     settings.DefaultLogRotationSize,
+		VaultMountPoint:     settings.DefaultVaultMountPoint,
+		VaultAutoRenewToken: false,
 	}
 }
 

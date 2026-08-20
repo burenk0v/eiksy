@@ -26,19 +26,20 @@ type PortForwardRule struct {
 }
 
 type AppSettings struct {
-	Theme            string            `json:"theme"`
-	DefaultProtocol  string            `json:"defaultProtocol"`
-	WindowLayout     WindowLayout      `json:"windowLayout"`
-	PromptBeforeAI   bool              `json:"promptBeforeAi"`
-	AllowCloudModels bool              `json:"allowCloudModels"`
-	SSHForwardPorts  string            `json:"sshForwardPorts"`
-	SSHForwardHostID string            `json:"sshForwardHostId"`
-	PortForwardRules []PortForwardRule `json:"portForwardRules"`
-	LogLevel         LogLevel          `json:"logLevel"`
-	ShowLogPanel     bool              `json:"showLogPanel"`
-	SaveLogsToFile   bool              `json:"saveLogsToFile"`
-	LogRotationSize  int               `json:"logRotationSize"`
-	VaultAddress     string            `json:"vaultAddress"`
-	VaultMountPoint  string            `json:"vaultMountPoint"`
-	VaultToken       string            `json:"-"`
+	Theme               string            `json:"theme"`
+	DefaultProtocol     string            `json:"defaultProtocol"`
+	WindowLayout        WindowLayout      `json:"windowLayout"`
+	PromptBeforeAI      bool              `json:"promptBeforeAi"`
+	AllowCloudModels    bool              `json:"allowCloudModels"`
+	SSHForwardPorts     string            `json:"sshForwardPorts"`
+	SSHForwardHostID    string            `json:"sshForwardHostId"`
+	PortForwardRules    []PortForwardRule `json:"portForwardRules"`
+	LogLevel            LogLevel          `json:"logLevel"`
+	ShowLogPanel        bool              `json:"showLogPanel"`
+	SaveLogsToFile      bool              `json:"saveLogsToFile"`
+	LogRotationSize     int               `json:"logRotationSize"`
+	VaultAddress        string            `json:"vaultAddress"`
+	VaultMountPoint     string            `json:"vaultMountPoint"`
+	VaultAutoRenewToken bool              `json:"vaultAutoRenewToken"`
+	VaultToken          string            `json:"-"`
 }
