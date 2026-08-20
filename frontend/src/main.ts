@@ -134,6 +134,7 @@ function isTheme(value: string | null | undefined): value is Theme {
 const root = document.querySelector<HTMLDivElement>('#app');
 
 class OpsyShell {
+    private readonly untaggedFilterTag = '__untagged__';
     private shellState: ShellState | null = null;
     private activeTabId = '';
     private errorMessage = '';
@@ -923,7 +924,7 @@ class OpsyShell {
 
         root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.addEventListener('blur', () => {
             this.commitSessionTagDraft();
-            this.render();
+            requestAnimationFrame(() => this.render());
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-session-tag-remove]').forEach((button) => {
@@ -1320,17 +1321,19 @@ class OpsyShell {
 
     private renderSessionTagFilters(): string {
         const tags = this.allSessionTags();
-        if (tags.length === 0) {
+        const hasUntagged = (this.shellState?.sessionProfiles ?? []).some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...tags, this.untaggedFilterTag] : tags;
+        if (filterKeys.length === 0) {
             return '<div class="section-copy">No tags yet.</div>';
         }
         return `
             <div class="tag-filter-list">
-                ${tags.map((tag) => `
+                ${filterKeys.map((tag) => `
                     <button
                         class="tag-filter-item ${this.selectedSessionTags.has(tag) ? 'active' : ''}"
                         data-toggle-session-tag-filter="${escapeHtml(tag)}"
                         type="button"
-                    >${escapeHtml(tag)}</button>
+                    >${tag === this.untaggedFilterTag ? 'Untagged' : escapeHtml(tag)}</button>
                 `).join('')}
             </div>
         `;
@@ -1834,8 +1837,9 @@ class OpsyShell {
                                             `).join('')}
                                         </div>
                                         <div class="session-tag-input-row">
-                                            ${this.sessionTagInputVisible ? `<input data-session-tag-input placeholder="New tag" value="${escapeHtml(this.sessionTagDraft)}" />` : ''}
-                                            <button type="button" class="action-button secondary" data-session-tag-add-open>+</button>
+                                            ${this.sessionTagInputVisible
+            ? `<input data-session-tag-input placeholder="New tag" value="${escapeHtml(this.sessionTagDraft)}" />`
+            : '<button type="button" class="action-button secondary" data-session-tag-add-open aria-label="Add tag">+ Add tag</button>'}
                                         </div>
                                     </div>
                                 </label>
@@ -2121,31 +2125,33 @@ class OpsyShell {
 
     private reconcileSelectedSessionTags(): void {
         const allTags = this.allSessionTags();
-        if (allTags.length === 0) {
+        const hasUntagged = (this.shellState?.sessionProfiles ?? []).some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...allTags, this.untaggedFilterTag] : allTags;
+        if (filterKeys.length === 0) {
             this.selectedSessionTags = new Set<string>();
             this.knownSessionTags = new Set<string>();
             this.sessionTagFilterInitialized = false;
             return;
         }
         if (!this.sessionTagFilterInitialized) {
-            this.selectedSessionTags = new Set(allTags);
-            this.knownSessionTags = new Set(allTags);
+            this.selectedSessionTags = new Set(filterKeys);
+            this.knownSessionTags = new Set(filterKeys);
             this.sessionTagFilterInitialized = true;
             return;
         }
         const next = new Set<string>();
-        for (const tag of allTags) {
+        for (const tag of filterKeys) {
             if (this.selectedSessionTags.has(tag)) {
                 next.add(tag);
             }
         }
-        for (const tag of allTags) {
+        for (const tag of filterKeys) {
             if (!this.knownSessionTags.has(tag)) {
                 next.add(tag);
             }
         }
         this.selectedSessionTags = next;
-        this.knownSessionTags = new Set(allTags);
+        this.knownSessionTags = new Set(filterKeys);
     }
 
     private toggleSessionTagFilter(tag: string): void {
@@ -2160,13 +2166,19 @@ class OpsyShell {
     private filteredSessionProfiles(): sessions.Profile[] {
         const profiles = this.shellState?.sessionProfiles ?? [];
         const allTags = this.allSessionTags();
-        if (allTags.length === 0 || this.selectedSessionTags.size === allTags.length) {
+        const hasUntagged = profiles.some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...allTags, this.untaggedFilterTag] : allTags;
+        const allSelected = filterKeys.every((tag) => this.selectedSessionTags.has(tag));
+        if (filterKeys.length === 0 || allSelected) {
             return profiles;
         }
-        if (this.selectedSessionTags.size === 0) {
-            return [];
-        }
-        return profiles.filter((profile) => (profile.tags ?? []).some((tag) => this.selectedSessionTags.has(tag)));
+        return profiles.filter((profile) => {
+            const tags = profile.tags ?? [];
+            if (tags.length === 0) {
+                return this.selectedSessionTags.has(this.untaggedFilterTag);
+            }
+            return tags.some((tag) => this.selectedSessionTags.has(tag));
+        });
     }
 
     private commitSessionTagDraft(): void {
