@@ -199,6 +199,11 @@
     flex: 1;
 }
 
+.session-tags-filter-section {
+    border-top: 1px solid var(--border-subtle);
+    flex-shrink: 0;
+}
+
 .sftp-section {
     flex: 1;
     overflow: hidden;
@@ -315,6 +320,29 @@ small {
     background: var(--color-accent-subtle);
     color: var(--color-tag);
     font-size: 0.75rem;
+}
+
+.tag-filter-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tag-filter-item {
+    border: 1px solid var(--border-card);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    font-size: 0.78rem;
+    cursor: pointer;
+}
+
+.tag-filter-item.active {
+    background: var(--color-accent-subtle);
+    border-color: var(--border-active);
+    color: var(--color-tag);
 }
 
 .pill.small {
@@ -539,6 +567,59 @@ small {
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+}
+
+.session-tag-editor {
+    border: 1px solid var(--border-input);
+    border-radius: 10px;
+    background: var(--bg-input);
+    padding: 0.6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.session-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.session-tag-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border-radius: 999px;
+    background: var(--color-accent-subtle);
+    color: var(--color-tag);
+    padding: 0.2rem 0.55rem;
+    font-size: 0.75rem;
+}
+
+.session-tag-chip-remove {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+    line-height: 1;
+}
+
+.session-tag-input-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.session-tag-input-row input {
+    flex: 1;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background: var(--bg-card);
+    color: var(--color-text);
+    padding: 0.45rem 0.65rem;
+    font: inherit;
 }
 
 .selected-provider {

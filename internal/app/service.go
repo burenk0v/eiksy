@@ -225,7 +225,7 @@ func (s *Service) LaunchSession(profileID string) (RuntimeSessionView, error) {
 		ProtocolID:  profile.ProtocolID,
 		ProfileID:   profile.ID,
 		Status:      "connecting",
-		Description: fmt.Sprintf("%s / %s / %s@%s:%d", profile.Group, profile.ProtocolID, profile.Username, profile.Host, profile.Port),
+		Description: fmt.Sprintf("%s / %s@%s:%d", profile.ProtocolID, profile.Username, profile.Host, profile.Port),
 	}
 
 	s.store.OpenRuntimeTab(tab)
@@ -832,7 +832,7 @@ func (s *Service) nextProfileID(name string) string {
 func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.ID = strings.TrimSpace(profile.ID)
 	profile.Name = strings.TrimSpace(profile.Name)
-	profile.Group = strings.TrimSpace(profile.Group)
+	profile.Group = ""
 	profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID))
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
