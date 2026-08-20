@@ -426,6 +426,7 @@ export namespace settings {
 	    logRotationSize: number;
 	    vaultAddress: string;
 	    vaultMountPoint: string;
+	    vaultAutoRenewToken: boolean;
 	    vaultToken: string;
 	
 	    static createFrom(source: any = {}) {
@@ -448,6 +449,7 @@ export namespace settings {
 	        this.logRotationSize = source["logRotationSize"];
 	        this.vaultAddress = source["vaultAddress"];
 	        this.vaultMountPoint = source["vaultMountPoint"];
+	        this.vaultAutoRenewToken = source["vaultAutoRenewToken"];
 	        this.vaultToken = source["vaultToken"];
 	    }
 	

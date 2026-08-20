@@ -18,6 +18,7 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	cfg := store.Settings()
 	cfg.VaultAddress = "https://vault.example.com"
 	cfg.VaultMountPoint = "secret"
+	cfg.VaultAutoRenewToken = true
 	cfg.VaultToken = "vault-secret-token"
 	if err := store.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
@@ -47,6 +48,9 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	if persisted["vaultToken"] != "vault-secret-token" {
 		t.Fatalf("expected vault token in settings file, got %#v", persisted["vaultToken"])
 	}
+	if persisted["vaultAutoRenewToken"] != true {
+		t.Fatalf("expected vaultAutoRenewToken in settings file, got %#v", persisted["vaultAutoRenewToken"])
+	}
 
 	aiStateRaw, ok := persisted["aiState"].(map[string]any)
 	if !ok {
@@ -71,6 +75,9 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	reloadedSettings := reloaded.Settings()
 	if reloadedSettings.VaultToken != "vault-secret-token" {
 		t.Fatalf("expected reloaded vault token, got %q", reloadedSettings.VaultToken)
+	}
+	if !reloadedSettings.VaultAutoRenewToken {
+		t.Fatal("expected reloaded vault auto renew token setting")
 	}
 
 	reloadedAI := reloaded.AIState()
