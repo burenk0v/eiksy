@@ -45,7 +45,6 @@ type VaultSecretNode = vaultModels.SecretNode;
 
 type SessionFormState = {
     name: string;
-    group: string;
     host: string;
     port: string;
     username: string;
@@ -53,7 +52,7 @@ type SessionFormState = {
     authMethod: 'password' | 'key';
     privateKeyPath: string;
     protocolId: string;
-    tags: string;
+    tags: string[];
     proxyJump: string;
     localForwards: string;
     useSSHAgent: boolean;
@@ -135,6 +134,7 @@ function isTheme(value: string | null | undefined): value is Theme {
 const root = document.querySelector<HTMLDivElement>('#app');
 
 class OpsyShell {
+    private readonly untaggedFilterTag = '__untagged__';
     private shellState: ShellState | null = null;
     private activeTabId = '';
     private errorMessage = '';
@@ -169,6 +169,11 @@ class OpsyShell {
     private logEntries: LogEntry[] = [];
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
     private hostKeyDialog: HostKeyDialogState = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
+    private selectedSessionTags = new Set<string>();
+    private knownSessionTags = new Set<string>();
+    private sessionTagFilterInitialized = false;
+    private sessionTagDraft = '';
+    private sessionTagInputVisible = false;
     private includeLastCommandOutput = false;
     private terminalOutputHistory = new Map<string, string>();
     private readonly MAX_LOG_ENTRIES = 200;
@@ -233,6 +238,7 @@ class OpsyShell {
     private async refresh(errorMessage = this.errorMessage): Promise<void> {
         this.errorMessage = errorMessage;
         this.shellState = await GetShellState();
+        this.reconcileSelectedSessionTags();
         const preferredTabID = this.activeTabId || this.shellState.workspace.layout.activeTabId || '';
         this.activeTabId = this.pickActiveTabID(preferredTabID);
         const activeTab = this.activeTab();
@@ -287,6 +293,12 @@ class OpsyShell {
                                 <div class="session-list">
                                     ${this.renderSessionProfiles()}
                                 </div>
+                            </section>
+                            <section class="section sidebar-section session-tags-filter-section">
+                                <div class="section-heading">
+                                    <span class="section-title">Tags</span>
+                                </div>
+                                ${this.renderSessionTagFilters()}
                             </section>
                         </div>
                     </aside>
@@ -691,6 +703,8 @@ class OpsyShell {
                 if (wasSessionModalOpen) {
                     this.editingProfileID = '';
                     this.sessionForm = this.defaultSessionForm();
+                    this.sessionTagDraft = '';
+                    this.sessionTagInputVisible = false;
                     this.sessionNameAuto = true;
                     this.sessionModalTab = 'host';
                 }
@@ -740,19 +754,14 @@ class OpsyShell {
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
         });
-        root?.querySelector<HTMLButtonElement>('[data-open-rdp-session]')?.addEventListener('click', async () => {
-            const activeTab = this.activeTab();
-            if (!activeTab || activeTab.protocolId !== 'rdp') {
-                return;
-            }
-            try {
-                await OpenRDP(activeTab.id, activeTab.profileId);
-                this.errorMessage = '';
-                this.render();
-            } catch (error) {
-                this.errorMessage = formatError('Unable to open RDP session', error);
-                this.render();
-            }
+        root?.querySelectorAll<HTMLButtonElement>('[data-toggle-session-tag-filter]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const tag = String(button.dataset.toggleSessionTagFilter ?? '').trim();
+                if (!tag) {
+                    return;
+                }
+                this.toggleSessionTagFilter(tag);
+            });
         });
 
         root?.querySelector<HTMLFormElement>('[data-log-file-form]')?.addEventListener('submit', async (event) => {
@@ -815,6 +824,7 @@ class OpsyShell {
             event.preventDefault();
             const form = event.currentTarget as HTMLFormElement;
             const formData = new FormData(form);
+            this.commitSessionTagDraft();
             const protocolId = String(formData.get('protocolId') ?? 'ssh');
             const authMethod = protocolId === 'rdp' ? 'password' : (String(formData.get('authMethod') ?? 'password') === 'key' ? 'key' : 'password');
             const privateKeyPath = String(formData.get('privateKeyPath') ?? '');
@@ -823,13 +833,13 @@ class OpsyShell {
             const profile: SessionProfile = {
                 id: this.editingProfileID,
                 name,
-                group: String(formData.get('group') ?? ''),
+                group: '',
                 host,
                 port: Number(formData.get('port') ?? (protocolId === 'rdp' ? 3389 : 22)),
                 username: String(formData.get('username') ?? ''),
                 password: String(authMethod === 'password' ? (formData.get('password') ?? '') : ''),
                 protocolId,
-                tags: String(formData.get('tags') ?? '').split(',').map((tag) => tag.trim()).filter(Boolean),
+                tags: this.sessionForm.tags,
                 favorite: false,
             };
             const proxyJump = String(formData.get('proxyJump') ?? '').trim();
@@ -863,6 +873,8 @@ class OpsyShell {
                 this.showSessionModal = false;
                 this.editingProfileID = '';
                 this.sessionForm = this.defaultSessionForm();
+                this.sessionTagDraft = '';
+                this.sessionTagInputVisible = false;
                 this.sessionNameAuto = true;
                 this.sessionModalTab = 'host';
                 await this.refresh('');
@@ -887,6 +899,43 @@ class OpsyShell {
         root?.querySelector<HTMLButtonElement>('[data-reject-host-key]')?.addEventListener('click', () => {
             this.hostKeyDialog = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
             this.render();
+        });
+
+        root?.querySelector<HTMLButtonElement>('[data-session-tag-add-open]')?.addEventListener('click', () => {
+            this.sessionTagInputVisible = true;
+            this.render();
+            requestAnimationFrame(() => {
+                root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.focus();
+            });
+        });
+
+        root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.addEventListener('input', (event) => {
+            this.sessionTagDraft = (event.currentTarget as HTMLInputElement).value;
+        });
+
+        root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter') {
+                return;
+            }
+            event.preventDefault();
+            this.commitSessionTagDraft();
+            this.render();
+        });
+
+        root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.addEventListener('blur', () => {
+            this.commitSessionTagDraft();
+            requestAnimationFrame(() => this.render());
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-session-tag-remove]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const tag = String(button.dataset.sessionTagRemove ?? '').trim();
+                if (!tag) {
+                    return;
+                }
+                this.sessionForm.tags = this.sessionForm.tags.filter((entry) => entry !== tag);
+                this.render();
+            });
         });
     }
 
@@ -1252,18 +1301,42 @@ class OpsyShell {
         if (!this.shellState || this.shellState.sessionProfiles.length === 0) {
             return '<div class="empty-state">No saved sessions yet.</div>';
         }
-        return this.shellState.sessionProfiles.map((profile) => `
+        const filteredProfiles = this.filteredSessionProfiles();
+        if (filteredProfiles.length === 0) {
+            return '<div class="empty-state">No sessions for selected tags.</div>';
+        }
+        return filteredProfiles.map((profile) => `
             <article class="session-card" data-session-item="${escapeHtml(profile.id)}">
                 <div>
                     <div class="session-title-row">
                         <strong>${escapeHtml(profile.name)}</strong>
                         <span class="pill small">${escapeHtml(profile.protocolId.toUpperCase())}</span>
                     </div>
-                    <div class="session-meta">${escapeHtml(profile.group || 'Ungrouped')} · ${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
+                    <div class="session-meta">${escapeHtml(profile.username)}@${escapeHtml(profile.host)}:${escapeHtml(String(profile.port))}</div>
                     <div class="session-tags">${profile.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
                 </div>
             </article>
         `).join('');
+    }
+
+    private renderSessionTagFilters(): string {
+        const tags = this.allSessionTags();
+        const hasUntagged = (this.shellState?.sessionProfiles ?? []).some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...tags, this.untaggedFilterTag] : tags;
+        if (filterKeys.length === 0) {
+            return '<div class="section-copy">No tags yet.</div>';
+        }
+        return `
+            <div class="tag-filter-list">
+                ${filterKeys.map((tag) => `
+                    <button
+                        class="tag-filter-item ${this.selectedSessionTags.has(tag) ? 'active' : ''}"
+                        data-toggle-session-tag-filter="${escapeHtml(tag)}"
+                        type="button"
+                    >${tag === this.untaggedFilterTag ? 'Untagged' : escapeHtml(tag)}</button>
+                `).join('')}
+            </div>
+        `;
     }
 
     private renderTabs(): string {
@@ -1656,6 +1729,8 @@ class OpsyShell {
     private openSessionModalForCreate(): void {
         this.editingProfileID = '';
         this.sessionForm = this.defaultSessionForm();
+        this.sessionTagDraft = '';
+        this.sessionTagInputVisible = false;
         this.sessionNameAuto = true;
         this.sessionModalTab = 'host';
         this.showSessionModal = true;
@@ -1669,6 +1744,8 @@ class OpsyShell {
         }
         this.editingProfileID = profileID;
         this.sessionForm = this.sessionFormFromProfile(profile);
+        this.sessionTagDraft = '';
+        this.sessionTagInputVisible = false;
         this.sessionNameAuto = false;
         this.sessionModalTab = 'host';
         this.showSessionModal = true;
@@ -1680,7 +1757,6 @@ class OpsyShell {
         const authMethod = options.auth_method === 'key' && this.supportsKeyAuth(profile.protocolId) ? 'key' : 'password';
         return {
             name: profile.name || profile.host || '',
-            group: profile.group || '',
             host: profile.host || '',
             port: String(profile.port || (profile.protocolId === 'rdp' ? 3389 : 22)),
             username: profile.username || '',
@@ -1688,7 +1764,7 @@ class OpsyShell {
             authMethod,
             privateKeyPath: options.ssh_private_key_path ?? '',
             protocolId: profile.protocolId || 'ssh',
-            tags: Array.isArray(profile.tags) ? profile.tags.join(', ') : '',
+            tags: Array.isArray(profile.tags) ? [...profile.tags] : [],
             proxyJump: options.proxy_jump ?? '',
             localForwards: options.local_forwards ?? '',
             useSSHAgent: options.use_ssh_agent === 'true',
@@ -1749,8 +1825,24 @@ class OpsyShell {
                             </div>
                             <div class="modal-tab-panel ${this.sessionModalTab === 'other' ? 'active' : ''}">
                                 <label><span>Name</span><input name="name" value="${escapeHtml(this.sessionForm.name)}" required /></label>
-                                <label><span>Group</span><input name="group" value="${escapeHtml(this.sessionForm.group)}" /></label>
-                                <label><span>Tags</span><input name="tags" value="${escapeHtml(this.sessionForm.tags)}" placeholder="prod, linux" /></label>
+                                <label>
+                                    <span>Tags</span>
+                                    <div class="session-tag-editor">
+                                        <div class="session-tag-list">
+                                            ${this.sessionForm.tags.map((tag) => `
+                                                <span class="session-tag-chip">
+                                                    ${escapeHtml(tag)}
+                                                    <button type="button" class="session-tag-chip-remove" data-session-tag-remove="${escapeHtml(tag)}" aria-label="Remove tag ${escapeHtml(tag)}">×</button>
+                                                </span>
+                                            `).join('')}
+                                        </div>
+                                        <div class="session-tag-input-row">
+                                            ${this.sessionTagInputVisible
+            ? `<input data-session-tag-input placeholder="New tag" value="${escapeHtml(this.sessionTagDraft)}" />`
+            : '<button type="button" class="action-button secondary" data-session-tag-add-open aria-label="Add tag">+ Add tag</button>'}
+                                        </div>
+                                    </div>
+                                </label>
                                 ${supportsSSHAdvancedOptions ? `
                                 <label class="inline-check"><span>Use SSH agent</span><input name="useSSHAgent" type="checkbox" ${this.sessionForm.useSSHAgent ? 'checked' : ''} /></label>
                                 ` : ''}
@@ -1927,7 +2019,6 @@ class OpsyShell {
         } else {
             this.sessionForm.name = nameValue;
         }
-        this.sessionForm.group = root?.querySelector<HTMLInputElement>('input[name="group"]')?.value ?? this.sessionForm.group;
         this.sessionForm.port = root?.querySelector<HTMLInputElement>('input[name="port"]')?.value ?? this.sessionForm.port;
         this.sessionForm.username = root?.querySelector<HTMLInputElement>('input[name="username"]')?.value ?? this.sessionForm.username;
         this.sessionForm.password = root?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? this.sessionForm.password;
@@ -1937,7 +2028,6 @@ class OpsyShell {
             ? 'key'
             : (authMethodValue === 'password' ? 'password' : this.sessionForm.authMethod);
         this.sessionForm.protocolId = root?.querySelector<HTMLSelectElement>('select[name="protocolId"]')?.value ?? this.sessionForm.protocolId;
-        this.sessionForm.tags = root?.querySelector<HTMLInputElement>('input[name="tags"]')?.value ?? this.sessionForm.tags;
         this.sessionForm.proxyJump = root?.querySelector<HTMLInputElement>('input[name="proxyJump"]')?.value ?? this.sessionForm.proxyJump;
         this.sessionForm.localForwards = root?.querySelector<HTMLInputElement>('input[name="localForwards"]')?.value ?? this.sessionForm.localForwards;
         this.sessionForm.useSSHAgent = root?.querySelector<HTMLInputElement>('input[name="useSSHAgent"]')?.checked ?? this.sessionForm.useSSHAgent;
@@ -1964,7 +2054,6 @@ class OpsyShell {
     private defaultSessionForm(): SessionFormState {
         return {
             name: '',
-            group: '',
             host: '',
             port: '22',
             username: '',
@@ -1972,7 +2061,7 @@ class OpsyShell {
             authMethod: 'password',
             privateKeyPath: '',
             protocolId: 'ssh',
-            tags: '',
+            tags: [],
             proxyJump: '',
             localForwards: '',
             useSSHAgent: false,
@@ -2011,17 +2100,94 @@ class OpsyShell {
                 <div class="screen-card">
                     <div class="eyebrow">RDP session</div>
                     <h2>${escapeHtml(activeTab.title)}</h2>
-                    <p class="screen-copy">The remote desktop opens in the system RDP client. Use this tab to relaunch it and keep the session context in opsy.</p>
+                    <p class="screen-copy">Screen view is opened automatically for this RDP session.</p>
                     <div class="screen-meta">
                         <span>${escapeHtml(profile?.username || 'user')}@${escapeHtml(profile?.host || activeTab.title)}:${escapeHtml(String(profile?.port ?? 3389))}</span>
                         <span>Status: ${escapeHtml(activeTab.status)}</span>
                     </div>
-                    <div class="screen-actions">
-                        <button class="action-button" data-open-rdp-session>Open screen</button>
-                    </div>
                 </div>
             </div>
         `;
+    }
+
+    private allSessionTags(): string[] {
+        const tags = new Set<string>();
+        for (const profile of this.shellState?.sessionProfiles ?? []) {
+            for (const tag of profile.tags ?? []) {
+                const normalized = String(tag ?? '').trim();
+                if (normalized) {
+                    tags.add(normalized);
+                }
+            }
+        }
+        return [...tags].sort((left, right) => left.localeCompare(right));
+    }
+
+    private reconcileSelectedSessionTags(): void {
+        const allTags = this.allSessionTags();
+        const hasUntagged = (this.shellState?.sessionProfiles ?? []).some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...allTags, this.untaggedFilterTag] : allTags;
+        if (filterKeys.length === 0) {
+            this.selectedSessionTags = new Set<string>();
+            this.knownSessionTags = new Set<string>();
+            this.sessionTagFilterInitialized = false;
+            return;
+        }
+        if (!this.sessionTagFilterInitialized) {
+            this.selectedSessionTags = new Set(filterKeys);
+            this.knownSessionTags = new Set(filterKeys);
+            this.sessionTagFilterInitialized = true;
+            return;
+        }
+        const next = new Set<string>();
+        for (const tag of filterKeys) {
+            if (this.selectedSessionTags.has(tag)) {
+                next.add(tag);
+            }
+        }
+        for (const tag of filterKeys) {
+            if (!this.knownSessionTags.has(tag)) {
+                next.add(tag);
+            }
+        }
+        this.selectedSessionTags = next;
+        this.knownSessionTags = new Set(filterKeys);
+    }
+
+    private toggleSessionTagFilter(tag: string): void {
+        if (this.selectedSessionTags.has(tag)) {
+            this.selectedSessionTags.delete(tag);
+        } else {
+            this.selectedSessionTags.add(tag);
+        }
+        this.render();
+    }
+
+    private filteredSessionProfiles(): sessions.Profile[] {
+        const profiles = this.shellState?.sessionProfiles ?? [];
+        const allTags = this.allSessionTags();
+        const hasUntagged = profiles.some((profile) => (profile.tags ?? []).length === 0);
+        const filterKeys = hasUntagged ? [...allTags, this.untaggedFilterTag] : allTags;
+        const allSelected = filterKeys.every((tag) => this.selectedSessionTags.has(tag));
+        if (filterKeys.length === 0 || allSelected) {
+            return profiles;
+        }
+        return profiles.filter((profile) => {
+            const tags = profile.tags ?? [];
+            if (tags.length === 0) {
+                return this.selectedSessionTags.has(this.untaggedFilterTag);
+            }
+            return tags.some((tag) => this.selectedSessionTags.has(tag));
+        });
+    }
+
+    private commitSessionTagDraft(): void {
+        const tag = this.sessionTagDraft.trim();
+        if (tag && !this.sessionForm.tags.includes(tag)) {
+            this.sessionForm.tags = [...this.sessionForm.tags, tag];
+        }
+        this.sessionTagDraft = '';
+        this.sessionTagInputVisible = false;
     }
 }
 

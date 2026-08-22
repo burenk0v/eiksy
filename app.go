@@ -3,9 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"net/url"
-	"os/exec"
-	stdruntime "runtime"
 	"sync"
 
 	"opsy/internal/app"
@@ -142,41 +139,8 @@ func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) er
 }
 
 func (a *App) OpenRDP(tabID, profileID string) error {
-	target, err := a.currentService().OpenRDP(tabID, profileID)
-	if err != nil {
-		return err
-	}
-	if err := openRDPTarget(a.ctx, target); err != nil {
-		return err
-	}
-	return nil
-}
-
-func openRDPTarget(ctx context.Context, target string) error {
-	if command, args, ok := rdpLaunchCommand(target, stdruntime.GOOS); ok {
-		cmd := exec.Command(command, args...)
-		if err := cmd.Start(); err == nil {
-			go func() {
-				_ = cmd.Wait()
-			}()
-			return nil
-		} else {
-			return err
-		}
-	}
-	runtime.BrowserOpenURL(ctx, target)
-	return nil
-}
-
-func rdpLaunchCommand(target, goos string) (string, []string, bool) {
-	if goos != "windows" {
-		return "", nil, false
-	}
-	parsed, err := url.Parse(target)
-	if err != nil || parsed.Host == "" {
-		return "", nil, false
-	}
-	return "mstsc", []string{"/v:" + parsed.Host}, true
+	_, err := a.currentService().OpenRDP(tabID, profileID)
+	return err
 }
 
 func (a *App) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
