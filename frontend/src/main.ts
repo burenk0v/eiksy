@@ -1698,7 +1698,7 @@ class OpsyShell {
             return '<div class="empty-state">Configure a provider in Settings to start chatting.</div>';
         }
         return (this.shellState.ai.messages ?? []).map((message) => `
-            <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
+            <div class="message ${escapeClassName(message.role)}">${message.role === 'assistant' ? renderMarkdown(message.content) : escapeHtml(message.content)}</div>
         `).join('');
     }
 
@@ -2484,6 +2484,78 @@ function formatError(prefix: string, error: unknown): string {
         return `${prefix}: ${error}`;
     }
     return prefix;
+}
+
+function renderMarkdown(value: string): string {
+    const placeholders: string[] = [];
+    let escaped = escapeHtml(value).replaceAll('\r\n', '\n');
+    escaped = escaped.replace(/```(?:[^\n`]*)\n([\s\S]*?)```/g, (_match, code: string) => {
+        const index = placeholders.push(`<pre class="md-block-code"><code>${code.replace(/\n+$/g, '')}</code></pre>`) - 1;
+        return `@@MD_CODE_BLOCK_${index}@@`;
+    });
+
+    const lines = escaped.split('\n');
+    const blocks: string[] = [];
+    let inList = false;
+
+    const closeList = () => {
+        if (inList) {
+            blocks.push('</ul>');
+            inList = false;
+        }
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const trimmed = line.trim();
+        if (!trimmed) {
+            closeList();
+            continue;
+        }
+        const codePlaceholder = trimmed.match(/^@@MD_CODE_BLOCK_(\d+)@@$/);
+        if (codePlaceholder) {
+            closeList();
+            blocks.push(trimmed);
+            continue;
+        }
+        const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+            closeList();
+            const level = heading[1].length;
+            blocks.push(`<h${level}>${applyInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+        }
+        const quote = trimmed.match(/^>\s?(.*)$/);
+        if (quote) {
+            closeList();
+            blocks.push(`<blockquote>${applyInlineMarkdown(quote[1])}</blockquote>`);
+            continue;
+        }
+        const listItem = trimmed.match(/^[-*]\s+(.+)$/);
+        if (listItem) {
+            if (!inList) {
+                blocks.push('<ul>');
+                inList = true;
+            }
+            blocks.push(`<li>${applyInlineMarkdown(listItem[1])}</li>`);
+            continue;
+        }
+        closeList();
+        blocks.push(`<p>${applyInlineMarkdown(trimmed)}</p>`);
+    }
+    closeList();
+
+    let html = blocks.join('');
+    html = html.replace(/@@MD_CODE_BLOCK_(\d+)@@/g, (_match, idx: string) => placeholders[Number(idx)] ?? '');
+    return html;
+}
+
+function applyInlineMarkdown(value: string): string {
+    return value
+        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+        .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
 }
 
 void new OpsyShell().bootstrap();

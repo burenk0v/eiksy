@@ -635,6 +635,71 @@ small {
     background: var(--color-accent-subtle);
 }
 
+.message p,
+.message ul,
+.message blockquote,
+.message pre,
+.message h1,
+.message h2,
+.message h3,
+.message h4,
+.message h5,
+.message h6 {
+    margin: 0 0 0.55rem;
+}
+
+.message p:last-child,
+.message ul:last-child,
+.message blockquote:last-child,
+.message pre:last-child,
+.message h1:last-child,
+.message h2:last-child,
+.message h3:last-child,
+.message h4:last-child,
+.message h5:last-child,
+.message h6:last-child {
+    margin-bottom: 0;
+}
+
+.message ul {
+    padding-left: 1.2rem;
+}
+
+.message blockquote {
+    border-left: 3px solid var(--border-active);
+    padding-left: 0.65rem;
+    color: var(--color-text);
+    opacity: 0.95;
+}
+
+.md-block-code {
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    padding: 0.65rem 0.75rem;
+    overflow-x: auto;
+}
+
+.md-block-code code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.82rem;
+    white-space: pre;
+}
+
+.md-inline-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.82rem;
+    background: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: 6px;
+    padding: 0.08rem 0.35rem;
+}
+
+.message a {
+    color: var(--color-accent);
+    text-decoration: underline;
+}
+
 .sftp-actions {
     display: flex;
     gap: 0.4rem;
