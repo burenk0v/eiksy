@@ -27,6 +27,8 @@ import (
 	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/domain/workspace"
 	"opsy/internal/llm"
+
+	"github.com/tobischo/gokeepasslib/v3"
 )
 
 type ShellState struct {
@@ -420,6 +422,9 @@ func (s *Service) DownloadSFTPFiles(tabID, localDir string, remotePaths []string
 
 func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
 	cfg := s.store.Settings()
+	if cfg.VaultProvider == "keepass" {
+		return s.listKeePassSecrets(path, cfg.KeePassDatabasePath, cfg.KeePassPassword)
+	}
 	if strings.TrimSpace(cfg.VaultAddress) == "" {
 		return nil, fmt.Errorf("vault address is not configured")
 	}
@@ -487,6 +492,91 @@ func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error
 			Path:  fullPath,
 			IsDir: isDir,
 		})
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].IsDir != result[j].IsDir {
+			return result[i].IsDir
+		}
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
+}
+
+func (s *Service) listKeePassSecrets(targetPath, dbPath, password string) ([]vaultdomain.SecretNode, error) {
+	dbPath = strings.TrimSpace(dbPath)
+	password = strings.TrimSpace(password)
+	if dbPath == "" {
+		return nil, fmt.Errorf("keepass database path is not configured")
+	}
+	if strings.HasPrefix(dbPath, "~/") {
+		if homeDir, err := os.UserHomeDir(); err == nil && homeDir != "" {
+			dbPath = filepath.Join(homeDir, strings.TrimPrefix(dbPath, "~/"))
+		}
+	}
+	if password == "" {
+		return nil, fmt.Errorf("keepass password is not configured")
+	}
+	file, err := os.Open(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("open keepass database: %w", err)
+	}
+	defer file.Close()
+
+	database := gokeepasslib.NewDatabase()
+	database.Credentials = gokeepasslib.NewPasswordCredentials(password)
+	if err := gokeepasslib.NewDecoder(file).Decode(database); err != nil {
+		return nil, fmt.Errorf("decode keepass database: %w", err)
+	}
+	if err := database.UnlockProtectedEntries(); err != nil {
+		return nil, fmt.Errorf("unlock keepass database entries: %w", err)
+	}
+	if len(database.Content.Root.Groups) == 0 {
+		return nil, fmt.Errorf("keepass database does not contain root groups")
+	}
+
+	cleanPath := strings.Trim(strings.TrimSpace(targetPath), "/")
+	pathParts := []string{}
+	if cleanPath != "" {
+		pathParts = strings.Split(cleanPath, "/")
+	}
+	group := &database.Content.Root.Groups[0]
+	for _, part := range pathParts {
+		found := false
+		for index := range group.Groups {
+			name := strings.TrimSpace(group.Groups[index].Name)
+			if name == part {
+				group = &group.Groups[index]
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("keepass path %q not found", cleanPath)
+		}
+	}
+
+	result := make([]vaultdomain.SecretNode, 0, len(group.Groups)+len(group.Entries))
+	for _, child := range group.Groups {
+		name := strings.TrimSpace(child.Name)
+		if name == "" {
+			continue
+		}
+		fullPath := name
+		if cleanPath != "" {
+			fullPath = cleanPath + "/" + name
+		}
+		result = append(result, vaultdomain.SecretNode{Name: name, Path: fullPath, IsDir: true})
+	}
+	for _, entry := range group.Entries {
+		title := strings.TrimSpace(entry.GetTitle())
+		if title == "" {
+			continue
+		}
+		fullPath := title
+		if cleanPath != "" {
+			fullPath = cleanPath + "/" + title
+		}
+		result = append(result, vaultdomain.SecretNode{Name: title, Path: fullPath, IsDir: false})
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].IsDir != result[j].IsDir {
@@ -674,14 +764,30 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if strings.TrimSpace(updated.VaultMountPoint) == "" {
 		updated.VaultMountPoint = settings.DefaultVaultMountPoint
 	}
+	if strings.TrimSpace(updated.VaultProvider) == "" {
+		updated.VaultProvider = current.VaultProvider
+	}
+	if strings.TrimSpace(updated.VaultProvider) == "" {
+		updated.VaultProvider = settings.DefaultVaultProvider
+	}
+	updated.VaultProvider = strings.ToLower(strings.TrimSpace(updated.VaultProvider))
+	if updated.VaultProvider != "vault" && updated.VaultProvider != "keepass" {
+		updated.VaultProvider = settings.DefaultVaultProvider
+	}
+	if strings.TrimSpace(updated.KeePassPassword) == "" {
+		updated.KeePassPassword = current.KeePassPassword
+	}
 	if strings.TrimSpace(updated.VaultToken) == "" {
 		updated.VaultToken = current.VaultToken
 	}
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
+	updated.KeePassDatabasePath = strings.TrimSpace(updated.KeePassDatabasePath)
+	updated.KeePassPassword = strings.TrimSpace(updated.KeePassPassword)
 	updated.VaultToken = strings.TrimSpace(updated.VaultToken)
 	updated.SSHForwardPorts = sanitizeForwardPorts(updated.SSHForwardPorts)
 	updated.SSHForwardHostID = strings.TrimSpace(updated.SSHForwardHostID)
+	updated.PortForwardRules = normalizeForwardRules(updated.PortForwardRules)
 	return s.store.UpdateSettings(updated)
 }
 
@@ -854,25 +960,32 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 	// Fall back to the legacy SSHForwardPorts/SSHForwardHostID fields when
 	// no explicit rules are configured so that existing settings keep working.
 	type ruleEntry struct {
-		ports  string
-		hostID string
+		localPorts string
+		remoteHost string
+		remotePort string
+		hostID     string
 	}
 	var rules []ruleEntry
 	for _, r := range cfg.PortForwardRules {
 		if !r.Enabled {
 			continue
 		}
-		p := strings.TrimSpace(r.Ports)
+		p := strings.TrimSpace(r.LocalPort)
+		if p == "" {
+			p = strings.TrimSpace(r.Ports)
+		}
+		rh := strings.TrimSpace(r.RemoteHost)
+		rp := strings.TrimSpace(r.RemotePort)
 		h := strings.TrimSpace(r.HostID)
-		if p != "" && h != "" {
-			rules = append(rules, ruleEntry{ports: p, hostID: h})
+		if p != "" && h != "" && rh != "" {
+			rules = append(rules, ruleEntry{localPorts: p, remoteHost: rh, remotePort: rp, hostID: h})
 		}
 	}
 	if len(rules) == 0 {
 		legacyPorts := strings.TrimSpace(cfg.SSHForwardPorts)
 		legacyHostID := strings.TrimSpace(cfg.SSHForwardHostID)
 		if legacyPorts != "" && legacyHostID != "" {
-			rules = append(rules, ruleEntry{ports: legacyPorts, hostID: legacyHostID})
+			rules = append(rules, ruleEntry{localPorts: legacyPorts, remoteHost: "", remotePort: "", hostID: legacyHostID})
 		}
 	}
 	if len(rules) == 0 {
@@ -885,7 +998,12 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 		if !ok || targetProfile.ProtocolID != "ssh" || strings.TrimSpace(targetProfile.Host) == "" {
 			continue
 		}
-		spec := buildPortForwardSpecs(rule.ports, strings.TrimSpace(targetProfile.Host))
+		remoteHost := rule.remoteHost
+		if remoteHost == "" {
+			remoteHost = strings.TrimSpace(targetProfile.Host)
+		}
+		remotePort := rule.remotePort
+		spec := buildPortForwardSpecs(rule.localPorts, remoteHost, remotePort)
 		if strings.TrimSpace(spec) != "" {
 			allSpecs = append(allSpecs, spec)
 		}
@@ -903,9 +1021,22 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 	return profile
 }
 
-func buildPortForwardSpecs(ports, host string) string {
+func buildPortForwardSpecs(localPorts, remoteHost, remotePort string) string {
 	const maxRangeSpan = 256
-	parts := strings.Split(ports, ",")
+	remoteHost = strings.TrimSpace(remoteHost)
+	remotePort = strings.TrimSpace(remotePort)
+	if remoteHost == "" {
+		return ""
+	}
+	remotePortValue := 0
+	if remotePort != "" {
+		parsedRemotePort, err := strconv.Atoi(remotePort)
+		if err != nil || parsedRemotePort <= 0 || parsedRemotePort > 65535 {
+			return ""
+		}
+		remotePortValue = parsedRemotePort
+	}
+	parts := strings.Split(localPorts, ",")
 	specs := make([]string, 0, len(parts))
 	for _, part := range parts {
 		token := strings.TrimSpace(part)
@@ -920,14 +1051,22 @@ func buildPortForwardSpecs(ports, host string) string {
 			endPort, errEnd := strconv.Atoi(end)
 			if errStart == nil && errEnd == nil && startPort > 0 && endPort >= startPort && endPort <= 65535 && (endPort-startPort+1) <= maxRangeSpan {
 				for port := startPort; port <= endPort; port++ {
-					specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
+					targetPort := remotePortValue
+					if targetPort == 0 {
+						targetPort = port
+					}
+					specs = append(specs, fmt.Sprintf("%d:%s:%d", port, remoteHost, targetPort))
 				}
 			}
 			continue
 		}
 		port, err := strconv.Atoi(token)
 		if err == nil && port > 0 && port <= 65535 {
-			specs = append(specs, fmt.Sprintf("%d:%s:%d", port, host, port))
+			targetPort := remotePortValue
+			if targetPort == 0 {
+				targetPort = port
+			}
+			specs = append(specs, fmt.Sprintf("%d:%s:%d", port, remoteHost, targetPort))
 		}
 	}
 	return strings.Join(specs, ",")
@@ -944,6 +1083,22 @@ func sanitizeForwardPorts(value string) string {
 		normalized = append(normalized, token)
 	}
 	return strings.Join(normalized, ",")
+}
+
+func normalizeForwardRules(rules []settings.PortForwardRule) []settings.PortForwardRule {
+	normalized := make([]settings.PortForwardRule, 0, len(rules))
+	for _, rule := range rules {
+		entry := rule
+		entry.HostID = strings.TrimSpace(entry.HostID)
+		entry.LocalPort = sanitizeForwardPorts(entry.LocalPort)
+		if entry.LocalPort == "" {
+			entry.LocalPort = sanitizeForwardPorts(entry.Ports)
+		}
+		entry.RemoteHost = strings.TrimSpace(entry.RemoteHost)
+		entry.RemotePort = strings.TrimSpace(entry.RemotePort)
+		normalized = append(normalized, entry)
+	}
+	return normalized
 }
 
 func normalizeTags(tags []string) []string {

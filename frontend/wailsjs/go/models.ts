@@ -397,6 +397,9 @@ export namespace settings {
 	}
 	export class PortForwardRule {
 	    ports: string;
+	    localPort: string;
+	    remoteHost: string;
+	    remotePort: string;
 	    hostId: string;
 	    enabled: boolean;
 	
@@ -407,6 +410,9 @@ export namespace settings {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.ports = source["ports"];
+	        this.localPort = source["localPort"];
+	        this.remoteHost = source["remoteHost"];
+	        this.remotePort = source["remotePort"];
 	        this.hostId = source["hostId"];
 	        this.enabled = source["enabled"];
 	    }
@@ -420,6 +426,7 @@ export namespace settings {
 	    sshForwardPorts: string;
 	    sshForwardHostId: string;
 	    portForwardRules: PortForwardRule[];
+	    sshConfigAutoLoaded: boolean;
 	    logLevel: string;
 	    showLogPanel: boolean;
 	    saveLogsToFile: boolean;
@@ -427,6 +434,9 @@ export namespace settings {
 	    vaultAddress: string;
 	    vaultMountPoint: string;
 	    vaultAutoRenewToken: boolean;
+	    vaultProvider: string;
+	    keepassDatabasePath: string;
+	    keepassPassword: string;
 	    vaultToken: string;
 	
 	    static createFrom(source: any = {}) {
@@ -443,6 +453,7 @@ export namespace settings {
 	        this.sshForwardPorts = source["sshForwardPorts"];
 	        this.sshForwardHostId = source["sshForwardHostId"];
 	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
+	        this.sshConfigAutoLoaded = source["sshConfigAutoLoaded"];
 	        this.logLevel = source["logLevel"];
 	        this.showLogPanel = source["showLogPanel"];
 	        this.saveLogsToFile = source["saveLogsToFile"];
@@ -450,6 +461,9 @@ export namespace settings {
 	        this.vaultAddress = source["vaultAddress"];
 	        this.vaultMountPoint = source["vaultMountPoint"];
 	        this.vaultAutoRenewToken = source["vaultAutoRenewToken"];
+	        this.vaultProvider = source["vaultProvider"];
+	        this.keepassDatabasePath = source["keepassDatabasePath"];
+	        this.keepassPassword = source["keepassPassword"];
 	        this.vaultToken = source["vaultToken"];
 	    }
 	

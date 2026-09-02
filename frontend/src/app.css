@@ -818,6 +818,15 @@ small {
     width: min(680px, 100%);
 }
 
+.modal-dialog.settings-dialog {
+    width: min(900px, 100%);
+    height: min(760px, 90vh);
+}
+
+.modal-dialog.settings-dialog .modal-body {
+    min-height: 0;
+}
+
 .modal-body {
     overflow-y: auto;
     flex: 1;
@@ -1121,4 +1130,91 @@ small {
 
 .pf-rule-spacer {
     flex: 1;
+}
+
+.toast-stack {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 120;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    max-width: min(420px, calc(100vw - 2rem));
+}
+
+.toast {
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    background: var(--bg-modal);
+    color: var(--color-text);
+    padding: 0.65rem 0.75rem;
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+
+.toast-error {
+    border-color: var(--color-error-border);
+}
+
+.toast-warn {
+    border-color: rgba(240, 165, 0, 0.5);
+}
+
+.toast-message {
+    font-size: 0.86rem;
+}
+
+.toast-time {
+    margin-top: 0.35rem;
+    font-size: 0.72rem;
+    color: var(--color-label);
+}
+
+.notification-dialog {
+    width: min(980px, 100%);
+    height: min(740px, 90vh);
+}
+
+.notification-body {
+    padding: 1rem 1.25rem 1.25rem;
+}
+
+.notification-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.notification-row {
+    border: 1px solid var(--border-card);
+    border-radius: 10px;
+    background: var(--bg-card);
+    padding: 0.65rem 0.75rem;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem 0.8rem;
+    align-items: start;
+}
+
+.notification-error {
+    border-color: var(--color-error-border);
+}
+
+.notification-meta {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    color: var(--color-label);
+    font-size: 0.75rem;
+}
+
+.notification-level {
+    font-weight: 700;
+}
+
+.notification-message {
+    grid-column: 1 / 2;
+    font-size: 0.9rem;
+    color: var(--color-text);
+    overflow-wrap: anywhere;
 }

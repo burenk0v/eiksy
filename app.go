@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"log"
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 
 	"opsy/internal/app"
@@ -60,6 +63,7 @@ func (a *App) startup(ctx context.Context) {
 		a.service.EmitLog("error", "Disk store could not be initialized; running with in-memory defaults.")
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
+		a.autoImportInitialSSHConfig()
 	}
 }
 
@@ -239,4 +243,35 @@ func (a *App) currentService() *app.Service {
 		a.service = svc
 	}
 	return a.service
+}
+
+func (a *App) autoImportInitialSSHConfig() {
+	state := a.service.GetShellState()
+	if len(state.SessionProfiles) > 0 || state.Settings.SSHConfigAutoLoaded {
+		return
+	}
+	settingsSnapshot := state.Settings
+	settingsSnapshot.SSHConfigAutoLoaded = true
+	if err := a.service.UpdateSettings(settingsSnapshot); err != nil {
+		a.service.EmitLog("warn", "Unable to persist SSH auto-import marker.")
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil || homeDir == "" {
+		return
+	}
+	configPath := filepath.Join(homeDir, ".ssh", "config")
+	content, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	if len(content) == 0 {
+		return
+	}
+	imported, err := a.service.ImportSSHConfig(string(content))
+	if err != nil {
+		a.service.EmitLog("warn", "Automatic SSH config import skipped: "+err.Error())
+		return
+	}
+	a.service.EmitLog("info", "Automatically imported "+strconv.Itoa(len(imported))+" SSH session(s) from ~/.ssh/config.")
 }

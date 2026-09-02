@@ -20,6 +20,9 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	cfg.VaultMountPoint = "secret"
 	cfg.VaultAutoRenewToken = true
 	cfg.VaultToken = "vault-secret-token"
+	cfg.VaultProvider = "keepass"
+	cfg.KeePassDatabasePath = "/tmp/keepass.kdbx"
+	cfg.KeePassPassword = "keepass-secret"
 	if err := store.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
@@ -51,6 +54,9 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	if persisted["vaultAutoRenewToken"] != true {
 		t.Fatalf("expected vaultAutoRenewToken in settings file, got %#v", persisted["vaultAutoRenewToken"])
 	}
+	if persisted["keepassPassword"] != "keepass-secret" {
+		t.Fatalf("expected keepassPassword in settings file, got %#v", persisted["keepassPassword"])
+	}
 
 	aiStateRaw, ok := persisted["aiState"].(map[string]any)
 	if !ok {
@@ -78,6 +84,12 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	}
 	if !reloadedSettings.VaultAutoRenewToken {
 		t.Fatal("expected reloaded vault auto renew token setting")
+	}
+	if reloadedSettings.VaultProvider != "keepass" {
+		t.Fatalf("expected reloaded vault provider keepass, got %q", reloadedSettings.VaultProvider)
+	}
+	if reloadedSettings.KeePassPassword != "keepass-secret" {
+		t.Fatalf("expected reloaded keepass password, got %q", reloadedSettings.KeePassPassword)
 	}
 
 	reloadedAI := reloaded.AIState()

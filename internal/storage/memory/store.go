@@ -307,12 +307,14 @@ func defaultSettings() settings.AppSettings {
 		},
 		PromptBeforeAI:      true,
 		AllowCloudModels:    true,
+		SSHConfigAutoLoaded: false,
 		LogLevel:            settings.LogLevelInfo,
 		ShowLogPanel:        false,
 		SaveLogsToFile:      false,
 		LogRotationSize:     settings.DefaultLogRotationSize,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }
 
