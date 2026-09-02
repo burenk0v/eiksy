@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/pkg/sftp v1.13.11
+	github.com/tobischo/gokeepasslib/v3 v3.7.0
 	github.com/wailsapp/wails/v2 v2.14.0
 	golang.org/x/crypto v0.54.0
 )
@@ -31,7 +32,6 @@ require (
 	github.com/samber/lo v1.49.1 // indirect
 	github.com/tkrajina/go-reflector v0.5.8 // indirect
 	github.com/tobischo/argon2 v0.1.0 // indirect
-	github.com/tobischo/gokeepasslib/v3 v3.7.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/wailsapp/go-webview2 v1.0.22 // indirect
