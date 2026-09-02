@@ -41,8 +41,9 @@ type Store struct {
 
 type persistedSettings struct {
 	settings.AppSettings
-	VaultToken string                     `json:"vaultToken,omitempty"`
-	AIState    *persistedAIWorkspaceState `json:"aiState,omitempty"`
+	VaultToken      string                     `json:"vaultToken,omitempty"`
+	KeePassPassword string                     `json:"keepassPassword,omitempty"`
+	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
 
 type persistedAIWorkspaceState struct {
@@ -362,6 +363,7 @@ func (s *Store) loadSettings() error {
 	}
 	loaded = persisted.AppSettings
 	loaded.VaultToken = persisted.VaultToken
+	loaded.KeePassPassword = persisted.KeePassPassword
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
 		loaded.Theme = defaults.Theme
@@ -384,9 +386,18 @@ func (s *Store) loadSettings() error {
 	if loaded.VaultMountPoint == "" {
 		loaded.VaultMountPoint = defaults.VaultMountPoint
 	}
+	if strings.TrimSpace(loaded.VaultProvider) == "" {
+		loaded.VaultProvider = defaults.VaultProvider
+	}
+	if loaded.VaultProvider != "vault" && loaded.VaultProvider != "keepass" {
+		loaded.VaultProvider = defaults.VaultProvider
+	}
+	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
+	loaded.KeePassPassword = strings.TrimSpace(loaded.KeePassPassword)
 	if loaded.VaultToken == "" {
 		loaded.VaultToken = defaults.VaultToken
 	}
+	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
 		s.aiState = aiStateFromPersisted(*persisted.AIState)
@@ -462,12 +473,14 @@ func defaultSettings() settings.AppSettings {
 		WindowLayout:        settings.WindowLayout{SidebarWidth: 300, AssistantWidth: 360},
 		PromptBeforeAI:      true,
 		AllowCloudModels:    true,
+		SSHConfigAutoLoaded: false,
 		LogLevel:            settings.LogLevelInfo,
 		ShowLogPanel:        false,
 		SaveLogsToFile:      false,
 		LogRotationSize:     settings.DefaultLogRotationSize,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }
 
@@ -503,12 +516,30 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 
 func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) persistedSettings {
 	persisted := persistedSettings{
-		AppSettings: app,
-		VaultToken:  strings.TrimSpace(app.VaultToken),
+		AppSettings:     app,
+		VaultToken:      strings.TrimSpace(app.VaultToken),
+		KeePassPassword: strings.TrimSpace(app.KeePassPassword),
 	}
 	persisted.AppSettings.VaultToken = ""
+	persisted.AppSettings.KeePassPassword = ""
 	persisted.AIState = aiStateToPersisted(state)
 	return persisted
+}
+
+func normalizePortForwardRules(rules []settings.PortForwardRule) []settings.PortForwardRule {
+	normalized := make([]settings.PortForwardRule, 0, len(rules))
+	for _, rule := range rules {
+		entry := rule
+		entry.HostID = strings.TrimSpace(entry.HostID)
+		entry.LocalPort = strings.TrimSpace(entry.LocalPort)
+		entry.RemoteHost = strings.TrimSpace(entry.RemoteHost)
+		entry.RemotePort = strings.TrimSpace(entry.RemotePort)
+		if entry.LocalPort == "" && strings.TrimSpace(entry.Ports) != "" {
+			entry.LocalPort = strings.TrimSpace(entry.Ports)
+		}
+		normalized = append(normalized, entry)
+	}
+	return normalized
 }
 
 func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {

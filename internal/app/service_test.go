@@ -9,6 +9,7 @@ import (
 
 	"opsy/internal/domain/ai"
 	"opsy/internal/domain/sessions"
+	"opsy/internal/domain/settings"
 	"opsy/internal/storage/memory"
 )
 
@@ -332,6 +333,83 @@ func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	}
 	if state.AI.ChatSessionID == "" {
 		t.Fatal("expected chat session id to be regenerated")
+	}
+}
+
+func TestBuildPortForwardSpecsWithRemoteTarget(t *testing.T) {
+	specs := buildPortForwardSpecs("8080,9000-9001", "db.internal", "5432")
+	if specs != "8080:db.internal:5432,9000:db.internal:5432,9001:db.internal:5432" {
+		t.Fatalf("unexpected specs: %s", specs)
+	}
+}
+
+func TestBuildPortForwardSpecsFallsBackToSamePortWhenRemotePortIsEmpty(t *testing.T) {
+	specs := buildPortForwardSpecs("8080-8081", "db.internal", "")
+	if specs != "8080:db.internal:8080,8081:db.internal:8081" {
+		t.Fatalf("unexpected specs: %s", specs)
+	}
+}
+
+func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
+	store := memory.NewStore()
+	service := NewService(store, nil, nil, nil)
+
+	initial := store.Settings()
+	initial.VaultProvider = "keepass"
+	initial.KeePassDatabasePath = "/tmp/dev.kdbx"
+	initial.KeePassPassword = "keepass-secret"
+	if err := store.UpdateSettings(initial); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	updated := store.Settings()
+	updated.KeePassPassword = ""
+	if err := service.UpdateSettings(updated); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	reloaded := store.Settings()
+	if reloaded.KeePassPassword != "keepass-secret" {
+		t.Fatalf("expected keepass password to persist, got %q", reloaded.KeePassPassword)
+	}
+}
+
+func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
+	store := memory.NewStore()
+	target := sessions.Profile{
+		ID:         "jump-host",
+		Name:       "jump-host",
+		ProtocolID: "ssh",
+		Host:       "jump.internal",
+		Port:       22,
+		Username:   "ops",
+	}
+	source := sessions.Profile{
+		ID:         "source-host",
+		Name:       "source-host",
+		ProtocolID: "ssh",
+		Host:       "source.internal",
+		Port:       22,
+		Username:   "ops",
+	}
+	if err := store.UpsertSessionProfile(target); err != nil {
+		t.Fatalf("seed target profile: %v", err)
+	}
+	if err := store.UpsertSessionProfile(source); err != nil {
+		t.Fatalf("seed source profile: %v", err)
+	}
+	cfg := store.Settings()
+	cfg.PortForwardRules = []settings.PortForwardRule{
+		{LocalPort: "15432", RemoteHost: "db.internal", RemotePort: "5432", HostID: "jump-host", Enabled: true},
+	}
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	service := NewService(store, nil, nil, nil)
+	withRules := service.applySSHForwardingSettings(source)
+	if got := withRules.Options["local_forwards"]; got != "15432:db.internal:5432" {
+		t.Fatalf("unexpected forward specs: %q", got)
 	}
 }
 

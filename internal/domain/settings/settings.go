@@ -16,13 +16,17 @@ const (
 	LogLevelError          LogLevel = "error"
 	DefaultLogRotationSize          = 10 * 1024 * 1024
 	DefaultVaultMountPoint          = "secret"
+	DefaultVaultProvider            = "vault"
 )
 
 // PortForwardRule describes a single SSH local-port-forwarding rule.
 type PortForwardRule struct {
-	Ports   string `json:"ports"`
-	HostID  string `json:"hostId"`
-	Enabled bool   `json:"enabled"`
+	Ports      string `json:"ports"` // legacy field for backward compatibility
+	LocalPort  string `json:"localPort"`
+	RemoteHost string `json:"remoteHost"`
+	RemotePort string `json:"remotePort"`
+	HostID     string `json:"hostId"`
+	Enabled    bool   `json:"enabled"`
 }
 
 type AppSettings struct {
@@ -34,6 +38,7 @@ type AppSettings struct {
 	SSHForwardPorts     string            `json:"sshForwardPorts"`
 	SSHForwardHostID    string            `json:"sshForwardHostId"`
 	PortForwardRules    []PortForwardRule `json:"portForwardRules"`
+	SSHConfigAutoLoaded bool              `json:"sshConfigAutoLoaded"`
 	LogLevel            LogLevel          `json:"logLevel"`
 	ShowLogPanel        bool              `json:"showLogPanel"`
 	SaveLogsToFile      bool              `json:"saveLogsToFile"`
@@ -41,5 +46,8 @@ type AppSettings struct {
 	VaultAddress        string            `json:"vaultAddress"`
 	VaultMountPoint     string            `json:"vaultMountPoint"`
 	VaultAutoRenewToken bool              `json:"vaultAutoRenewToken"`
+	VaultProvider       string            `json:"vaultProvider"`
+	KeePassDatabasePath string            `json:"keepassDatabasePath"`
+	KeePassPassword     string            `json:"-"`
 	VaultToken          string            `json:"-"`
 }

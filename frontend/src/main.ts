@@ -98,9 +98,21 @@ type RightPanelTab = 'ai' | 'vault';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
 
 type PortForwardRule = {
-    ports: string;
+    ports?: string;
+    localPort: string;
+    remoteHost: string;
+    remotePort: string;
     hostId: string;
     enabled: boolean;
+};
+
+type NotificationLevel = 'info' | 'warn' | 'error' | 'debug';
+
+type NotificationItem = {
+    id: string;
+    level: NotificationLevel;
+    message: string;
+    time: string;
 };
 
 type LogEntry = {
@@ -182,8 +194,23 @@ class OpsyShell {
     private cloudModelsEndpoint = '';
     private cloudModelsLoading = false;
     private cloudModelsError = '';
-    private pfNewPorts = '';
+    private pfNewLocalPort = '';
+    private pfNewRemoteHost = '';
+    private pfNewRemotePort = '';
     private pfNewHostId = '';
+    private cloudDraftModel = '';
+    private cloudDraftEndpoint = '';
+    private cloudDraftToken = '';
+    private vaultDraftAddress = '';
+    private vaultDraftMountPoint = '';
+    private vaultDraftToken = '';
+    private vaultDraftAutoRenewToken = false;
+    private vaultDraftProvider = 'vault';
+    private vaultDraftKeePassDatabasePath = '';
+    private vaultDraftKeePassPassword = '';
+    private notifications: NotificationItem[] = [];
+    private toastQueue: NotificationItem[] = [];
+    private showNotificationCenter = false;
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY);
@@ -213,8 +240,10 @@ class OpsyShell {
         EventsOn('app:log', (...payload: unknown[]) => {
             const data = payload[0] as { level?: string; message?: string; time?: string } | undefined;
             if (!data?.message) return;
+            const level = this.normalizeNotificationLevel(data.level);
+            this.pushNotification(level, data.message, data.time ?? new Date().toISOString());
             this.logEntries.push({
-                level: data.level ?? 'info',
+                level,
                 message: data.message,
                 time: data.time ?? new Date().toISOString(),
             });
@@ -229,6 +258,13 @@ class OpsyShell {
             const data = payload[0] as { status?: string } | undefined;
             this.aiStatus = data?.status === 'thinking' ? 'thinking' : 'idle';
             this.render();
+        });
+        EventsOn('model:error', (...payload: unknown[]) => {
+            const data = payload[0] as { error?: string } | undefined;
+            if (!data?.error) {
+                return;
+            }
+            this.setErrorMessage(`Model error: ${data.error}`);
         });
         EventsOn('ai:message', () => {
             void this.refresh('');
@@ -281,6 +317,7 @@ class OpsyShell {
                             </div>
                             <div style="display:flex;gap:0.5rem;align-items:center;">
                                 <button class="icon-button" data-open-session-modal title="New session">+</button>
+                                <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ''}</button>
                                 <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                             </div>
                         </div>
@@ -376,6 +413,8 @@ class OpsyShell {
             ${this.renderRemoteEditorModal()}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
+            ${this.showNotificationCenter ? this.renderNotificationCenter() : ''}
+            ${this.renderToasts()}
         `;
 
         this.bindEvents();
@@ -422,10 +461,15 @@ class OpsyShell {
 
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
             this.showSettingsModal = true;
+            this.initializeSettingsDrafts();
             this.render();
             if (this.settingsTab === 'ai') {
                 void this.loadCloudModels(false);
             }
+        });
+        root?.querySelector<HTMLButtonElement>('[data-open-notification-center]')?.addEventListener('click', () => {
+            this.showNotificationCenter = true;
+            this.render();
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-session-inner-tab]').forEach((button) => {
@@ -520,7 +564,7 @@ class OpsyShell {
                 this.sshConfigDraft = '';
                 await this.refresh('');
             } catch (error) {
-                this.errorMessage = formatError('Unable to import SSH config', error);
+                this.setErrorMessage(formatError('Unable to import SSH config', error));
                 this.render();
             }
         });
@@ -653,11 +697,19 @@ class OpsyShell {
 
         root?.querySelector<HTMLFormElement>('[data-cloud-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const form = event.currentTarget as HTMLFormElement;
-            const model = form.querySelector<HTMLSelectElement>('select[name="model"]')?.value ?? '';
-            const endpoint = form.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? '';
-            const token = form.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '';
+            const model = this.cloudDraftModel;
+            const endpoint = this.cloudDraftEndpoint;
+            const token = this.cloudDraftToken;
             await this.runAction(async () => SaveCloudProvider(model, endpoint, token), 'Unable to save cloud provider');
+        });
+        root?.querySelector<HTMLInputElement>('[data-cloud-model]')?.addEventListener('input', (event) => {
+            this.cloudDraftModel = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-cloud-endpoint]')?.addEventListener('input', (event) => {
+            this.cloudDraftEndpoint = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-cloud-token]')?.addEventListener('input', (event) => {
+            this.cloudDraftToken = (event.currentTarget as HTMLInputElement).value;
         });
         root?.querySelector<HTMLButtonElement>('[data-load-cloud-models]')?.addEventListener('click', async () => {
             await this.loadCloudModels(true);
@@ -690,7 +742,7 @@ class OpsyShell {
                 this.aiStatus = 'idle';
                 await this.refresh('');
             } catch (error) {
-                this.errorMessage = formatError('Unable to clear chat', error);
+                this.setErrorMessage(formatError('Unable to clear chat', error));
                 this.render();
             }
         });
@@ -700,6 +752,7 @@ class OpsyShell {
                 const wasSessionModalOpen = this.showSessionModal;
                 this.showSessionModal = false;
                 this.showSettingsModal = false;
+                this.showNotificationCenter = false;
                 if (wasSessionModalOpen) {
                     this.editingProfileID = '';
                     this.sessionForm = this.defaultSessionForm();
@@ -744,15 +797,39 @@ class OpsyShell {
         root?.querySelector<HTMLFormElement>('[data-vault-settings-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!this.shellState) return;
-            const form = event.currentTarget as HTMLFormElement;
             const updated = {
                 ...this.shellState.settings,
-                vaultAddress: form.querySelector<HTMLInputElement>('input[name="vaultAddress"]')?.value ?? '',
-                vaultMountPoint: form.querySelector<HTMLInputElement>('input[name="vaultMountPoint"]')?.value ?? '',
-                vaultToken: form.querySelector<HTMLInputElement>('input[name="vaultToken"]')?.value ?? '',
-                vaultAutoRenewToken: form.querySelector<HTMLInputElement>('input[name="vaultAutoRenewToken"]')?.checked ?? false,
+                vaultAddress: this.vaultDraftAddress,
+                vaultMountPoint: this.vaultDraftMountPoint,
+                vaultToken: this.vaultDraftToken,
+                vaultAutoRenewToken: this.vaultDraftAutoRenewToken,
+                vaultProvider: this.vaultDraftProvider,
+                keepassDatabasePath: this.vaultDraftKeePassDatabasePath,
+                keepassPassword: this.vaultDraftKeePassPassword,
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
+        });
+        root?.querySelector<HTMLSelectElement>('[data-vault-provider]')?.addEventListener('change', (event) => {
+            this.vaultDraftProvider = (event.currentTarget as HTMLSelectElement).value || 'vault';
+            this.render();
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-address]')?.addEventListener('input', (event) => {
+            this.vaultDraftAddress = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-mount]')?.addEventListener('input', (event) => {
+            this.vaultDraftMountPoint = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-token]')?.addEventListener('input', (event) => {
+            this.vaultDraftToken = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-renew]')?.addEventListener('change', (event) => {
+            this.vaultDraftAutoRenewToken = (event.currentTarget as HTMLInputElement).checked;
+        });
+        root?.querySelector<HTMLInputElement>('[data-keepass-db-path]')?.addEventListener('input', (event) => {
+            this.vaultDraftKeePassDatabasePath = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-keepass-password]')?.addEventListener('input', (event) => {
+            this.vaultDraftKeePassPassword = (event.currentTarget as HTMLInputElement).value;
         });
         root?.querySelectorAll<HTMLButtonElement>('[data-toggle-session-tag-filter]').forEach((button) => {
             button.addEventListener('click', () => {
@@ -784,24 +861,28 @@ class OpsyShell {
             event.preventDefault();
             if (!this.shellState) return;
             const form = event.currentTarget as HTMLFormElement;
-            const ports = (form.querySelector<HTMLInputElement>('input[name="pfPorts"]')?.value ?? '').trim();
+            const localPort = (form.querySelector<HTMLInputElement>('input[name="pfLocalPort"]')?.value ?? '').trim();
+            const remoteHost = (form.querySelector<HTMLInputElement>('input[name="pfRemoteHost"]')?.value ?? '').trim();
+            const remotePort = (form.querySelector<HTMLInputElement>('input[name="pfRemotePort"]')?.value ?? '').trim();
             const hostId = (form.querySelector<HTMLSelectElement>('select[name="pfHostId"]')?.value ?? '').trim();
-            if (!ports || !hostId) return;
-            const rules: PortForwardRule[] = [...(this.shellState.settings.portForwardRules ?? []), { ports, hostId, enabled: true }];
+            if (!localPort || !hostId || !remoteHost || !remotePort) return;
+            const rules: PortForwardRule[] = [...(this.shellState.settings.portForwardRules ?? []), { localPort, remoteHost, remotePort, hostId, enabled: true }];
             const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
-            this.pfNewPorts = '';
+            this.pfNewLocalPort = '';
+            this.pfNewRemoteHost = '';
+            this.pfNewRemotePort = '';
             this.pfNewHostId = '';
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save port forwarding rule');
         });
-        root?.querySelectorAll<HTMLButtonElement>('[data-pf-toggle]').forEach((button) => {
+        root?.querySelectorAll<HTMLButtonElement>('[data-pf-start-stop]').forEach((button) => {
             button.addEventListener('click', async () => {
                 if (!this.shellState) return;
-                const idx = Number(button.dataset.pfToggle);
+                const idx = Number(button.dataset.pfStartStop);
                 const rules: PortForwardRule[] = (this.shellState.settings.portForwardRules ?? []).map((r, i) =>
                     i === idx ? { ...r, enabled: !r.enabled } : r
                 );
                 const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
-                await this.runAction(async () => UpdateSettings(updated), 'Unable to toggle port forwarding rule');
+                await this.runAction(async () => UpdateSettings(updated), 'Unable to update port forwarding rule state');
             });
         });
         root?.querySelectorAll<HTMLButtonElement>('[data-pf-delete]').forEach((button) => {
@@ -812,6 +893,18 @@ class OpsyShell {
                 const updated = { ...this.shellState.settings, portForwardRules: rules } as unknown as settingsModels.AppSettings;
                 await this.runAction(async () => UpdateSettings(updated), 'Unable to delete port forwarding rule');
             });
+        });
+        root?.querySelector<HTMLInputElement>('input[name="pfLocalPort"]')?.addEventListener('input', (event) => {
+            this.pfNewLocalPort = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('input[name="pfRemoteHost"]')?.addEventListener('input', (event) => {
+            this.pfNewRemoteHost = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('input[name="pfRemotePort"]')?.addEventListener('input', (event) => {
+            this.pfNewRemotePort = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLSelectElement>('select[name="pfHostId"]')?.addEventListener('change', (event) => {
+            this.pfNewHostId = (event.currentTarget as HTMLSelectElement).value;
         });
 
         root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
@@ -847,7 +940,7 @@ class OpsyShell {
             const useSSHAgent = formData.get('useSSHAgent') === 'on';
             const keyPath = privateKeyPath.trim();
             if (authMethod === 'key' && !keyPath) {
-                this.errorMessage = 'Unable to save session profile: private key path is required for key auth';
+                this.setErrorMessage('Unable to save session profile: private key path is required for key auth');
                 this.render();
                 return;
             }
@@ -879,7 +972,7 @@ class OpsyShell {
                 this.sessionModalTab = 'host';
                 await this.refresh('');
             } catch (error) {
-                this.errorMessage = formatError('Unable to save session profile', error);
+                this.setErrorMessage(formatError('Unable to save session profile', error));
                 this.render();
             }
         });
@@ -891,7 +984,7 @@ class OpsyShell {
                 await AcceptSSHHostKey(tabId);
                 await this.retrySSHConnect(tabId, profileId);
             } catch (error) {
-                this.errorMessage = formatError('Unable to accept host key', error);
+                this.setErrorMessage(formatError('Unable to accept host key', error));
                 this.render();
             }
         });
@@ -925,6 +1018,22 @@ class OpsyShell {
         root?.querySelector<HTMLInputElement>('[data-session-tag-input]')?.addEventListener('blur', () => {
             this.commitSessionTagDraft();
             requestAnimationFrame(() => this.render());
+        });
+        root?.querySelector<HTMLButtonElement>('[data-clear-notifications]')?.addEventListener('click', () => {
+            this.notifications = [];
+            this.toastQueue = [];
+            this.render();
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-delete-notification]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const id = String(button.dataset.deleteNotification ?? '');
+                if (!id) {
+                    return;
+                }
+                this.notifications = this.notifications.filter((notification) => notification.id !== id);
+                this.toastQueue = this.toastQueue.filter((notification) => notification.id !== id);
+                this.render();
+            });
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-session-tag-remove]').forEach((button) => {
@@ -961,7 +1070,7 @@ class OpsyShell {
                 this.render();
             }
         } catch (error) {
-            this.errorMessage = formatError('Unable to open session', error);
+            this.setErrorMessage(formatError('Unable to open session', error));
             this.render();
         }
     }
@@ -997,7 +1106,7 @@ class OpsyShell {
             await this.refresh('');
             await this.ensureActiveSFTPLoaded(true);
         } catch (error) {
-            this.errorMessage = formatError('Unable to connect SSH', error);
+            this.setErrorMessage(formatError('Unable to connect SSH', error));
             this.render();
         }
     }
@@ -1033,6 +1142,7 @@ class OpsyShell {
                 selectedFiles: [],
             };
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to load SFTP files', error));
             this.sftpState = {
                 ...this.sftpState,
                 tabId: tabID,
@@ -1065,6 +1175,7 @@ class OpsyShell {
                 editorError: '',
             };
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to read remote file', error));
             this.sftpState = {
                 ...this.sftpState,
                 editorOpen: true,
@@ -1082,6 +1193,7 @@ class OpsyShell {
             await SaveSFTPFile(tabID, this.sftpState.editorPath, this.sftpState.editorContent);
             this.sftpState = { ...this.sftpState, editorSaving: false, editorDirty: false, editorError: '' };
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to save remote file', error));
             this.sftpState = {
                 ...this.sftpState,
                 editorSaving: false,
@@ -1102,6 +1214,7 @@ class OpsyShell {
             await UploadSFTPFiles(tabID, this.sftpState.path || '.', localPaths);
             await this.loadSFTP(tabID, this.sftpState.path || '.');
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to upload files', error));
             this.sftpState = {
                 ...this.sftpState,
                 error: formatError('Unable to upload files', error),
@@ -1125,6 +1238,7 @@ class OpsyShell {
             this.sftpState = { ...this.sftpState, selectedFiles: [], error: '' };
             this.render();
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to download files', error));
             this.sftpState = {
                 ...this.sftpState,
                 error: formatError('Unable to download files', error),
@@ -1158,6 +1272,7 @@ class OpsyShell {
                 loaded: true,
             };
         } catch (error) {
+            this.pushNotification('error', formatError('Unable to load Vault secrets', error));
             this.vaultState = {
                 ...this.vaultState,
                 loading: false,
@@ -1194,7 +1309,7 @@ class OpsyShell {
             terminalState.terminal.focus();
             terminalState.terminal.onData((data: string) => {
                 void SendSSHInput(activeTab.id, data).catch((error) => {
-                    this.errorMessage = formatError('Unable to send terminal input', error);
+                    this.setErrorMessage(formatError('Unable to send terminal input', error));
                     this.render();
                 });
             });
@@ -1484,9 +1599,8 @@ class OpsyShell {
         if (!provider) {
             return;
         }
-        const form = root?.querySelector<HTMLFormElement>('[data-cloud-form]');
-        const endpoint = (form?.querySelector<HTMLInputElement>('input[name="endpoint"]')?.value ?? provider.endpoint ?? '').trim();
-        const token = (form?.querySelector<HTMLInputElement>('input[name="token"]')?.value ?? '').trim();
+        const endpoint = (this.cloudDraftEndpoint || provider.endpoint || '').trim();
+        const token = (this.cloudDraftToken || '').trim();
         if (!endpoint) {
             this.cloudModels = [];
             this.cloudModelsEndpoint = '';
@@ -1509,6 +1623,7 @@ class OpsyShell {
             this.cloudModels = [];
             this.cloudModelsEndpoint = endpoint;
             this.cloudModelsError = formatError('Unable to load models', error);
+            this.pushNotification('error', this.cloudModelsError);
         } finally {
             this.cloudModelsLoading = false;
             this.render();
@@ -1520,34 +1635,30 @@ class OpsyShell {
         if (!provider) {
             return '<div class="empty-state">No AI provider configured yet.</div>';
         }
-        const selectedModel = provider.model || '';
-        const availableModels = selectedModel && !this.cloudModels.includes(selectedModel)
-            ? [selectedModel, ...this.cloudModels]
-            : this.cloudModels;
+        const selectedModel = this.cloudDraftModel || provider.model || '';
         return `
             <form class="provider-form" data-cloud-form>
                 <label>
                     <span>Model</span>
-                    <select name="model" ${availableModels.length === 0 ? 'disabled' : ''} required>
-                        ${availableModels.length === 0
-                            ? '<option value="">Load models from API first</option>'
-                            : availableModels.map((model) => `<option value="${escapeHtml(model)}" ${model === selectedModel ? 'selected' : ''}>${escapeHtml(model)}</option>`).join('')}
-                    </select>
+                    <input name="model" data-cloud-model type="text" value="${escapeHtml(selectedModel)}" list="cloud-model-suggestions" placeholder="gpt-5.6" required />
+                    <datalist id="cloud-model-suggestions">
+                        ${this.cloudModels.map((model) => `<option value="${escapeHtml(model)}"></option>`).join('')}
+                    </datalist>
                 </label>
                 <label>
                     <span>Endpoint</span>
-                    <input type="url" name="endpoint" value="${escapeHtml(provider.endpoint || '')}" placeholder="https://api.example.com/v1" required />
+                    <input type="url" data-cloud-endpoint name="endpoint" value="${escapeHtml(this.cloudDraftEndpoint || provider.endpoint || '')}" placeholder="https://api.example.com/v1" required />
                 </label>
                 <label>
                     <span>API token (optional)</span>
-                    <input type="password" name="token" placeholder="sk-..." />
+                    <input type="password" data-cloud-token name="token" value="${escapeHtml(this.cloudDraftToken)}" placeholder="sk-..." />
                 </label>
                 <div class="provider-form-actions">
                     <button class="action-button secondary" type="button" data-load-cloud-models ${this.cloudModelsLoading ? 'disabled' : ''}>${this.cloudModelsLoading ? 'Loading models…' : 'Load models'}</button>
                     ${this.cloudModelsError ? `<span class="section-copy">${escapeHtml(this.cloudModelsError)}</span>` : ''}
                 </div>
                 <div class="provider-form-actions">
-                    <button class="action-button" type="submit" ${availableModels.length === 0 ? 'disabled' : ''}>Save cloud provider</button>
+                    <button class="action-button" type="submit">Save cloud provider</button>
                 </div>
             </form>
         `;
@@ -1567,11 +1678,11 @@ class OpsyShell {
             <div class="pf-rules-list">
                 ${rules.map((rule, idx) => `
                     <div class="pf-rule ${rule.enabled ? 'pf-rule-enabled' : 'pf-rule-disabled'}">
-                        <span class="pf-rule-ports">${escapeHtml(rule.ports)}</span>
+                        <span class="pf-rule-ports">${escapeHtml(rule.localPort || rule.ports || '')}</span>
                         <span class="pf-rule-arrow">→</span>
-                        <span class="pf-rule-host">${escapeHtml(profileName(rule.hostId))}</span>
+                        <span class="pf-rule-host">${escapeHtml(rule.remoteHost)}:${escapeHtml(rule.remotePort)} via ${escapeHtml(profileName(rule.hostId))}</span>
                         <span class="pf-rule-spacer"></span>
-                        <button class="action-button secondary" data-pf-toggle="${idx}" title="${rule.enabled ? 'Disable' : 'Enable'}">${rule.enabled ? 'On' : 'Off'}</button>
+                        <button class="action-button secondary" data-pf-start-stop="${idx}" title="${rule.enabled ? 'Stop' : 'Start'}">${rule.enabled ? 'Stop' : 'Start'}</button>
                         <button class="icon-button danger" data-pf-delete="${idx}" title="Delete rule">✕</button>
                     </div>
                 `).join('')}
@@ -1587,7 +1698,7 @@ class OpsyShell {
             return '<div class="empty-state">Configure a provider in Settings to start chatting.</div>';
         }
         return (this.shellState.ai.messages ?? []).map((message) => `
-            <div class="message ${escapeClassName(message.role)}">${escapeHtml(message.content)}</div>
+            <div class="message ${escapeClassName(message.role)}">${message.role === 'assistant' ? renderMarkdown(message.content) : escapeHtml(message.content)}</div>
         `).join('');
     }
 
@@ -1604,9 +1715,6 @@ class OpsyShell {
         const showLogPanel = this.shellState?.settings.showLogPanel ?? false;
         const saveLogsToFile = this.shellState?.settings.saveLogsToFile ?? false;
         const logRotationMB = Math.max(1, Math.round((this.shellState?.settings.logRotationSize ?? (10 * 1024 * 1024)) / (1024 * 1024)));
-        const vaultAddress = this.shellState?.settings.vaultAddress ?? '';
-        const vaultMountPoint = this.shellState?.settings.vaultMountPoint ?? 'secret';
-        const vaultAutoRenewToken = this.shellState?.settings.vaultAutoRenewToken ?? false;
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
         const logLevels = [
             { value: 'debug', label: 'Debug' },
@@ -1616,7 +1724,7 @@ class OpsyShell {
         ];
         return `
             <div class="modal-overlay">
-                <div class="modal-dialog wide">
+                <div class="modal-dialog wide settings-dialog">
                     <div class="panel-header compact-header">
                         <div>
                             <div class="eyebrow">Settings</div>
@@ -1637,20 +1745,38 @@ class OpsyShell {
                             <form class="provider-form" data-vault-settings-form>
                                 <label>
                                     <span>Vault instance URL</span>
-                                    <input type="url" name="vaultAddress" value="${escapeHtml(vaultAddress)}" placeholder="https://vault.example.com" />
+                                    <input type="url" data-vault-address name="vaultAddress" value="${escapeHtml(this.vaultDraftAddress)}" placeholder="https://vault.example.com" />
                                 </label>
                                 <label>
                                     <span>Mountpoint</span>
-                                    <input type="text" name="vaultMountPoint" value="${escapeHtml(vaultMountPoint)}" placeholder="secret" />
+                                    <input type="text" data-vault-mount name="vaultMountPoint" value="${escapeHtml(this.vaultDraftMountPoint)}" placeholder="secret" />
                                 </label>
                                 <label>
+                                    <span>Secret source</span>
+                                    <select name="vaultProvider" data-vault-provider>
+                                        <option value="vault" ${this.vaultDraftProvider === 'vault' ? 'selected' : ''}>HashiCorp Vault</option>
+                                        <option value="keepass" ${this.vaultDraftProvider === 'keepass' ? 'selected' : ''}>KeePass</option>
+                                    </select>
+                                </label>
+                                ${this.vaultDraftProvider === 'vault' ? `
+                                <label>
                                     <span>Token</span>
-                                    <input type="password" name="vaultToken" placeholder="hvs...." />
+                                    <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
                                 </label>
                                 <label class="inline-check">
                                     <span>Auto-renew token</span>
-                                    <input name="vaultAutoRenewToken" type="checkbox" ${vaultAutoRenewToken ? 'checked' : ''} />
+                                    <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? 'checked' : ''} />
                                 </label>
+                                ` : `
+                                <label>
+                                    <span>KeePass database path</span>
+                                    <input type="text" data-keepass-db-path name="keepassDatabasePath" value="${escapeHtml(this.vaultDraftKeePassDatabasePath)}" placeholder="~/.config/KeePass/database.kdbx" />
+                                </label>
+                                <label>
+                                    <span>KeePass password</span>
+                                    <input type="password" data-keepass-password name="keepassPassword" value="${escapeHtml(this.vaultDraftKeePassPassword)}" />
+                                </label>
+                                `}
                                 <div class="provider-form-actions">
                                     <button class="action-button" type="submit">Save Vault settings</button>
                                 </div>
@@ -1668,8 +1794,10 @@ class OpsyShell {
                             <div class="section-title">Port forwarding rules</div>
                             ${this.renderPortForwardRules()}
                             <form class="provider-form" data-pf-add-form style="margin-top:0.5rem;">
-                                <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:0.5rem;align-items:end;">
-                                    <label style="margin:0;"><span style="font-size:0.78rem;">Ports / range</span><input type="text" name="pfPorts" value="${escapeHtml(this.pfNewPorts)}" placeholder="8080,9000-9005" /></label>
+                                <div style="display:grid;grid-template-columns:1fr 1fr 160px 1fr auto;gap:0.5rem;align-items:end;">
+                                    <label style="margin:0;"><span style="font-size:0.78rem;">Local port(s)</span><input type="text" name="pfLocalPort" value="${escapeHtml(this.pfNewLocalPort)}" placeholder="8080,9000-9005" /></label>
+                                    <label style="margin:0;"><span style="font-size:0.78rem;">Remote host</span><input type="text" name="pfRemoteHost" value="${escapeHtml(this.pfNewRemoteHost)}" placeholder="db.internal" /></label>
+                                    <label style="margin:0;"><span style="font-size:0.78rem;">Remote port</span><input type="number" name="pfRemotePort" min="1" max="65535" value="${escapeHtml(this.pfNewRemotePort)}" placeholder="5432" /></label>
                                     <label style="margin:0;"><span style="font-size:0.78rem;">Target SSH host</span>
                                         <select name="pfHostId">
                                             <option value="">Select host</option>
@@ -2041,12 +2169,107 @@ class OpsyShell {
         return protocolId === 'ssh' || protocolId === 'sftp';
     }
 
+    private normalizeNotificationLevel(value?: string): NotificationLevel {
+        if (value === 'error' || value === 'warn' || value === 'debug') {
+            return value;
+        }
+        return 'info';
+    }
+
+    private pushNotification(level: NotificationLevel, message: string, time = new Date().toISOString()): void {
+        const item: NotificationItem = {
+            id: `notification-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+            level,
+            message,
+            time,
+        };
+        this.notifications = [item, ...this.notifications];
+        this.toastQueue = [...this.toastQueue, item];
+        window.setTimeout(() => {
+            this.toastQueue = this.toastQueue.filter((entry) => entry.id !== item.id);
+            this.render();
+        }, 4500);
+        this.render();
+    }
+
+    private setErrorMessage(message: string): void {
+        this.errorMessage = message;
+        if (message.trim()) {
+            this.pushNotification('error', message);
+        }
+    }
+
+    private initializeSettingsDrafts(): void {
+        const provider = this.selectedProvider();
+        const shellSettings = this.shellState?.settings;
+        this.cloudDraftModel = provider?.model ?? '';
+        this.cloudDraftEndpoint = provider?.endpoint ?? '';
+        this.cloudDraftToken = '';
+        this.vaultDraftAddress = shellSettings?.vaultAddress ?? '';
+        this.vaultDraftMountPoint = shellSettings?.vaultMountPoint ?? 'secret';
+        this.vaultDraftToken = shellSettings?.vaultToken ?? '';
+        this.vaultDraftAutoRenewToken = shellSettings?.vaultAutoRenewToken ?? false;
+        this.vaultDraftProvider = shellSettings?.vaultProvider ?? 'vault';
+        this.vaultDraftKeePassDatabasePath = shellSettings?.keepassDatabasePath ?? '';
+        this.vaultDraftKeePassPassword = shellSettings?.keepassPassword ?? '';
+    }
+
+    private renderToasts(): string {
+        if (this.toastQueue.length === 0) {
+            return '';
+        }
+        return `
+            <div class="toast-stack">
+                ${this.toastQueue.map((item) => `
+                    <div class="toast toast-${item.level}">
+                        <div class="toast-message">${escapeHtml(item.message)}</div>
+                        <div class="toast-time">${escapeHtml(new Date(item.time).toLocaleTimeString())}</div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    private renderNotificationCenter(): string {
+        const rows = this.notifications.length > 0
+            ? this.notifications.map((item) => `
+                <div class="notification-row notification-${item.level}">
+                    <div class="notification-meta">
+                        <span class="notification-level">${escapeHtml(item.level.toUpperCase())}</span>
+                        <span class="notification-time">${escapeHtml(new Date(item.time).toLocaleString())}</span>
+                    </div>
+                    <div class="notification-message">${escapeHtml(item.message)}</div>
+                    <button class="icon-button danger" data-delete-notification="${escapeHtml(item.id)}" title="Delete notification">✕</button>
+                </div>
+            `).join('')
+            : '<div class="empty-state">No notifications yet.</div>';
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog wide notification-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">Notifications</div>
+                            <h2>Notification center</h2>
+                        </div>
+                        <div class="section-actions">
+                            <button class="action-button secondary" data-clear-notifications ${this.notifications.length === 0 ? 'disabled' : ''}>Clear all</button>
+                            <button class="icon-button" data-close-modal>×</button>
+                        </div>
+                    </div>
+                    <div class="modal-body notification-body">
+                        <div class="notification-list">${rows}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     private async runAction(action: () => Promise<void>, prefix: string): Promise<void> {
         try {
             await action();
             await this.refresh('');
         } catch (error) {
-            this.errorMessage = formatError(prefix, error);
+            this.setErrorMessage(formatError(prefix, error));
             this.render();
         }
     }
@@ -2261,6 +2484,78 @@ function formatError(prefix: string, error: unknown): string {
         return `${prefix}: ${error}`;
     }
     return prefix;
+}
+
+function renderMarkdown(value: string): string {
+    const placeholders: string[] = [];
+    let escaped = escapeHtml(value).replaceAll('\r\n', '\n');
+    escaped = escaped.replace(/```(?:[^\n`]*)\n([\s\S]*?)```/g, (_match, code: string) => {
+        const index = placeholders.push(`<pre class="md-block-code"><code>${code.replace(/\n+$/g, '')}</code></pre>`) - 1;
+        return `@@MD_CODE_BLOCK_${index}@@`;
+    });
+
+    const lines = escaped.split('\n');
+    const blocks: string[] = [];
+    let inList = false;
+
+    const closeList = () => {
+        if (inList) {
+            blocks.push('</ul>');
+            inList = false;
+        }
+    };
+
+    for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        const trimmed = line.trim();
+        if (!trimmed) {
+            closeList();
+            continue;
+        }
+        const codePlaceholder = trimmed.match(/^@@MD_CODE_BLOCK_(\d+)@@$/);
+        if (codePlaceholder) {
+            closeList();
+            blocks.push(trimmed);
+            continue;
+        }
+        const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+            closeList();
+            const level = heading[1].length;
+            blocks.push(`<h${level}>${applyInlineMarkdown(heading[2])}</h${level}>`);
+            continue;
+        }
+        const quote = trimmed.match(/^>\s?(.*)$/);
+        if (quote) {
+            closeList();
+            blocks.push(`<blockquote>${applyInlineMarkdown(quote[1])}</blockquote>`);
+            continue;
+        }
+        const listItem = trimmed.match(/^[-*]\s+(.+)$/);
+        if (listItem) {
+            if (!inList) {
+                blocks.push('<ul>');
+                inList = true;
+            }
+            blocks.push(`<li>${applyInlineMarkdown(listItem[1])}</li>`);
+            continue;
+        }
+        closeList();
+        blocks.push(`<p>${applyInlineMarkdown(trimmed)}</p>`);
+    }
+    closeList();
+
+    let html = blocks.join('');
+    html = html.replace(/@@MD_CODE_BLOCK_(\d+)@@/g, (_match, idx: string) => placeholders[Number(idx)] ?? '');
+    return html;
+}
+
+function applyInlineMarkdown(value: string): string {
+    return value
+        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+        .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+        .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
 }
 
 void new OpsyShell().bootstrap();
