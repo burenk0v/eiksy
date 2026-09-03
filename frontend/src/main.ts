@@ -2207,11 +2207,11 @@ class OpsyShell {
         this.cloudDraftToken = '';
         this.vaultDraftAddress = shellSettings?.vaultAddress ?? '';
         this.vaultDraftMountPoint = shellSettings?.vaultMountPoint ?? 'secret';
-        this.vaultDraftToken = shellSettings?.vaultToken ?? '';
+        this.vaultDraftToken = '';
         this.vaultDraftAutoRenewToken = shellSettings?.vaultAutoRenewToken ?? false;
         this.vaultDraftProvider = shellSettings?.vaultProvider ?? 'vault';
         this.vaultDraftKeePassDatabasePath = shellSettings?.keepassDatabasePath ?? '';
-        this.vaultDraftKeePassPassword = shellSettings?.keepassPassword ?? '';
+        this.vaultDraftKeePassPassword = '';
     }
 
     private renderToasts(): string {
