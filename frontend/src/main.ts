@@ -671,33 +671,37 @@ class OpsyShell {
             await this.loadCloudModels(true);
         });
 
-        root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
+        const chatForm = root?.querySelector<HTMLFormElement>('[data-chat-form]');
+        chatForm?.addEventListener('submit', async (event) => {
             event.preventDefault();
+            this.syncChatFormFromDOM();
             const message = this.chatDraftMessage;
             if (!message.trim()) return;
             const payload = this.includeLastCommandOutput ? this.withLatestTerminalOutput(message) : message;
+            this.aiStatus = 'thinking';
+            this.render();
             try {
                 await SendChatMessage(payload);
                 this.chatDraftMessage = '';
                 await this.refresh('');
             } catch (error) {
+                this.aiStatus = 'idle';
                 this.setErrorMessage(formatError('Unable to send message', error));
                 this.render();
             }
         });
-
-        root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('input', (event) => {
-            this.chatDraftMessage = (event.currentTarget as HTMLTextAreaElement).value;
+        chatForm?.addEventListener('input', () => {
+            this.syncChatFormFromDOM();
         });
-        root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('keydown', (event) => {
+        chatForm?.addEventListener('change', () => {
+            this.syncChatFormFromDOM();
+        });
+        chatForm?.querySelector<HTMLTextAreaElement>('textarea[name="message"]')?.addEventListener('keydown', (event) => {
             if (event.ctrlKey && event.key === 'Enter') {
                 event.preventDefault();
                 const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
                 form?.requestSubmit();
             }
-        });
-        root?.querySelector<HTMLInputElement>('[data-chat-form] input[name="includeLastOutput"]')?.addEventListener('change', (event) => {
-            this.includeLastCommandOutput = (event.currentTarget as HTMLInputElement).checked;
         });
 
         root?.querySelector<HTMLButtonElement>('[data-clear-chat]')?.addEventListener('click', async () => {
@@ -1329,6 +1333,15 @@ class OpsyShell {
         }
     }
 
+    private syncChatFormFromDOM(): void {
+        const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
+        if (!form) {
+            return;
+        }
+        this.chatDraftMessage = form.querySelector<HTMLTextAreaElement>('textarea[name="message"]')?.value ?? '';
+        this.includeLastCommandOutput = form.querySelector<HTMLInputElement>('input[name="includeLastOutput"]')?.checked ?? false;
+    }
+
     private renderSidebarPanel(): string {
         if (this.sidebarCollapsed) {
             return `
@@ -1415,7 +1428,7 @@ class OpsyShell {
                 ${this.hasConfiguredProvider() ? `
                 <form class="chat-input-form" data-chat-form>
                     ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
-                    <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3">${escapeHtml(this.chatDraftMessage)}</textarea>
+                    <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" aria-label="Assistant message" rows="3">${escapeHtml(this.chatDraftMessage)}</textarea>
                     <label class="inline-check chat-attach-row">
                         <span>Attach latest console output</span>
                         <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
