@@ -15,7 +15,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"opsy/internal/domain/ai"
@@ -26,7 +25,6 @@ import (
 	sftpdomain "opsy/internal/domain/sftp"
 	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/domain/workspace"
-	"opsy/internal/llm"
 
 	"github.com/tobischo/gokeepasslib/v3"
 )
@@ -64,8 +62,6 @@ type Service struct {
 	sftpManager  sftpManager
 	httpClient   *http.Client
 	emitFn       func(eventName string, data ...interface{})
-	logMu        sync.Mutex
-	logFilePath  string
 }
 
 type stateStore interface {
@@ -127,9 +123,6 @@ func NewService(store stateStore, localManager localModelManager, sshManager ssh
 		httpClient:   &http.Client{Timeout: 120 * time.Second},
 		emitFn:       func(string, ...interface{}) {},
 	}
-	if baseDir, err := llm.OpsyDir(); err == nil {
-		service.logFilePath = filepath.Join(baseDir, "opsy.log")
-	}
 	return service
 }
 
@@ -147,7 +140,6 @@ func (s *Service) EmitLog(level, message string) {
 		"message": message,
 		"time":    timestamp,
 	})
-	_ = s.writeLogToFile(level, message, timestamp)
 }
 
 func (s *Service) GetShellState() ShellState {
@@ -763,15 +755,6 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.WindowLayout.AssistantWidth == 0 {
 		updated.WindowLayout.AssistantWidth = current.WindowLayout.AssistantWidth
 	}
-	if updated.LogLevel == "" {
-		updated.LogLevel = current.LogLevel
-	}
-	if updated.LogRotationSize <= 0 {
-		updated.LogRotationSize = current.LogRotationSize
-	}
-	if updated.LogRotationSize <= 0 {
-		updated.LogRotationSize = settings.DefaultLogRotationSize
-	}
 	if strings.TrimSpace(updated.VaultMountPoint) == "" {
 		updated.VaultMountPoint = current.VaultMountPoint
 	}
@@ -1276,51 +1259,6 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 		return "", fmt.Errorf("AI returned an empty response")
 	}
 	return result.Choices[0].Message.Content, nil
-}
-
-func (s *Service) writeLogToFile(level, message, timestamp string) error {
-	cfg := s.store.Settings()
-	if !cfg.SaveLogsToFile || strings.TrimSpace(s.logFilePath) == "" {
-		return nil
-	}
-
-	s.logMu.Lock()
-	defer s.logMu.Unlock()
-
-	if err := os.MkdirAll(filepath.Dir(s.logFilePath), 0o755); err != nil {
-		return err
-	}
-	line := fmt.Sprintf("%s [%s] %s\n", timestamp, strings.ToUpper(strings.TrimSpace(level)), message)
-	maxSize := cfg.LogRotationSize
-	if maxSize <= 0 {
-		maxSize = settings.DefaultLogRotationSize
-	}
-	if err := s.rotateLogFileIfNeeded(maxSize, int64(len(line))); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(s.logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = f.WriteString(line)
-	return err
-}
-
-func (s *Service) rotateLogFileIfNeeded(maxSize int, incomingSize int64) error {
-	info, err := os.Stat(s.logFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if info.Size()+incomingSize <= int64(maxSize) {
-		return nil
-	}
-	rotated := s.logFilePath + ".1"
-	_ = os.Remove(rotated)
-	return os.Rename(s.logFilePath, rotated)
 }
 
 func vaultPathJoin(parts ...string) string {

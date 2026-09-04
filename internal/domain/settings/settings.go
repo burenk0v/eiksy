@@ -5,18 +5,9 @@ type WindowLayout struct {
 	AssistantWidth int `json:"assistantWidth"`
 }
 
-// LogLevel controls which log entries are shown in the log panel.
-// Supported values: "debug", "info", "warn", "error".
-type LogLevel string
-
 const (
-	LogLevelDebug          LogLevel = "debug"
-	LogLevelInfo           LogLevel = "info"
-	LogLevelWarn           LogLevel = "warn"
-	LogLevelError          LogLevel = "error"
-	DefaultLogRotationSize          = 10 * 1024 * 1024
-	DefaultVaultMountPoint          = "secret"
-	DefaultVaultProvider            = "vault"
+	DefaultVaultMountPoint = "secret"
+	DefaultVaultProvider   = "vault"
 )
 
 // PortForwardRule describes a single SSH local-port-forwarding rule.
@@ -39,10 +30,6 @@ type AppSettings struct {
 	SSHForwardHostID    string            `json:"sshForwardHostId"`
 	PortForwardRules    []PortForwardRule `json:"portForwardRules"`
 	SSHConfigAutoLoaded bool              `json:"sshConfigAutoLoaded"`
-	LogLevel            LogLevel          `json:"logLevel"`
-	ShowLogPanel        bool              `json:"showLogPanel"`
-	SaveLogsToFile      bool              `json:"saveLogsToFile"`
-	LogRotationSize     int               `json:"logRotationSize"`
 	VaultAddress        string            `json:"vaultAddress"`
 	VaultMountPoint     string            `json:"vaultMountPoint"`
 	VaultAutoRenewToken bool              `json:"vaultAutoRenewToken"`
