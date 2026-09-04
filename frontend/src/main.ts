@@ -783,7 +783,6 @@ class OpsyShell {
                 vaultMountPoint: this.vaultDraftMountPoint,
                 vaultToken: this.vaultDraftToken,
                 vaultAutoRenewToken: this.vaultDraftAutoRenewToken,
-                vaultProvider: 'vault',
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
         });
@@ -792,7 +791,6 @@ class OpsyShell {
             if (!this.shellState) return;
             const updated = {
                 ...this.shellState.settings,
-                vaultProvider: 'keepass',
                 keepassDatabasePath: this.vaultDraftKeePassDatabasePath,
                 keepassPassword: this.vaultDraftKeePassPassword,
             } as unknown as settingsModels.AppSettings;
@@ -1246,20 +1244,23 @@ class OpsyShell {
     }
 
     private async loadSecretsForProvider(provider: 'vault' | 'keepass', targetPath: string): Promise<void> {
-        const switched = await this.switchVaultProvider(provider);
+        const previous = ((this.shellState?.settings.vaultProvider || 'vault').toLowerCase() === 'keepass' ? 'keepass' : 'vault') as 'vault' | 'keepass';
+        const switched = previous === provider ? true : await this.setVaultProvider(provider, 'Unable to open secrets source');
         if (!switched) {
             return;
         }
-        await this.loadVaultSecrets(targetPath);
+        try {
+            await this.loadVaultSecrets(targetPath);
+        } finally {
+            if (previous !== provider) {
+                await this.setVaultProvider(previous, 'Unable to restore secrets source');
+            }
+        }
     }
 
-    private async switchVaultProvider(provider: 'vault' | 'keepass'): Promise<boolean> {
+    private async setVaultProvider(provider: 'vault' | 'keepass', errorPrefix: string): Promise<boolean> {
         if (!this.shellState) {
             return false;
-        }
-        const currentProvider = (this.shellState.settings.vaultProvider || 'vault').toLowerCase();
-        if (currentProvider === provider) {
-            return true;
         }
         try {
             const updated = {
@@ -1268,10 +1269,9 @@ class OpsyShell {
             } as unknown as settingsModels.AppSettings;
             await UpdateSettings(updated);
             await this.refresh('');
-            this.vaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
             return true;
         } catch (error) {
-            this.setErrorMessage(formatError('Unable to switch secret source', error));
+            this.setErrorMessage(formatError(errorPrefix, error));
             this.render();
             return false;
         }
