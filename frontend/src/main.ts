@@ -1742,7 +1742,7 @@ class OpsyShell {
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
-            { id: 'about', label: 'О программе' },
+            { id: 'about', label: 'About' },
         ];
         const currentYear = new Date().getFullYear();
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
@@ -1802,12 +1802,12 @@ class OpsyShell {
                             </div>
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
-                            <div class="section-title">О программе</div>
+                            <div class="section-title">About</div>
                             <div class="about-panel">
-                                <img class="about-logo" src="${logoUniversal}" alt="Логотип Opsy" />
+                                <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
                                 <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
-                                <p class="about-copy">Лицензия: ${APP_METADATA.license}</p>
+                                <p class="about-copy">License: ${APP_METADATA.license}</p>
                                 <p class="about-copy">${APP_METADATA.legalNotice}</p>
                             </div>
                         </div>
