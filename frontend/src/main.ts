@@ -187,6 +187,7 @@ class OpsyShell {
     private sessionTagFilterInitialized = false;
     private sessionTagDraft = '';
     private sessionTagInputVisible = false;
+    private chatDraftMessage = '';
     private includeLastCommandOutput = false;
     private terminalOutputHistory = new Map<string, string>();
     private aiStatus: 'idle' | 'thinking' = 'idle';
@@ -672,23 +673,31 @@ class OpsyShell {
 
         root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const form = event.currentTarget as HTMLFormElement;
-            const textarea = form.querySelector<HTMLTextAreaElement>('[name="message"]');
-            const message = textarea?.value ?? '';
+            const message = this.chatDraftMessage;
             if (!message.trim()) return;
-            if (textarea) textarea.value = '';
-            const includeLastOutput = form.querySelector<HTMLInputElement>('input[name="includeLastOutput"]')?.checked ?? false;
-            this.includeLastCommandOutput = includeLastOutput;
-            const payload = includeLastOutput ? this.withLatestTerminalOutput(message) : message;
-            await this.runAction(async () => SendChatMessage(payload), 'Unable to send message');
+            const payload = this.includeLastCommandOutput ? this.withLatestTerminalOutput(message) : message;
+            try {
+                await SendChatMessage(payload);
+                this.chatDraftMessage = '';
+                await this.refresh('');
+            } catch (error) {
+                this.setErrorMessage(formatError('Unable to send message', error));
+                this.render();
+            }
         });
 
+        root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('input', (event) => {
+            this.chatDraftMessage = (event.currentTarget as HTMLTextAreaElement).value;
+        });
         root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('keydown', (event) => {
             if (event.ctrlKey && event.key === 'Enter') {
                 event.preventDefault();
                 const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
                 form?.requestSubmit();
             }
+        });
+        root?.querySelector<HTMLInputElement>('[data-chat-form] input[name="includeLastOutput"]')?.addEventListener('change', (event) => {
+            this.includeLastCommandOutput = (event.currentTarget as HTMLInputElement).checked;
         });
 
         root?.querySelector<HTMLButtonElement>('[data-clear-chat]')?.addEventListener('click', async () => {
@@ -1406,7 +1415,7 @@ class OpsyShell {
                 ${this.hasConfiguredProvider() ? `
                 <form class="chat-input-form" data-chat-form>
                     ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
-                    <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
+                    <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3">${escapeHtml(this.chatDraftMessage)}</textarea>
                     <label class="inline-check chat-attach-row">
                         <span>Attach latest console output</span>
                         <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
