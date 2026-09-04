@@ -421,8 +421,22 @@ func (s *Service) DownloadSFTPFiles(tabID, localDir string, remotePaths []string
 }
 
 func (s *Service) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
+	return s.ListVaultSecretsForProvider("", path)
+}
+
+func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdomain.SecretNode, error) {
 	cfg := s.store.Settings()
-	if cfg.VaultProvider == "keepass" {
+	selectedProvider := strings.ToLower(strings.TrimSpace(provider))
+	if selectedProvider == "" {
+		selectedProvider = strings.ToLower(strings.TrimSpace(cfg.VaultProvider))
+	}
+	if selectedProvider == "" {
+		selectedProvider = settings.DefaultVaultProvider
+	}
+	if selectedProvider != "vault" && selectedProvider != "keepass" {
+		return nil, fmt.Errorf("unsupported vault provider %q", selectedProvider)
+	}
+	if selectedProvider == "keepass" {
 		return s.listKeePassSecrets(path, cfg.KeePassDatabasePath, cfg.KeePassPassword)
 	}
 	if strings.TrimSpace(cfg.VaultAddress) == "" {

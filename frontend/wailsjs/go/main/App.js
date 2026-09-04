@@ -62,6 +62,10 @@ export function ListVaultSecrets(arg1) {
   return window['go']['main']['App']['ListVaultSecrets'](arg1);
 }
 
+export function ListVaultSecretsForProvider(arg1, arg2) {
+  return window['go']['main']['App']['ListVaultSecretsForProvider'](arg1, arg2);
+}
+
 export function NavigateSFTP(arg1, arg2) {
   return window['go']['main']['App']['NavigateSFTP'](arg1, arg2);
 }

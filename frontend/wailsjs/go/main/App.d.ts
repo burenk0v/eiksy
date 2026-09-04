@@ -36,6 +36,8 @@ export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEn
 
 export function ListVaultSecrets(arg1:string):Promise<Array<vault.SecretNode>>;
 
+export function ListVaultSecretsForProvider(arg1:string,arg2:string):Promise<Array<vault.SecretNode>>;
+
 export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
 
 export function OpenSessionWindow():Promise<void>;

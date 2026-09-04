@@ -151,6 +151,10 @@ func (a *App) ListVaultSecrets(path string) ([]vaultdomain.SecretNode, error) {
 	return a.currentService().ListVaultSecrets(path)
 }
 
+func (a *App) ListVaultSecretsForProvider(provider, path string) ([]vaultdomain.SecretNode, error) {
+	return a.currentService().ListVaultSecretsForProvider(provider, path)
+}
+
 func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 	return a.currentService().ImportSSHConfig(raw)
 }
