@@ -1018,6 +1018,26 @@ small {
     color: #fff;
 }
 
+.about-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1rem 0;
+    text-align: center;
+}
+
+.about-logo {
+    width: 84px;
+    height: 84px;
+    object-fit: contain;
+}
+
+.about-copy {
+    margin: 0;
+    color: var(--color-muted);
+}
+
 @media (max-width: 1280px) {
     .shell {
         --sidebar-width: 280px;

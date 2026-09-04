@@ -1,6 +1,7 @@
 import './style.css';
 import './app.css';
 import '@xterm/xterm/css/xterm.css';
+import logoUniversal from './assets/images/logo-universal.png';
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -92,7 +93,7 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light' | 'green';
-type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme';
+type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme' | 'about';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type SecretsModalTab = 'browser' | 'settings';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
@@ -134,6 +135,12 @@ const THEME_KEY = 'opsy-theme';
 const SIDEBAR_COLLAPSED_KEY = 'opsy-sidebar-collapsed';
 const ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
+const APP_METADATA = {
+    name: 'Opsy',
+    copyright: 'Opsy contributors',
+    license: 'Apache License 2.0',
+    legalNotice: 'Distributed under the Apache License 2.0.',
+};
 
 function isTheme(value: string | null | undefined): value is Theme {
     return !!value && THEMES.includes(value as Theme);
@@ -1735,7 +1742,9 @@ class OpsyShell {
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
+            { id: 'about', label: 'О программе' },
         ];
+        const currentYear = new Date().getFullYear();
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
         return `
             <div class="modal-overlay">
@@ -1790,6 +1799,16 @@ class OpsyShell {
                                     <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
                                     <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
+                            <div class="section-title">О программе</div>
+                            <div class="about-panel">
+                                <img class="about-logo" src="${logoUniversal}" alt="Логотип Opsy" />
+                                <p class="about-copy">${APP_METADATA.name}</p>
+                                <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
+                                <p class="about-copy">Лицензия: ${APP_METADATA.license}</p>
+                                <p class="about-copy">${APP_METADATA.legalNotice}</p>
                             </div>
                         </div>
                     </div>
