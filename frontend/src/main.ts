@@ -18,7 +18,7 @@ import {
     OpenRDP,
     LaunchSession,
     ListSFTPFiles,
-    ListVaultSecrets,
+    ListVaultSecretsForProvider,
     NavigateSFTP,
     ImportSSHConfig,
     ReadSFTPFile,
@@ -174,6 +174,7 @@ class OpsyShell {
     };
     private sshConfigDraft = '';
     private vaultState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
+    private keepassState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
     private theme: Theme;
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
     private hostKeyDialog: HostKeyDialogState = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
@@ -627,13 +628,13 @@ class OpsyShell {
         root?.querySelectorAll<HTMLButtonElement>('[data-refresh-vault-browser]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const provider = button.dataset.refreshVaultBrowser === 'keepass' ? 'keepass' : 'vault';
-                await this.loadSecretsForProvider(provider, this.vaultState.path);
+                await this.loadSecretsForProvider(provider, this.stateByProvider(provider).path);
             });
         });
         root?.querySelectorAll<HTMLButtonElement>('[data-vault-up]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const provider = button.dataset.vaultUp === 'keepass' ? 'keepass' : 'vault';
-                await this.loadSecretsForProvider(provider, parentVaultPath(this.vaultState.path));
+                await this.loadSecretsForProvider(provider, parentVaultPath(this.stateByProvider(provider).path));
             });
         });
         root?.querySelectorAll<HTMLButtonElement>('[data-vault-dir]').forEach((button) => {
@@ -1219,62 +1220,45 @@ class OpsyShell {
         this.render();
     }
 
-    private async loadVaultSecrets(targetPath: string): Promise<void> {
+    private async loadVaultSecrets(provider: 'vault' | 'keepass', targetPath: string): Promise<void> {
         const normalizedPath = targetPath === '.' ? '' : targetPath;
-        this.vaultState = { ...this.vaultState, loading: true, error: '' };
+        const currentState = this.stateByProvider(provider);
+        this.setProviderState(provider, { ...currentState, loading: true, error: '' });
         this.render();
         try {
-            const entries = await ListVaultSecrets(normalizedPath);
-            this.vaultState = {
+            const entries = await ListVaultSecretsForProvider(provider, normalizedPath);
+            this.setProviderState(provider, {
                 path: normalizedPath,
                 entries,
                 loading: false,
                 error: '',
                 loaded: true,
-            };
+            });
         } catch (error) {
             this.pushNotification('error', formatError('Unable to load Vault secrets', error));
-            this.vaultState = {
-                ...this.vaultState,
+            this.setProviderState(provider, {
+                ...currentState,
                 loading: false,
                 error: '',
-            };
+            });
         }
         this.render();
     }
 
     private async loadSecretsForProvider(provider: 'vault' | 'keepass', targetPath: string): Promise<void> {
-        const previous = ((this.shellState?.settings.vaultProvider || 'vault').toLowerCase() === 'keepass' ? 'keepass' : 'vault') as 'vault' | 'keepass';
-        const switched = previous === provider ? true : await this.setVaultProvider(provider, 'Unable to open secrets source');
-        if (!switched) {
-            return;
-        }
-        try {
-            await this.loadVaultSecrets(targetPath);
-        } finally {
-            if (previous !== provider) {
-                await this.setVaultProvider(previous, 'Unable to restore secrets source');
-            }
-        }
+        await this.loadVaultSecrets(provider, targetPath);
     }
 
-    private async setVaultProvider(provider: 'vault' | 'keepass', errorPrefix: string): Promise<boolean> {
-        if (!this.shellState) {
-            return false;
+    private stateByProvider(provider: 'vault' | 'keepass'): VaultState {
+        return provider === 'keepass' ? this.keepassState : this.vaultState;
+    }
+
+    private setProviderState(provider: 'vault' | 'keepass', state: VaultState): void {
+        if (provider === 'keepass') {
+            this.keepassState = state;
+            return;
         }
-        try {
-            const updated = {
-                ...this.shellState.settings,
-                vaultProvider: provider,
-            } as unknown as settingsModels.AppSettings;
-            await UpdateSettings(updated);
-            await this.refresh('');
-            return true;
-        } catch (error) {
-            this.setErrorMessage(formatError(errorPrefix, error));
-            this.render();
-            return false;
-        }
+        this.vaultState = state;
     }
 
     private attachActiveTerminal(): void {
@@ -1533,20 +1517,21 @@ class OpsyShell {
     }
 
     private renderVaultBrowser(provider: 'vault' | 'keepass'): string {
-        if (this.vaultState.loading) {
+        const state = this.stateByProvider(provider);
+        if (state.loading) {
             return '<div class="empty-state">Loading secrets…</div>';
         }
-        if (!this.vaultState.loaded) {
+        if (!state.loaded) {
             return '<div class="empty-state">Open Vault browser to load secrets.</div>';
         }
-        const entriesBlock = this.vaultState.entries.length > 0
-            ? this.vaultState.entries.map((entry) => entry.isDir
+        const entriesBlock = state.entries.length > 0
+            ? state.entries.map((entry) => entry.isDir
                 ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}" data-vault-provider="${provider}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
                 : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`).join('')
             : '<div class="empty-state">No secrets in this path.</div>';
         return `
             <div class="sftp-path-row">
-                <span class="sftp-path">${escapeHtml(this.vaultState.path || '/')}</span>
+                <span class="sftp-path">${escapeHtml(state.path || '/')}</span>
                 <button class="action-button secondary" data-vault-up="${provider}">..</button>
             </div>
             <div class="sftp-list">
