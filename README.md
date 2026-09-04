@@ -1,3 +1,13 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/burenk0v/opsy/main/frontend/src/assets/images/logo-universal.png" alt="opsy logo" width="180" />
+</p>
+
+<p align="center">
+  <a href="https://github.com/burenk0v/opsy/releases/latest">
+    <img src="https://img.shields.io/github/v/release/burenk0v/opsy?display_name=tag&label=latest%20release" alt="Latest Release" />
+  </a>
+</p>
+
 # opsy
 
 Backend-first cross-platform workstation client built with Go and Wails.
