@@ -133,6 +133,11 @@ type HostKeyDialogState = {
 
 const THEME_KEY = 'opsy-theme';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
+const APP_METADATA = {
+    name: 'Opsy',
+    copyright: 'Opsy contributors',
+    license: 'Apache License 2.0',
+};
 
 function isTheme(value: string | null | undefined): value is Theme {
     return !!value && THEMES.includes(value as Theme);
@@ -1719,9 +1724,9 @@ class OpsyShell {
                             <div class="section-title">О программе</div>
                             <div class="about-panel">
                                 <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
-                                <p class="about-copy">Opsy</p>
-                                <p class="about-copy">© ${currentYear} Opsy contributors. All rights reserved.</p>
-                                <p class="about-copy">Лицензия: Apache License 2.0</p>
+                                <p class="about-copy">${APP_METADATA.name}</p>
+                                <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}. All rights reserved.</p>
+                                <p class="about-copy">Лицензия: ${APP_METADATA.license}</p>
                             </div>
                         </div>
                     </div>
