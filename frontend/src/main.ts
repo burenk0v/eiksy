@@ -1,6 +1,7 @@
 import './style.css';
 import './app.css';
 import '@xterm/xterm/css/xterm.css';
+import logoUniversal from './assets/images/logo-universal.png';
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -92,7 +93,7 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light' | 'green';
-type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme';
+type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme' | 'about';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type SecretsModalTab = 'browser' | 'settings';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
@@ -1655,7 +1656,9 @@ class OpsyShell {
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
+            { id: 'about', label: 'О программе' },
         ];
+        const currentYear = new Date().getFullYear();
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
         return `
             <div class="modal-overlay">
@@ -1710,6 +1713,15 @@ class OpsyShell {
                                     <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
                                     <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
                                 </div>
+                            </div>
+                        </div>
+                        <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
+                            <div class="section-title">О программе</div>
+                            <div class="about-panel">
+                                <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
+                                <p class="about-copy">Opsy</p>
+                                <p class="about-copy">© ${currentYear} Opsy contributors. All rights reserved.</p>
+                                <p class="about-copy">Лицензия: Apache License 2.0</p>
                             </div>
                         </div>
                     </div>
