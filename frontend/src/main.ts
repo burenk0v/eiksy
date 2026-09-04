@@ -92,7 +92,7 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light' | 'green';
-type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme' | 'logs';
+type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type RightPanelTab = 'ai' | 'vault';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
@@ -111,12 +111,6 @@ type NotificationLevel = 'info' | 'warn' | 'error' | 'debug';
 type NotificationItem = {
     id: string;
     level: NotificationLevel;
-    message: string;
-    time: string;
-};
-
-type LogEntry = {
-    level: string;
     message: string;
     time: string;
 };
@@ -178,7 +172,6 @@ class OpsyShell {
     private sshConfigDraft = '';
     private vaultState: VaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
     private theme: Theme;
-    private logEntries: LogEntry[] = [];
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
     private hostKeyDialog: HostKeyDialogState = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
     private selectedSessionTags = new Set<string>();
@@ -188,7 +181,6 @@ class OpsyShell {
     private sessionTagInputVisible = false;
     private includeLastCommandOutput = false;
     private terminalOutputHistory = new Map<string, string>();
-    private readonly MAX_LOG_ENTRIES = 200;
     private aiStatus: 'idle' | 'thinking' = 'idle';
     private cloudModels: string[] = [];
     private cloudModelsEndpoint = '';
@@ -242,17 +234,6 @@ class OpsyShell {
             if (!data?.message) return;
             const level = this.normalizeNotificationLevel(data.level);
             this.pushNotification(level, data.message, data.time ?? new Date().toISOString());
-            this.logEntries.push({
-                level,
-                message: data.message,
-                time: data.time ?? new Date().toISOString(),
-            });
-            if (this.logEntries.length > this.MAX_LOG_ENTRIES) {
-                this.logEntries = this.logEntries.slice(-this.MAX_LOG_ENTRIES);
-            }
-            if (this.shellState?.settings.showLogPanel) {
-                this.render();
-            }
         });
         EventsOn('ai:status', (...payload: unknown[]) => {
             const data = payload[0] as { status?: string } | undefined;
@@ -406,7 +387,6 @@ class OpsyShell {
                         </section>`}
                     </aside>
                 </div>
-                ${this.shellState.settings.showLogPanel ? this.renderLogPanel() : ''}
             </div>
             ${this.renderSessionContextMenu()}
             ${this.hostKeyDialog.visible ? this.renderHostKeyDialog() : ''}
@@ -419,7 +399,6 @@ class OpsyShell {
 
         this.bindEvents();
         this.attachActiveTerminal();
-        this.scrollLogPanelToBottom();
         this.scrollChatToBottom();
     }
 
@@ -776,24 +755,6 @@ class OpsyShell {
             });
         });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-set-log-panel]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const show = button.dataset.setLogPanel === 'true';
-                if (!this.shellState) return;
-                const updated = { ...this.shellState.settings, showLogPanel: show } as unknown as settingsModels.AppSettings;
-                await this.runAction(async () => UpdateSettings(updated), 'Unable to save log panel setting');
-            });
-        });
-
-        root?.querySelectorAll<HTMLButtonElement>('[data-set-log-level]').forEach((button) => {
-            button.addEventListener('click', async () => {
-                const level = button.dataset.setLogLevel ?? 'info';
-                if (!this.shellState) return;
-                const updated = { ...this.shellState.settings, logLevel: level } as unknown as settingsModels.AppSettings;
-                await this.runAction(async () => UpdateSettings(updated), 'Unable to save log level setting');
-            });
-        });
-
         root?.querySelector<HTMLFormElement>('[data-vault-settings-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!this.shellState) return;
@@ -841,22 +802,6 @@ class OpsyShell {
             });
         });
 
-        root?.querySelector<HTMLFormElement>('[data-log-file-form]')?.addEventListener('submit', async (event) => {
-            event.preventDefault();
-            if (!this.shellState) return;
-            const form = event.currentTarget as HTMLFormElement;
-            const saveLogsToFile = form.querySelector<HTMLInputElement>('input[name="saveLogsToFile"]')?.checked ?? false;
-            const logRotationMB = Number(form.querySelector<HTMLInputElement>('input[name="logRotationMB"]')?.value ?? '10');
-            const rotationSize = Number.isFinite(logRotationMB) && logRotationMB > 0
-                ? Math.round(logRotationMB * 1024 * 1024)
-                : 10 * 1024 * 1024;
-            const updated = {
-                ...this.shellState.settings,
-                saveLogsToFile,
-                logRotationSize: rotationSize,
-            } as unknown as settingsModels.AppSettings;
-            await this.runAction(async () => UpdateSettings(updated), 'Unable to save log file settings');
-        });
         root?.querySelector<HTMLFormElement>('[data-pf-add-form]')?.addEventListener('submit', async (event) => {
             event.preventDefault();
             if (!this.shellState) return;
@@ -905,12 +850,6 @@ class OpsyShell {
         });
         root?.querySelector<HTMLSelectElement>('select[name="pfHostId"]')?.addEventListener('change', (event) => {
             this.pfNewHostId = (event.currentTarget as HTMLSelectElement).value;
-        });
-
-        root?.querySelector<HTMLButtonElement>('[data-hide-log-panel]')?.addEventListener('click', async () => {
-            if (!this.shellState) return;
-            const updated = { ...this.shellState.settings, showLogPanel: false } as unknown as settingsModels.AppSettings;
-            await this.runAction(async () => UpdateSettings(updated), 'Unable to hide log panel');
         });
 
         root?.querySelector<HTMLFormElement>('[data-session-form]')?.addEventListener('submit', async (event) => {
@@ -1375,41 +1314,11 @@ class OpsyShell {
         });
     }
 
-    private scrollLogPanelToBottom(): void {
-        const body = document.querySelector<HTMLDivElement>('#log-panel-body');
-        if (body) {
-            body.scrollTop = body.scrollHeight;
-        }
-    }
-
     private scrollChatToBottom(): void {
         const messages = document.querySelector<HTMLDivElement>('#chat-messages');
         if (messages) {
             messages.scrollTop = messages.scrollHeight;
         }
-    }
-
-    private renderLogPanel(): string {
-        const logLevelOrder: Record<string, number> = { debug: 0, info: 1, warn: 2, error: 3 };
-        const currentLevel = this.shellState?.settings.logLevel ?? 'info';
-        const currentOrder = logLevelOrder[currentLevel] ?? 1;
-        const filtered = this.logEntries.filter((e) => (logLevelOrder[e.level] ?? 1) >= currentOrder);
-        const entries = filtered.slice(-50);
-        const rows = entries.length > 0
-            ? entries.map((e) => {
-                const time = e.time ? new Date(e.time).toLocaleTimeString() : '';
-                return `<div class="log-entry log-level-${escapeHtml(e.level)}"><span class="log-time">${escapeHtml(time)}</span><span class="log-level">${escapeHtml(e.level.toUpperCase())}</span><span class="log-message">${escapeHtml(e.message)}</span></div>`;
-            }).join('')
-            : '<div class="log-empty">No log entries</div>';
-        return `
-            <div class="log-panel" id="log-panel">
-                <div class="log-panel-header">
-                    <span class="log-panel-title">Logs</span>
-                    <button class="icon-button" data-hide-log-panel title="Hide log panel">×</button>
-                </div>
-                <div class="log-panel-body" id="log-panel-body">${rows}</div>
-            </div>
-        `;
     }
 
     private renderSessionProfiles(): string {
@@ -1573,7 +1482,7 @@ class OpsyShell {
             return '<div class="empty-state">Loading secrets…</div>';
         }
         if (this.vaultState.error) {
-            return `<div class="error-banner compact">${escapeHtml(this.vaultState.error)}</div>`;
+            return '<div class="empty-state">Unable to load secrets. Check notifications.</div>';
         }
         if (!this.vaultState.loaded) {
             return '<div class="empty-state">Open Vault browser to load secrets.</div>';
@@ -1709,19 +1618,8 @@ class OpsyShell {
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
-            { id: 'logs', label: 'Logs' },
         ];
-        const currentLogLevel = this.shellState?.settings.logLevel ?? 'info';
-        const showLogPanel = this.shellState?.settings.showLogPanel ?? false;
-        const saveLogsToFile = this.shellState?.settings.saveLogsToFile ?? false;
-        const logRotationMB = Math.max(1, Math.round((this.shellState?.settings.logRotationSize ?? (10 * 1024 * 1024)) / (1024 * 1024)));
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
-        const logLevels = [
-            { value: 'debug', label: 'Debug' },
-            { value: 'info', label: 'Info' },
-            { value: 'warn', label: 'Warning' },
-            { value: 'error', label: 'Error' },
-        ];
         return `
             <div class="modal-overlay">
                 <div class="modal-dialog wide settings-dialog">
@@ -1818,35 +1716,6 @@ class OpsyShell {
                                     <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
                                 </div>
                             </div>
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'logs' ? 'active' : ''}">
-                            <div class="section-title">Log Panel</div>
-                            <div class="theme-toggle-row">
-                                <span>Show log panel</span>
-                                <div class="theme-switch">
-                                    <button class="${showLogPanel ? 'active' : ''}" data-set-log-panel="true">On</button>
-                                    <button class="${!showLogPanel ? 'active' : ''}" data-set-log-panel="false">Off</button>
-                                </div>
-                            </div>
-                            <div class="theme-toggle-row" style="margin-top:1rem;">
-                                <span>Log level</span>
-                                <div class="theme-switch">
-                                    ${logLevels.map((l) => `<button class="${currentLogLevel === l.value ? 'active' : ''}" data-set-log-level="${l.value}">${l.label}</button>`).join('')}
-                                </div>
-                            </div>
-                            <form class="provider-form" data-log-file-form>
-                                <label class="inline-check">
-                                    <span>Save logs to file</span>
-                                    <input name="saveLogsToFile" type="checkbox" ${saveLogsToFile ? 'checked' : ''} />
-                                </label>
-                                <label>
-                                    <span>Rotate when file reaches (MB)</span>
-                                    <input type="number" name="logRotationMB" min="1" step="1" value="${escapeHtml(String(logRotationMB))}" />
-                                </label>
-                                <div class="provider-form-actions">
-                                    <button class="action-button" type="submit">Save log file settings</button>
-                                </div>
-                            </form>
                         </div>
                     </div>
                 </div>

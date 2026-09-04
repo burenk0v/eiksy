@@ -623,8 +623,8 @@ func (s *Service) SelectAIProvider(providerID string) error {
 		state.Providers[i].Selected = state.Providers[i].ID == providerID
 	}
 
-	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Switched AI provider to %s.", state.Providers[index].Name))
 	s.store.UpdateAIState(state)
+	s.EmitLog("info", fmt.Sprintf("Switched AI provider to %s.", state.Providers[index].Name))
 	return nil
 }
 
@@ -662,8 +662,8 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 	state.Providers[index].Token = token
 	state.Providers[index].Status = "ready"
 	state.Providers[index].Configured = true
-	state.Messages = appendStatusMessage(state.Messages, fmt.Sprintf("Saved cloud AI provider %s (%s).", state.Providers[index].Name, model))
 	s.store.UpdateAIState(state)
+	s.EmitLog("info", fmt.Sprintf("Saved cloud AI provider %s (%s).", state.Providers[index].Name, model))
 	return nil
 }
 
@@ -818,8 +818,8 @@ func (s *Service) DownloadLocalModelWithProgress(ctx context.Context, progressFn
 	state.Providers[index].LocalPath = modelPath
 	state.Providers[index].Status = "downloaded"
 	state.Providers[index].Configured = false
-	state.Messages = appendStatusMessage(state.Messages, "Downloaded the Qwen3 8B local model.")
 	s.store.UpdateAIState(state)
+	s.EmitLog("info", "Downloaded the Qwen3 8B local model.")
 	return nil
 }
 
@@ -847,8 +847,8 @@ func (s *Service) StartLocalModel(ctx context.Context) error {
 	state.Providers[index].Command = command
 	state.Providers[index].Status = "running via llama.cpp"
 	state.Providers[index].Configured = true
-	state.Messages = appendStatusMessage(state.Messages, "Started the Qwen3 8B local model with llama.cpp.")
 	s.store.UpdateAIState(state)
+	s.EmitLog("info", "Started the Qwen3 8B local model with llama.cpp.")
 	return nil
 }
 
@@ -1146,15 +1146,6 @@ func providerIndexByClass(providers []ai.ProviderDescriptor, class ai.ProviderCl
 	}
 
 	return -1
-}
-
-func appendStatusMessage(messages []ai.ChatMessage, content string) []ai.ChatMessage {
-	updated := append([]ai.ChatMessage(nil), messages...)
-	updated = append(updated, ai.ChatMessage{
-		Role:    "assistant",
-		Content: content,
-	})
-	return updated
 }
 
 // SendChatMessage adds the user message to the conversation, calls the
