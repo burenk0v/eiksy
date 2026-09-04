@@ -92,9 +92,9 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light' | 'green';
-type SettingsTab = 'ai' | 'vault' | 'sshconfig' | 'portforward' | 'theme';
+type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
-type RightPanelTab = 'ai' | 'vault';
+type SecretsModalTab = 'browser' | 'settings';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
 
 type PortForwardRule = {
@@ -149,8 +149,11 @@ class OpsyShell {
     private editingProfileID = '';
     private sessionNameAuto = true;
     private showSettingsModal = false;
+    private showVaultModal = false;
+    private showKeePassModal = false;
     private settingsTab: SettingsTab = 'ai';
-    private rightPanelTab: RightPanelTab = 'ai';
+    private vaultModalTab: SecretsModalTab = 'browser';
+    private keepassModalTab: SecretsModalTab = 'browser';
     private sessionInnerTab: SessionInnerTab = 'console';
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private terminals = new Map<string, TerminalState>();
@@ -197,7 +200,6 @@ class OpsyShell {
     private vaultDraftMountPoint = '';
     private vaultDraftToken = '';
     private vaultDraftAutoRenewToken = false;
-    private vaultDraftProvider = 'vault';
     private vaultDraftKeePassDatabasePath = '';
     private vaultDraftKeePassPassword = '';
     private notifications: NotificationItem[] = [];
@@ -298,6 +300,8 @@ class OpsyShell {
                             </div>
                             <div style="display:flex;gap:0.5rem;align-items:center;">
                                 <button class="icon-button" data-open-session-modal title="New session">+</button>
+                                <button class="icon-button" data-open-vault-modal title="Vault window">🗄️</button>
+                                <button class="icon-button" data-open-keepass-modal title="KeePass window">🔑</button>
                                 <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ''}</button>
                                 <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                             </div>
@@ -349,15 +353,10 @@ class OpsyShell {
                         <div class="panel-header">
                             <div>
                                 <div class="eyebrow">Assistant</div>
-                                <h2>${this.rightPanelTab === 'ai' ? 'AI' : 'Vault browser'}</h2>
+                                <h2>AI</h2>
                             </div>
-                            ${this.rightPanelTab === 'ai' && this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
+                            ${this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
                         </div>
-                        <div class="sidebar-panel-tabs">
-                            <button class="panel-tab ${this.rightPanelTab === 'ai' ? 'active' : ''}" data-right-panel-tab="ai">AI</button>
-                            <button class="panel-tab ${this.rightPanelTab === 'vault' ? 'active' : ''}" data-right-panel-tab="vault">Vault browser</button>
-                        </div>
-                        ${this.rightPanelTab === 'ai' ? `
                         <section class="section chat-section">
                             <div class="section-title">Assistant</div>
                             <div class="chat-messages" id="chat-messages">
@@ -374,17 +373,7 @@ class OpsyShell {
                             </label>
                             <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
                         </form>
-                        ` : ''}` : `
-                        <section class="section chat-section">
-                            <div class="section-heading">
-                                <span class="section-title">Vault Tree</span>
-                                <div class="section-actions">
-                                    <button class="action-button secondary" data-open-vault>Open</button>
-                                    <button class="action-button secondary" data-refresh-vault>Refresh</button>
-                                </div>
-                            </div>
-                            ${this.renderVaultBrowser()}
-                        </section>`}
+                        ` : ''}
                     </aside>
                 </div>
             </div>
@@ -393,6 +382,8 @@ class OpsyShell {
             ${this.renderRemoteEditorModal()}
             ${this.showSessionModal ? this.renderSessionModal() : ''}
             ${this.showSettingsModal ? this.renderSettingsModal() : ''}
+            ${this.showVaultModal ? this.renderVaultModal() : ''}
+            ${this.showKeePassModal ? this.renderKeePassModal() : ''}
             ${this.showNotificationCenter ? this.renderNotificationCenter() : ''}
             ${this.renderToasts()}
         `;
@@ -437,6 +428,18 @@ class OpsyShell {
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
             this.openSessionModalForCreate();
         });
+        root?.querySelector<HTMLButtonElement>('[data-open-vault-modal]')?.addEventListener('click', () => {
+            this.showVaultModal = true;
+            this.vaultModalTab = 'browser';
+            this.initializeSettingsDrafts();
+            this.render();
+        });
+        root?.querySelector<HTMLButtonElement>('[data-open-keepass-modal]')?.addEventListener('click', () => {
+            this.showKeePassModal = true;
+            this.keepassModalTab = 'browser';
+            this.initializeSettingsDrafts();
+            this.render();
+        });
 
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
             this.showSettingsModal = true;
@@ -461,13 +464,6 @@ class OpsyShell {
             });
         });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-right-panel-tab]').forEach((button) => {
-            button.addEventListener('click', () => {
-                this.rightPanelTab = (button.dataset.rightPanelTab as RightPanelTab) ?? 'ai';
-                this.render();
-            });
-        });
-
         root?.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((button) => {
             button.addEventListener('click', () => {
                 this.settingsTab = (button.dataset.settingsTab as SettingsTab) ?? 'ai';
@@ -475,6 +471,18 @@ class OpsyShell {
                 if (this.settingsTab === 'ai') {
                     void this.loadCloudModels(false);
                 }
+            });
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-vault-modal-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.vaultModalTab = (button.dataset.vaultModalTab as SecretsModalTab) ?? 'browser';
+                this.render();
+            });
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-keepass-modal-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.keepassModalTab = (button.dataset.keepassModalTab as SecretsModalTab) ?? 'browser';
+                this.render();
             });
         });
 
@@ -610,23 +618,30 @@ class OpsyShell {
             await this.downloadFromSFTP(activeTab.id);
         });
 
-        root?.querySelector<HTMLButtonElement>('[data-open-vault]')?.addEventListener('click', async () => {
-            await this.loadVaultSecrets('');
+        root?.querySelectorAll<HTMLButtonElement>('[data-open-vault-browser]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const provider = button.dataset.openVaultBrowser === 'keepass' ? 'keepass' : 'vault';
+                await this.loadSecretsForProvider(provider, '');
+            });
         });
-
-        root?.querySelector<HTMLButtonElement>('[data-refresh-vault]')?.addEventListener('click', async () => {
-            await this.loadVaultSecrets(this.vaultState.path);
+        root?.querySelectorAll<HTMLButtonElement>('[data-refresh-vault-browser]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const provider = button.dataset.refreshVaultBrowser === 'keepass' ? 'keepass' : 'vault';
+                await this.loadSecretsForProvider(provider, this.vaultState.path);
+            });
         });
-
-        root?.querySelector<HTMLButtonElement>('[data-vault-up]')?.addEventListener('click', async () => {
-            await this.loadVaultSecrets(parentVaultPath(this.vaultState.path));
+        root?.querySelectorAll<HTMLButtonElement>('[data-vault-up]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const provider = button.dataset.vaultUp === 'keepass' ? 'keepass' : 'vault';
+                await this.loadSecretsForProvider(provider, parentVaultPath(this.vaultState.path));
+            });
         });
-
         root?.querySelectorAll<HTMLButtonElement>('[data-vault-dir]').forEach((button) => {
             button.addEventListener('click', async () => {
                 const targetPath = button.dataset.vaultDir;
+                const provider = button.dataset.vaultProvider === 'keepass' ? 'keepass' : 'vault';
                 if (!targetPath) return;
-                await this.loadVaultSecrets(targetPath);
+                await this.loadSecretsForProvider(provider, targetPath);
             });
         });
 
@@ -731,6 +746,8 @@ class OpsyShell {
                 const wasSessionModalOpen = this.showSessionModal;
                 this.showSessionModal = false;
                 this.showSettingsModal = false;
+                this.showVaultModal = false;
+                this.showKeePassModal = false;
                 this.showNotificationCenter = false;
                 if (wasSessionModalOpen) {
                     this.editingProfileID = '';
@@ -740,6 +757,8 @@ class OpsyShell {
                     this.sessionNameAuto = true;
                     this.sessionModalTab = 'host';
                 }
+                this.vaultModalTab = 'browser';
+                this.keepassModalTab = 'browser';
                 this.render();
             });
         });
@@ -764,15 +783,20 @@ class OpsyShell {
                 vaultMountPoint: this.vaultDraftMountPoint,
                 vaultToken: this.vaultDraftToken,
                 vaultAutoRenewToken: this.vaultDraftAutoRenewToken,
-                vaultProvider: this.vaultDraftProvider,
-                keepassDatabasePath: this.vaultDraftKeePassDatabasePath,
-                keepassPassword: this.vaultDraftKeePassPassword,
+                vaultProvider: 'vault',
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
         });
-        root?.querySelector<HTMLSelectElement>('[data-vault-provider]')?.addEventListener('change', (event) => {
-            this.vaultDraftProvider = (event.currentTarget as HTMLSelectElement).value || 'vault';
-            this.render();
+        root?.querySelector<HTMLFormElement>('[data-keepass-settings-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            if (!this.shellState) return;
+            const updated = {
+                ...this.shellState.settings,
+                vaultProvider: 'keepass',
+                keepassDatabasePath: this.vaultDraftKeePassDatabasePath,
+                keepassPassword: this.vaultDraftKeePassPassword,
+            } as unknown as settingsModels.AppSettings;
+            await this.runAction(async () => UpdateSettings(updated), 'Unable to save KeePass settings');
         });
         root?.querySelector<HTMLInputElement>('[data-vault-address]')?.addEventListener('input', (event) => {
             this.vaultDraftAddress = (event.currentTarget as HTMLInputElement).value;
@@ -1221,6 +1245,38 @@ class OpsyShell {
         this.render();
     }
 
+    private async loadSecretsForProvider(provider: 'vault' | 'keepass', targetPath: string): Promise<void> {
+        const switched = await this.switchVaultProvider(provider);
+        if (!switched) {
+            return;
+        }
+        await this.loadVaultSecrets(targetPath);
+    }
+
+    private async switchVaultProvider(provider: 'vault' | 'keepass'): Promise<boolean> {
+        if (!this.shellState) {
+            return false;
+        }
+        const currentProvider = (this.shellState.settings.vaultProvider || 'vault').toLowerCase();
+        if (currentProvider === provider) {
+            return true;
+        }
+        try {
+            const updated = {
+                ...this.shellState.settings,
+                vaultProvider: provider,
+            } as unknown as settingsModels.AppSettings;
+            await UpdateSettings(updated);
+            await this.refresh('');
+            this.vaultState = { path: '', entries: [], loading: false, error: '', loaded: false };
+            return true;
+        } catch (error) {
+            this.setErrorMessage(formatError('Unable to switch secret source', error));
+            this.render();
+            return false;
+        }
+    }
+
     private attachActiveTerminal(): void {
         const host = document.querySelector<HTMLDivElement>('#terminal-host');
         if (!host) {
@@ -1476,7 +1532,7 @@ class OpsyShell {
         `;
     }
 
-    private renderVaultBrowser(): string {
+    private renderVaultBrowser(provider: 'vault' | 'keepass'): string {
         if (this.vaultState.loading) {
             return '<div class="empty-state">Loading secrets…</div>';
         }
@@ -1485,13 +1541,13 @@ class OpsyShell {
         }
         const entriesBlock = this.vaultState.entries.length > 0
             ? this.vaultState.entries.map((entry) => entry.isDir
-                ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
+                ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}" data-vault-provider="${provider}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
                 : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`).join('')
             : '<div class="empty-state">No secrets in this path.</div>';
         return `
             <div class="sftp-path-row">
                 <span class="sftp-path">${escapeHtml(this.vaultState.path || '/')}</span>
-                <button class="action-button secondary" data-vault-up>..</button>
+                <button class="action-button secondary" data-vault-up="${provider}">..</button>
             </div>
             <div class="sftp-list">
                 ${entriesBlock}
@@ -1610,7 +1666,6 @@ class OpsyShell {
     private renderSettingsModal(): string {
         const tabs: Array<{ id: SettingsTab; label: string }> = [
             { id: 'ai', label: 'AI' },
-            { id: 'vault', label: 'Vault' },
             { id: 'sshconfig', label: 'SSH Config' },
             { id: 'portforward', label: 'Port forwarding' },
             { id: 'theme', label: 'Theme' },
@@ -1633,48 +1688,6 @@ class OpsyShell {
                         <div class="modal-tab-panel ${this.settingsTab === 'ai' ? 'active' : ''}">
                             <div class="section-title">AI Provider</div>
                             ${this.renderProviderSetup()}
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'vault' ? 'active' : ''}">
-                            <div class="section-title">Vault Browser</div>
-                            <form class="provider-form" data-vault-settings-form>
-                                <label>
-                                    <span>Vault instance URL</span>
-                                    <input type="url" data-vault-address name="vaultAddress" value="${escapeHtml(this.vaultDraftAddress)}" placeholder="https://vault.example.com" />
-                                </label>
-                                <label>
-                                    <span>Mountpoint</span>
-                                    <input type="text" data-vault-mount name="vaultMountPoint" value="${escapeHtml(this.vaultDraftMountPoint)}" placeholder="secret" />
-                                </label>
-                                <label>
-                                    <span>Secret source</span>
-                                    <select name="vaultProvider" data-vault-provider>
-                                        <option value="vault" ${this.vaultDraftProvider === 'vault' ? 'selected' : ''}>HashiCorp Vault</option>
-                                        <option value="keepass" ${this.vaultDraftProvider === 'keepass' ? 'selected' : ''}>KeePass</option>
-                                    </select>
-                                </label>
-                                ${this.vaultDraftProvider === 'vault' ? `
-                                <label>
-                                    <span>Token</span>
-                                    <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
-                                </label>
-                                <label class="inline-check">
-                                    <span>Auto-renew token</span>
-                                    <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? 'checked' : ''} />
-                                </label>
-                                ` : `
-                                <label>
-                                    <span>KeePass database path</span>
-                                    <input type="text" data-keepass-db-path name="keepassDatabasePath" value="${escapeHtml(this.vaultDraftKeePassDatabasePath)}" placeholder="~/.config/KeePass/database.kdbx" />
-                                </label>
-                                <label>
-                                    <span>KeePass password</span>
-                                    <input type="password" data-keepass-password name="keepassPassword" value="${escapeHtml(this.vaultDraftKeePassPassword)}" />
-                                </label>
-                                `}
-                                <div class="provider-form-actions">
-                                    <button class="action-button" type="submit">Save Vault settings</button>
-                                </div>
-                            </form>
                         </div>
                         <div class="modal-tab-panel ${this.settingsTab === 'sshconfig' ? 'active' : ''}">
                             <div class="section-title">Import SSH Config</div>
@@ -1712,6 +1725,108 @@ class OpsyShell {
                                     <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderVaultModal(): string {
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog wide settings-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">Vault</div>
+                            <h2>Vault window</h2>
+                        </div>
+                        <button class="icon-button" data-close-modal>×</button>
+                    </div>
+                    <nav class="modal-tabs">
+                        <button class="modal-tab ${this.vaultModalTab === 'browser' ? 'active' : ''}" data-vault-modal-tab="browser">Browser</button>
+                        <button class="modal-tab ${this.vaultModalTab === 'settings' ? 'active' : ''}" data-vault-modal-tab="settings">Settings</button>
+                    </nav>
+                    <div class="modal-body">
+                        <div class="modal-tab-panel ${this.vaultModalTab === 'browser' ? 'active' : ''}">
+                            <div class="section-heading">
+                                <span class="section-title">Vault Tree</span>
+                                <div class="section-actions">
+                                    <button class="action-button secondary" data-open-vault-browser="vault">Open</button>
+                                    <button class="action-button secondary" data-refresh-vault-browser="vault">Refresh</button>
+                                </div>
+                            </div>
+                            ${this.renderVaultBrowser('vault')}
+                        </div>
+                        <div class="modal-tab-panel ${this.vaultModalTab === 'settings' ? 'active' : ''}">
+                            <form class="provider-form" data-vault-settings-form>
+                                <label>
+                                    <span>Vault instance URL</span>
+                                    <input type="url" data-vault-address name="vaultAddress" value="${escapeHtml(this.vaultDraftAddress)}" placeholder="https://vault.example.com" />
+                                </label>
+                                <label>
+                                    <span>Mountpoint</span>
+                                    <input type="text" data-vault-mount name="vaultMountPoint" value="${escapeHtml(this.vaultDraftMountPoint)}" placeholder="secret" />
+                                </label>
+                                <label>
+                                    <span>Token</span>
+                                    <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
+                                </label>
+                                <label class="inline-check">
+                                    <span>Auto-renew token</span>
+                                    <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? 'checked' : ''} />
+                                </label>
+                                <div class="provider-form-actions">
+                                    <button class="action-button" type="submit">Save Vault settings</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderKeePassModal(): string {
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog wide settings-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">KeePass</div>
+                            <h2>KeePass window</h2>
+                        </div>
+                        <button class="icon-button" data-close-modal>×</button>
+                    </div>
+                    <nav class="modal-tabs">
+                        <button class="modal-tab ${this.keepassModalTab === 'browser' ? 'active' : ''}" data-keepass-modal-tab="browser">Browser</button>
+                        <button class="modal-tab ${this.keepassModalTab === 'settings' ? 'active' : ''}" data-keepass-modal-tab="settings">Settings</button>
+                    </nav>
+                    <div class="modal-body">
+                        <div class="modal-tab-panel ${this.keepassModalTab === 'browser' ? 'active' : ''}">
+                            <div class="section-heading">
+                                <span class="section-title">KeePass Tree</span>
+                                <div class="section-actions">
+                                    <button class="action-button secondary" data-open-vault-browser="keepass">Open</button>
+                                    <button class="action-button secondary" data-refresh-vault-browser="keepass">Refresh</button>
+                                </div>
+                            </div>
+                            ${this.renderVaultBrowser('keepass')}
+                        </div>
+                        <div class="modal-tab-panel ${this.keepassModalTab === 'settings' ? 'active' : ''}">
+                            <form class="provider-form" data-keepass-settings-form>
+                                <label>
+                                    <span>KeePass database path</span>
+                                    <input type="text" data-keepass-db-path name="keepassDatabasePath" value="${escapeHtml(this.vaultDraftKeePassDatabasePath)}" placeholder="~/.config/KeePass/database.kdbx" />
+                                </label>
+                                <label>
+                                    <span>KeePass password</span>
+                                    <input type="password" data-keepass-password name="keepassPassword" value="${escapeHtml(this.vaultDraftKeePassPassword)}" />
+                                </label>
+                                <div class="provider-form-actions">
+                                    <button class="action-button" type="submit">Save KeePass settings</button>
+                                </div>
+                            </form>
                         </div>
                     </div>
                 </div>
@@ -2074,7 +2189,6 @@ class OpsyShell {
         this.vaultDraftMountPoint = shellSettings?.vaultMountPoint ?? 'secret';
         this.vaultDraftToken = '';
         this.vaultDraftAutoRenewToken = shellSettings?.vaultAutoRenewToken ?? false;
-        this.vaultDraftProvider = shellSettings?.vaultProvider ?? 'vault';
         this.vaultDraftKeePassDatabasePath = shellSettings?.keepassDatabasePath ?? '';
         this.vaultDraftKeePassPassword = '';
     }
