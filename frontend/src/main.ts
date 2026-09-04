@@ -1325,8 +1325,10 @@ class OpsyShell {
             return `
                 <aside class="panel sidebar-panel collapsed">
                     <div class="panel-header panel-header-collapsed">
-                        <button class="icon-button panel-toggle-button" data-toggle-sidebar-panel title="Expand sessions panel" aria-label="Expand sessions panel">▶</button>
-                        <span class="collapsed-panel-label">Sessions</span>
+                        <button class="icon-button panel-toggle-button collapsed-panel-toggle" data-toggle-sidebar-panel title="Expand sessions panel" aria-label="Expand sessions panel">
+                            <span>▶</span>
+                            <span class="collapsed-panel-label">Sessions</span>
+                        </button>
                     </div>
                 </aside>
             `;
@@ -1374,8 +1376,10 @@ class OpsyShell {
             return `
                 <aside class="panel assistant-panel collapsed">
                     <div class="panel-header panel-header-collapsed">
-                        <button class="icon-button panel-toggle-button" data-toggle-assistant-panel title="Expand assistant panel" aria-label="Expand assistant panel">◀</button>
-                        <span class="collapsed-panel-label">Assistant</span>
+                        <button class="icon-button panel-toggle-button collapsed-panel-toggle" data-toggle-assistant-panel title="Expand assistant panel" aria-label="Expand assistant panel">
+                            <span>◀</span>
+                            <span class="collapsed-panel-label">Assistant</span>
+                        </button>
                     </div>
                 </aside>
             `;
