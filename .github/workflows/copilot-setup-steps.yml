@@ -45,7 +45,7 @@ jobs:
       - name: Resolve Wails CLI version
         shell: bash
         run: |
-          version="$(awk '$1=="github.com/wailsapp/wails/v2"{print $2; exit}' go.mod)"
+          version="$(awk '$1=="require" && $2=="github.com/wailsapp/wails/v2"{print $3; exit} $1=="github.com/wailsapp/wails/v2"{print $2; exit}' go.mod)"
           if [ -z "$version" ]; then
             echo "github.com/wailsapp/wails/v2 not found in go.mod" >&2
             exit 1
