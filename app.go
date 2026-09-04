@@ -46,9 +46,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 
 	localManager, err := llm.NewManager()
-	if err != nil {
-		log.Printf("local model manager unavailable: %v", err)
-	}
+	localManagerErr := err
 
 	if store != nil {
 		a.service = app.NewService(store, localManager, sshmanager.NewManager(), sftpmanager.NewManager())
@@ -60,10 +58,13 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	if storeErr != nil {
-		a.service.EmitLog("error", "Disk store could not be initialized; running with in-memory defaults.")
+		a.service.EmitLog("warn", "Disk store unavailable; running with in-memory defaults.")
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
 		a.autoImportInitialSSHConfig()
+	}
+	if localManagerErr != nil {
+		a.service.EmitLog("warn", "Local model manager unavailable: "+localManagerErr.Error())
 	}
 }
 
