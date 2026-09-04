@@ -88,12 +88,23 @@
 
 .shell {
     display: grid;
-    grid-template-columns: 300px minmax(0, 1fr) 360px;
+    --sidebar-width: 300px;
+    --assistant-width: 360px;
+    --collapsed-panel-width: 72px;
+    grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--assistant-width);
     flex: 1;
     min-height: 0;
     overflow: hidden;
     background: var(--bg-base);
     color: var(--color-text);
+}
+
+.shell.sidebar-collapsed {
+    --sidebar-width: var(--collapsed-panel-width);
+}
+
+.shell.assistant-collapsed {
+    --assistant-width: var(--collapsed-panel-width);
 }
 
 .panel {
@@ -157,6 +168,36 @@
     gap: 1rem;
     padding: 1.25rem 1.5rem;
     border-bottom: 1px solid var(--border-subtle);
+}
+
+.panel-header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+}
+
+.panel-header-collapsed {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 0.5rem;
+}
+
+.collapsed-panel-label {
+    writing-mode: vertical-rl;
+    transform: rotate(180deg);
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-label);
+}
+
+.panel.collapsed {
+    overflow: hidden;
+    align-items: stretch;
 }
 
 .compact-header {
@@ -374,6 +415,21 @@ small {
 
 .icon-button {
     padding: 0.45rem 0.75rem;
+}
+
+.panel-toggle-button {
+    flex-shrink: 0;
+}
+
+.collapsed-panel-toggle {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 0.85rem;
+    width: 100%;
+    flex: 1;
+    padding: 0.75rem 0.5rem;
 }
 
 .icon-button.danger {
@@ -964,7 +1020,9 @@ small {
 
 @media (max-width: 1280px) {
     .shell {
-        grid-template-columns: 280px minmax(0, 1fr) 320px;
+        --sidebar-width: 280px;
+        --assistant-width: 320px;
+        grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--assistant-width);
     }
 }
 

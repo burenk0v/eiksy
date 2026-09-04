@@ -131,6 +131,8 @@ type HostKeyDialogState = {
 };
 
 const THEME_KEY = 'opsy-theme';
+const SIDEBAR_COLLAPSED_KEY = 'opsy-sidebar-collapsed';
+const ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
 
 function isTheme(value: string | null | undefined): value is Theme {
@@ -156,6 +158,8 @@ class OpsyShell {
     private keepassModalTab: SecretsModalTab = 'browser';
     private sessionInnerTab: SessionInnerTab = 'console';
     private sessionForm: SessionFormState = this.defaultSessionForm();
+    private sidebarCollapsed = false;
+    private assistantCollapsed = false;
     private terminals = new Map<string, TerminalState>();
     private sftpState: SFTPState = {
         tabId: null,
@@ -183,6 +187,7 @@ class OpsyShell {
     private sessionTagFilterInitialized = false;
     private sessionTagDraft = '';
     private sessionTagInputVisible = false;
+    private chatDraftMessage = '';
     private includeLastCommandOutput = false;
     private terminalOutputHistory = new Map<string, string>();
     private aiStatus: 'idle' | 'thinking' = 'idle';
@@ -210,6 +215,8 @@ class OpsyShell {
     constructor() {
         const saved = localStorage.getItem(THEME_KEY);
         this.theme = isTheme(saved) ? saved : 'dark';
+        this.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
+        this.assistantCollapsed = localStorage.getItem(ASSISTANT_COLLAPSED_KEY) === 'true';
         this.applyTheme();
     }
 
@@ -292,39 +299,8 @@ class OpsyShell {
 
         root.innerHTML = `
             <div class="shell-root">
-                <div class="shell">
-                    <aside class="panel sidebar-panel">
-                        <div class="panel-header">
-                            <div>
-                                <div class="eyebrow">Workspace</div>
-                                <h1>opsy</h1>
-                            </div>
-                            <div style="display:flex;gap:0.5rem;align-items:center;">
-                                <button class="icon-button" data-open-session-modal title="New session">+</button>
-                                <button class="icon-button" data-open-vault-modal title="Vault window">🗄️</button>
-                                <button class="icon-button" data-open-keepass-modal title="KeePass window">🔑</button>
-                                <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ''}</button>
-                                <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
-                            </div>
-                        </div>
-                        <div class="sidebar-body">
-                            <section class="section sidebar-section sessions-section">
-                                <div class="section-heading">
-                                    <span class="section-title">Sessions</span>
-                                </div>
-                                <div class="section-copy">Double-click a session to open it. Right-click to manage.</div>
-                                <div class="session-list">
-                                    ${this.renderSessionProfiles()}
-                                </div>
-                            </section>
-                            <section class="section sidebar-section session-tags-filter-section">
-                                <div class="section-heading">
-                                    <span class="section-title">Tags</span>
-                                </div>
-                                ${this.renderSessionTagFilters()}
-                            </section>
-                        </div>
-                    </aside>
+                <div class="shell ${this.sidebarCollapsed ? 'sidebar-collapsed' : ''} ${this.assistantCollapsed ? 'assistant-collapsed' : ''}">
+                    ${this.renderSidebarPanel()}
 
                     <main class="panel workspace-panel">
                         <div class="tab-bar">${this.renderTabs()}</div>
@@ -350,32 +326,7 @@ class OpsyShell {
                         </div>
                     </main>
 
-                    <aside class="panel assistant-panel">
-                        <div class="panel-header">
-                            <div>
-                                <div class="eyebrow">Assistant</div>
-                                <h2>AI</h2>
-                            </div>
-                            ${this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
-                        </div>
-                        <section class="section chat-section">
-                            <div class="section-title">Assistant</div>
-                            <div class="chat-messages" id="chat-messages">
-                                ${this.renderMessages()}
-                            </div>
-                        </section>
-                        ${this.hasConfiguredProvider() ? `
-                        <form class="chat-input-form" data-chat-form>
-                            ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
-                            <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" rows="3"></textarea>
-                            <label class="inline-check chat-attach-row">
-                                <span>Attach latest console output</span>
-                                <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
-                            </label>
-                            <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
-                        </form>
-                        ` : ''}
-                    </aside>
+                    ${this.renderAssistantPanel()}
                 </div>
             </div>
             ${this.renderSessionContextMenu()}
@@ -452,6 +403,16 @@ class OpsyShell {
         });
         root?.querySelector<HTMLButtonElement>('[data-open-notification-center]')?.addEventListener('click', () => {
             this.showNotificationCenter = true;
+            this.render();
+        });
+        root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-panel]')?.addEventListener('click', () => {
+            this.sidebarCollapsed = !this.sidebarCollapsed;
+            localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(this.sidebarCollapsed));
+            this.render();
+        });
+        root?.querySelector<HTMLButtonElement>('[data-toggle-assistant-panel]')?.addEventListener('click', () => {
+            this.assistantCollapsed = !this.assistantCollapsed;
+            localStorage.setItem(ASSISTANT_COLLAPSED_KEY, String(this.assistantCollapsed));
             this.render();
         });
 
@@ -710,20 +671,32 @@ class OpsyShell {
             await this.loadCloudModels(true);
         });
 
-        root?.querySelector<HTMLFormElement>('[data-chat-form]')?.addEventListener('submit', async (event) => {
+        const chatForm = root?.querySelector<HTMLFormElement>('[data-chat-form]');
+        chatForm?.addEventListener('submit', async (event) => {
             event.preventDefault();
-            const form = event.currentTarget as HTMLFormElement;
-            const textarea = form.querySelector<HTMLTextAreaElement>('[name="message"]');
-            const message = textarea?.value ?? '';
+            this.syncChatFormFromDOM();
+            const message = this.chatDraftMessage;
             if (!message.trim()) return;
-            if (textarea) textarea.value = '';
-            const includeLastOutput = form.querySelector<HTMLInputElement>('input[name="includeLastOutput"]')?.checked ?? false;
-            this.includeLastCommandOutput = includeLastOutput;
-            const payload = includeLastOutput ? this.withLatestTerminalOutput(message) : message;
-            await this.runAction(async () => SendChatMessage(payload), 'Unable to send message');
+            const payload = this.includeLastCommandOutput ? this.withLatestTerminalOutput(message) : message;
+            this.aiStatus = 'thinking';
+            this.render();
+            try {
+                await SendChatMessage(payload);
+                this.chatDraftMessage = '';
+                await this.refresh('');
+            } catch (error) {
+                this.aiStatus = 'idle';
+                this.setErrorMessage(formatError('Unable to send message', error));
+                this.render();
+            }
         });
-
-        root?.querySelector<HTMLTextAreaElement>('[data-chat-form] textarea[name="message"]')?.addEventListener('keydown', (event) => {
+        chatForm?.addEventListener('input', () => {
+            this.syncChatFormFromDOM();
+        });
+        chatForm?.addEventListener('change', () => {
+            this.syncChatFormFromDOM();
+        });
+        chatForm?.querySelector<HTMLTextAreaElement>('textarea[name="message"]')?.addEventListener('keydown', (event) => {
             if (event.ctrlKey && event.key === 'Enter') {
                 event.preventDefault();
                 const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
@@ -1358,6 +1331,113 @@ class OpsyShell {
         if (messages) {
             messages.scrollTop = messages.scrollHeight;
         }
+    }
+
+    private syncChatFormFromDOM(): void {
+        const form = root?.querySelector<HTMLFormElement>('[data-chat-form]');
+        if (!form) {
+            return;
+        }
+        this.chatDraftMessage = form.querySelector<HTMLTextAreaElement>('textarea[name="message"]')?.value ?? '';
+        this.includeLastCommandOutput = form.querySelector<HTMLInputElement>('input[name="includeLastOutput"]')?.checked ?? false;
+    }
+
+    private renderSidebarPanel(): string {
+        if (this.sidebarCollapsed) {
+            return `
+                <aside class="panel sidebar-panel collapsed">
+                    <div class="panel-header panel-header-collapsed">
+                        <button class="icon-button panel-toggle-button collapsed-panel-toggle" data-toggle-sidebar-panel title="Expand sessions panel" aria-label="Expand sessions panel">
+                            <span>▶</span>
+                            <span class="collapsed-panel-label">Sessions</span>
+                        </button>
+                    </div>
+                </aside>
+            `;
+        }
+
+        return `
+            <aside class="panel sidebar-panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="eyebrow">Workspace</div>
+                        <h1>opsy</h1>
+                    </div>
+                    <div class="panel-header-actions">
+                        <button class="icon-button" data-open-session-modal title="New session">+</button>
+                        <button class="icon-button" data-open-vault-modal title="Vault window">🗄️</button>
+                        <button class="icon-button" data-open-keepass-modal title="KeePass window">🔑</button>
+                        <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ''}</button>
+                        <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
+                        <button class="icon-button panel-toggle-button" data-toggle-sidebar-panel title="Collapse sessions panel" aria-label="Collapse sessions panel">◀</button>
+                    </div>
+                </div>
+                <div class="sidebar-body">
+                    <section class="section sidebar-section sessions-section">
+                        <div class="section-heading">
+                            <span class="section-title">Sessions</span>
+                        </div>
+                        <div class="section-copy">Double-click a session to open it. Right-click to manage.</div>
+                        <div class="session-list">
+                            ${this.renderSessionProfiles()}
+                        </div>
+                    </section>
+                    <section class="section sidebar-section session-tags-filter-section">
+                        <div class="section-heading">
+                            <span class="section-title">Tags</span>
+                        </div>
+                        ${this.renderSessionTagFilters()}
+                    </section>
+                </div>
+            </aside>
+        `;
+    }
+
+    private renderAssistantPanel(): string {
+        if (this.assistantCollapsed) {
+            return `
+                <aside class="panel assistant-panel collapsed">
+                    <div class="panel-header panel-header-collapsed">
+                        <button class="icon-button panel-toggle-button collapsed-panel-toggle" data-toggle-assistant-panel title="Expand assistant panel" aria-label="Expand assistant panel">
+                            <span>◀</span>
+                            <span class="collapsed-panel-label">Assistant</span>
+                        </button>
+                    </div>
+                </aside>
+            `;
+        }
+
+        return `
+            <aside class="panel assistant-panel">
+                <div class="panel-header">
+                    <div>
+                        <div class="eyebrow">Assistant</div>
+                        <h2>AI</h2>
+                    </div>
+                    <div class="panel-header-actions">
+                        ${this.hasConfiguredProvider() ? `<button class="icon-button" data-clear-chat title="Clear chat">🗑</button>` : ''}
+                        <button class="icon-button panel-toggle-button" data-toggle-assistant-panel title="Collapse assistant panel" aria-label="Collapse assistant panel">▶</button>
+                    </div>
+                </div>
+                <section class="section chat-section">
+                    <div class="section-title">Assistant</div>
+                    <div class="chat-messages" id="chat-messages">
+                        ${this.renderMessages()}
+                    </div>
+                </section>
+                ${this.hasConfiguredProvider() ? `
+                <form class="chat-input-form" data-chat-form>
+                    ${this.aiStatus === 'thinking' ? '<div class="ai-status-indicator">⏳ Thinking…</div>' : ''}
+                    <textarea class="chat-textarea" name="message" placeholder="Ask the assistant… (Ctrl+Enter to send)" aria-label="Assistant message" rows="3">${escapeHtml(this.chatDraftMessage)}</textarea>
+                    <label class="inline-check chat-attach-row">
+                        <span>Attach latest console output</span>
+                        <input name="includeLastOutput" type="checkbox" ${this.includeLastCommandOutput ? 'checked' : ''} />
+                    </label>
+                    <button class="action-button" type="submit" ${this.aiStatus === 'thinking' ? 'disabled' : ''}>Send</button>
+                </form>
+                ` : ''}
+            </aside>
+        `;
     }
 
     private renderSessionProfiles(): string {
