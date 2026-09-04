@@ -47,15 +47,15 @@ jobs:
         run: |
           version="$(
             go mod edit -json | python -c '
-import json
-import sys
+            import json
+            import sys
 
-data = json.load(sys.stdin)
-for requirement in data.get("Require", []):
-    if requirement.get("Path") == "github.com/wailsapp/wails/v2":
-        print(requirement.get("Version", ""))
-        break
-'
+            data = json.load(sys.stdin)
+            for requirement in data.get("Require", []):
+                if requirement.get("Path") == "github.com/wailsapp/wails/v2":
+                    print(requirement.get("Version", ""))
+                    break
+            '
           )"
           if [ -z "$version" ]; then
             echo "github.com/wailsapp/wails/v2 not found in go.mod" >&2
