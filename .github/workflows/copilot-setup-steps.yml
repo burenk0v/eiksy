@@ -5,9 +5,17 @@ on:
   push:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - go.mod
+      - go.sum
+      - frontend/package.json
+      - frontend/package-lock.json
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - go.mod
+      - go.sum
+      - frontend/package.json
+      - frontend/package-lock.json
 
 jobs:
   copilot-setup-steps:
@@ -32,7 +40,7 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.14.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)
 
       - name: Add Go bin directory to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
