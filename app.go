@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,6 +41,7 @@ func (a *App) startup(ctx context.Context) {
 
 	store, storeErr := disk.NewStore()
 	if storeErr != nil {
+		log.Printf("disk store unavailable, falling back to memory store: %v", storeErr)
 		store = nil
 	}
 
@@ -56,7 +58,7 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	if storeErr != nil {
-		a.service.EmitLog("error", "Disk store could not be initialized; running with in-memory defaults: "+storeErr.Error())
+		a.service.EmitLog("warn", "Disk store unavailable; running with in-memory defaults.")
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
 		a.autoImportInitialSSHConfig()
