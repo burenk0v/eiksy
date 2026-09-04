@@ -179,10 +179,11 @@
 }
 
 .panel-header-collapsed {
+    display: flex;
+    flex: 1;
     align-items: center;
     justify-content: center;
     padding: 1rem 0.5rem;
-    height: 100%;
 }
 
 .collapsed-panel-label {
@@ -196,6 +197,7 @@
 
 .panel.collapsed {
     overflow: hidden;
+    align-items: stretch;
 }
 
 .compact-header {
@@ -422,10 +424,11 @@ small {
 .collapsed-panel-toggle {
     display: flex;
     flex-direction: column;
+    justify-content: center;
     align-items: center;
     gap: 0.85rem;
     width: 100%;
-    min-height: 100%;
+    flex: 1;
     padding: 0.75rem 0.5rem;
 }
 
