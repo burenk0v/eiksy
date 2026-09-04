@@ -377,12 +377,6 @@ func (s *Store) loadSettings() error {
 	if loaded.WindowLayout.AssistantWidth == 0 {
 		loaded.WindowLayout.AssistantWidth = defaults.WindowLayout.AssistantWidth
 	}
-	if loaded.LogLevel == "" {
-		loaded.LogLevel = defaults.LogLevel
-	}
-	if loaded.LogRotationSize <= 0 {
-		loaded.LogRotationSize = defaults.LogRotationSize
-	}
 	if loaded.VaultMountPoint == "" {
 		loaded.VaultMountPoint = defaults.VaultMountPoint
 	}
@@ -474,10 +468,6 @@ func defaultSettings() settings.AppSettings {
 		PromptBeforeAI:      true,
 		AllowCloudModels:    true,
 		SSHConfigAutoLoaded: false,
-		LogLevel:            settings.LogLevelInfo,
-		ShowLogPanel:        false,
-		SaveLogsToFile:      false,
-		LogRotationSize:     settings.DefaultLogRotationSize,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
 		VaultProvider:       settings.DefaultVaultProvider,

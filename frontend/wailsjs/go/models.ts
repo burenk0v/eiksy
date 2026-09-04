@@ -427,10 +427,6 @@ export namespace settings {
 	    sshForwardHostId: string;
 	    portForwardRules: PortForwardRule[];
 	    sshConfigAutoLoaded: boolean;
-	    logLevel: string;
-	    showLogPanel: boolean;
-	    saveLogsToFile: boolean;
-	    logRotationSize: number;
 	    vaultAddress: string;
 	    vaultMountPoint: string;
 	    vaultAutoRenewToken: boolean;
@@ -454,10 +450,6 @@ export namespace settings {
 	        this.sshForwardHostId = source["sshForwardHostId"];
 	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
 	        this.sshConfigAutoLoaded = source["sshConfigAutoLoaded"];
-	        this.logLevel = source["logLevel"];
-	        this.showLogPanel = source["showLogPanel"];
-	        this.saveLogsToFile = source["saveLogsToFile"];
-	        this.logRotationSize = source["logRotationSize"];
 	        this.vaultAddress = source["vaultAddress"];
 	        this.vaultMountPoint = source["vaultMountPoint"];
 	        this.vaultAutoRenewToken = source["vaultAutoRenewToken"];
