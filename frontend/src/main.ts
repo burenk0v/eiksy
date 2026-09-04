@@ -1215,8 +1215,7 @@ class OpsyShell {
             this.vaultState = {
                 ...this.vaultState,
                 loading: false,
-                error: formatError('Unable to load Vault secrets', error),
-                loaded: true,
+                error: '',
             };
         }
         this.render();
@@ -1480,9 +1479,6 @@ class OpsyShell {
     private renderVaultBrowser(): string {
         if (this.vaultState.loading) {
             return '<div class="empty-state">Loading secrets…</div>';
-        }
-        if (this.vaultState.error) {
-            return '<div class="error-banner compact">Unable to load secrets. Check notifications.</div>';
         }
         if (!this.vaultState.loaded) {
             return '<div class="empty-state">Open Vault browser to load secrets.</div>';
