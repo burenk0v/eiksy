@@ -42,8 +42,18 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
+      - name: Resolve Wails CLI version
+        shell: bash
+        run: |
+          version="$(awk '$1=="github.com/wailsapp/wails/v2"{print $2; exit}' go.mod)"
+          if [ -z "$version" ]; then
+            echo "github.com/wailsapp/wails/v2 not found in go.mod" >&2
+            exit 1
+          fi
+          echo "WAILS_VERSION=$version" >> "$GITHUB_ENV"
+
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@$(go list -m -f '{{.Version}}' github.com/wailsapp/wails/v2)
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
 
       - name: Add Go bin directory to PATH
         run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
