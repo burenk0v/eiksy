@@ -137,6 +137,7 @@ const APP_METADATA = {
     name: 'Opsy',
     copyright: 'Opsy contributors',
     license: 'Apache License 2.0',
+    legalNotice: 'Distributed under the Apache License 2.0.',
 };
 
 function isTheme(value: string | null | undefined): value is Theme {
@@ -1725,8 +1726,9 @@ class OpsyShell {
                             <div class="about-panel">
                                 <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
-                                <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}. All rights reserved.</p>
+                                <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                                 <p class="about-copy">Лицензия: ${APP_METADATA.license}</p>
+                                <p class="about-copy">${APP_METADATA.legalNotice}</p>
                             </div>
                         </div>
                     </div>
