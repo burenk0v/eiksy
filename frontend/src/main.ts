@@ -1235,11 +1235,15 @@ class OpsyShell {
                 loaded: true,
             });
         } catch (error) {
-            this.pushNotification('error', formatError('Unable to load Vault secrets', error));
+            const errorMessage = formatError('Unable to load Vault secrets', error);
+            this.pushNotification('error', errorMessage);
             this.setProviderState(provider, {
                 ...currentState,
+                path: normalizedPath,
+                entries: [],
                 loading: false,
-                error: '',
+                error: errorMessage,
+                loaded: true,
             });
         }
         this.render();
@@ -1518,11 +1522,15 @@ class OpsyShell {
 
     private renderVaultBrowser(provider: 'vault' | 'keepass'): string {
         const state = this.stateByProvider(provider);
+        const sourceName = provider === 'keepass' ? 'KeePass' : 'Vault';
         if (state.loading) {
             return '<div class="empty-state">Loading secrets…</div>';
         }
+        if (state.error) {
+            return `<div class="error-banner compact">${escapeHtml(state.error)}</div>`;
+        }
         if (!state.loaded) {
-            return '<div class="empty-state">Open Vault browser to load secrets.</div>';
+            return `<div class="empty-state">Open ${sourceName} browser to load secrets.</div>`;
         }
         const entriesBlock = state.entries.length > 0
             ? state.entries.map((entry) => entry.isDir
