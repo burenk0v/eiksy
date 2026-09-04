@@ -1482,7 +1482,7 @@ class OpsyShell {
             return '<div class="empty-state">Loading secrets…</div>';
         }
         if (this.vaultState.error) {
-            return '<div class="empty-state">Unable to load secrets. Check notifications.</div>';
+            return '<div class="error-banner compact">Unable to load secrets. Check notifications.</div>';
         }
         if (!this.vaultState.loaded) {
             return '<div class="empty-state">Open Vault browser to load secrets.</div>';
