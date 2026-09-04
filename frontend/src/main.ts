@@ -1724,7 +1724,7 @@ class OpsyShell {
                         <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
                             <div class="section-title">О программе</div>
                             <div class="about-panel">
-                                <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
+                                <img class="about-logo" src="${logoUniversal}" alt="Логотип Opsy" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
                                 <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                                 <p class="about-copy">Лицензия: ${APP_METADATA.license}</p>
