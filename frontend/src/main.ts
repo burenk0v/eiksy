@@ -1,7 +1,7 @@
 import './style.css';
 import './app.css';
 import '@xterm/xterm/css/xterm.css';
-import logoUniversal from './assets/images/logo-universal.png';
+import appLogo from './assets/images/logo.png';
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -1804,7 +1804,7 @@ class OpsyShell {
                         <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
                             <div class="section-title">About</div>
                             <div class="about-panel">
-                                <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
+                                <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
                                 <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                                 <p class="about-copy">License: ${APP_METADATA.license}</p>
