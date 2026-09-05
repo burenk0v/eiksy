@@ -135,6 +135,7 @@ type HostKeyDialogState = {
 const THEME_KEY = 'opsy-theme';
 const SIDEBAR_COLLAPSED_KEY = 'opsy-sidebar-collapsed';
 const ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
+const SESSION_INNER_TABS_KEY = 'opsy-session-inner-tabs';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
 const APP_METADATA = {
     name: 'Opsy',
@@ -168,6 +169,7 @@ class OpsyShell {
     private sessionForm: SessionFormState = this.defaultSessionForm();
     private sidebarCollapsed = false;
     private assistantCollapsed = false;
+    private sessionInnerTabs = new Map<string, SessionInnerTab>();
     private terminals = new Map<string, TerminalState>();
     private sftpState: SFTPState = {
         tabId: null,
@@ -225,6 +227,7 @@ class OpsyShell {
         this.theme = isTheme(saved) ? saved : 'dark';
         this.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
         this.assistantCollapsed = localStorage.getItem(ASSISTANT_COLLAPSED_KEY) === 'true';
+        this.sessionInnerTabs = this.loadStoredSessionInnerTabs();
         this.applyTheme();
         this.applyFavicon();
     }
@@ -289,11 +292,12 @@ class OpsyShell {
         this.errorMessage = errorMessage;
         this.shellState = await GetShellState();
         this.reconcileSelectedSessionTags();
+        this.pruneStoredSessionInnerTabs();
         const preferredTabID = this.activeTabId || this.shellState.workspace.layout.activeTabId || '';
         this.activeTabId = this.pickActiveTabID(preferredTabID);
         const activeTab = this.activeTab();
         this.sessionInnerTab = activeTab
-            ? this.normalizeSessionInnerTab(activeTab.protocolId, this.sessionInnerTab)
+            ? this.restoreSessionInnerTab(activeTab)
             : 'console';
         if (this.sftpState.tabId !== this.activeTabId) {
             this.sftpState = this.defaultSFTPState(this.activeTabId || null);
@@ -441,7 +445,15 @@ class OpsyShell {
 
         root?.querySelectorAll<HTMLButtonElement>('[data-session-inner-tab]').forEach((button) => {
             button.addEventListener('click', async () => {
-                this.sessionInnerTab = (button.dataset.sessionInnerTab as SessionInnerTab) ?? 'console';
+                const activeTab = this.activeTab();
+                if (!activeTab) {
+                    return;
+                }
+                this.sessionInnerTab = this.normalizeSessionInnerTab(
+                    activeTab.protocolId,
+                    (button.dataset.sessionInnerTab as SessionInnerTab) ?? this.defaultSessionInnerTab(activeTab.protocolId),
+                );
+                this.storeSessionInnerTab(activeTab.id, this.sessionInnerTab);
                 this.render();
                 if (this.sessionInnerTab === 'sftp') {
                     await this.ensureActiveSFTPLoaded();
@@ -550,7 +562,7 @@ class OpsyShell {
                 this.activeTabId = tabID;
                 const activeTab = this.activeTab();
                 this.sessionInnerTab = activeTab
-                    ? this.normalizeSessionInnerTab(activeTab.protocolId, this.sessionInnerTab)
+                    ? this.restoreSessionInnerTab(activeTab)
                     : 'console';
                 if (this.sftpState.tabId !== tabID) {
                     this.sftpState = this.defaultSFTPState(tabID);
@@ -1015,6 +1027,7 @@ class OpsyShell {
             const tab = await LaunchSession(profileID);
             this.activeTabId = tab.id;
             this.sessionInnerTab = this.defaultSessionInnerTab(profile.protocolId);
+            this.storeSessionInnerTab(tab.id, this.sessionInnerTab);
             await this.refresh('');
             if (profile.protocolId === 'ssh') {
                 this.ensureTerminalSubscription(tab.id);
@@ -1082,6 +1095,8 @@ class OpsyShell {
             // ignored - backend CloseSession will clean up too.
         }
         await this.runAction(async () => CloseSession(tabID), 'Unable to close session');
+        this.sessionInnerTabs.delete(tabID);
+        this.persistSessionInnerTabs();
         await this.ensureActiveSFTPLoaded(true);
     }
 
@@ -2163,6 +2178,58 @@ class OpsyShell {
 
     private defaultSessionInnerTab(protocolId: string): SessionInnerTab {
         return this.availableSessionInnerTabs(protocolId)[0] ?? 'console';
+    }
+
+    private loadStoredSessionInnerTabs(): Map<string, SessionInnerTab> {
+        try {
+            const stored = localStorage.getItem(SESSION_INNER_TABS_KEY);
+            if (!stored) {
+                return new Map<string, SessionInnerTab>();
+            }
+            const parsed = JSON.parse(stored) as Record<string, unknown>;
+            return new Map<string, SessionInnerTab>(
+                Object.entries(parsed).flatMap(([tabID, tabValue]) => (
+                    tabValue === 'console' || tabValue === 'sftp' || tabValue === 'screen'
+                        ? [[tabID, tabValue]]
+                        : []
+                )),
+            );
+        } catch {
+            return new Map<string, SessionInnerTab>();
+        }
+    }
+
+    private persistSessionInnerTabs(): void {
+        localStorage.setItem(SESSION_INNER_TABS_KEY, JSON.stringify(Object.fromEntries(this.sessionInnerTabs)));
+    }
+
+    private pruneStoredSessionInnerTabs(): void {
+        const activeTabIDs = new Set((this.shellState?.activeSessions ?? []).map((tab) => tab.id));
+        let changed = false;
+        for (const tabID of this.sessionInnerTabs.keys()) {
+            if (activeTabIDs.has(tabID)) {
+                continue;
+            }
+            this.sessionInnerTabs.delete(tabID);
+            changed = true;
+        }
+        if (changed) {
+            this.persistSessionInnerTabs();
+        }
+    }
+
+    private storeSessionInnerTab(tabID: string, tab: SessionInnerTab): void {
+        this.sessionInnerTabs.set(tabID, tab);
+        this.persistSessionInnerTabs();
+    }
+
+    private restoreSessionInnerTab(tab: RuntimeSession): SessionInnerTab {
+        const resolved = this.normalizeSessionInnerTab(
+            tab.protocolId,
+            this.sessionInnerTabs.get(tab.id) ?? this.defaultSessionInnerTab(tab.protocolId),
+        );
+        this.storeSessionInnerTab(tab.id, resolved);
+        return resolved;
     }
 
     private normalizeSessionInnerTab(protocolId: string, current: SessionInnerTab): SessionInnerTab {
