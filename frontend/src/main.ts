@@ -2204,7 +2204,11 @@ class OpsyShell {
     }
 
     private pruneStoredSessionInnerTabs(): void {
-        const activeTabIDs = new Set((this.shellState?.activeSessions ?? []).map((tab) => tab.id));
+        const activeSessions = this.shellState?.activeSessions ?? [];
+        if (activeSessions.length === 0) {
+            return;
+        }
+        const activeTabIDs = new Set(activeSessions.map((tab) => tab.id));
         let changed = false;
         for (const tabID of this.sessionInnerTabs.keys()) {
             if (activeTabIDs.has(tabID)) {
