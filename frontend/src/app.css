@@ -1023,19 +1023,34 @@ small {
     flex-direction: column;
     align-items: center;
     gap: 0.5rem;
-    padding: 1rem 0;
+    width: 100%;
+    padding: 1rem 0.75rem;
+    box-sizing: border-box;
     text-align: center;
 }
 
 .about-logo {
-    width: 84px;
-    height: 84px;
+    display: block;
+    width: 100%;
+    margin: 0 auto;
+    height: auto;
     object-fit: contain;
 }
 
 .about-copy {
     margin: 0;
     color: var(--color-muted);
+}
+
+.about-links {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.about-links a {
+    color: var(--color-accent);
+    text-decoration: underline;
 }
 
 @media (max-width: 1280px) {
