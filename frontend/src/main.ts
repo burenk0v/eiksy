@@ -2216,6 +2216,10 @@ class OpsyShell {
     private pruneStoredSessionInnerTabs(): void {
         const activeSessions = this.shellState?.activeSessions ?? [];
         if (activeSessions.length === 0) {
+            if (this.sessionInnerTabs.size > 0) {
+                this.sessionInnerTabs.clear();
+                this.persistSessionInnerTabs();
+            }
             return;
         }
         const activeTabIDs = new Set(activeSessions.map((tab) => tab.id));
@@ -2233,6 +2237,9 @@ class OpsyShell {
     }
 
     private storeSessionInnerTab(tabID: string, tab: SessionInnerTab): void {
+        if (this.sessionInnerTabs.get(tabID) === tab) {
+            return;
+        }
         this.sessionInnerTabs.set(tabID, tab);
         this.persistSessionInnerTabs();
     }
