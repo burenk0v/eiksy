@@ -2,6 +2,7 @@ import './style.css';
 import './app.css';
 import '@xterm/xterm/css/xterm.css';
 import appLogo from './assets/images/logo.png';
+import packageJson from '../package.json';
 import appFavicon from './assets/images/favicon.ico';
 
 import { Terminal } from '@xterm/xterm';
@@ -138,6 +139,9 @@ const ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
 const APP_METADATA = {
     name: 'Opsy',
+    version: packageJson.version,
+    repositoryUrl: 'https://github.com/burenk0v/opsy',
+    latestReleaseUrl: 'https://github.com/burenk0v/opsy/releases/latest',
     copyright: 'Opsy contributors',
     license: 'Apache License 2.0',
     legalNotice: 'Distributed under the Apache License 2.0.',
@@ -1822,9 +1826,15 @@ class OpsyShell {
                             <div class="about-panel">
                                 <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
+                                <p class="about-copy">Version: ${APP_METADATA.version}</p>
                                 <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                                 <p class="about-copy">License: ${APP_METADATA.license}</p>
                                 <p class="about-copy">${APP_METADATA.legalNotice}</p>
+                                <p class="about-copy about-links">
+                                    <a href="${APP_METADATA.repositoryUrl}" target="_blank" rel="noopener noreferrer">GitHub</a>
+                                    <span>•</span>
+                                    <a href="${APP_METADATA.latestReleaseUrl}" target="_blank" rel="noopener noreferrer">Latest release</a>
+                                </p>
                             </div>
                         </div>
                     </div>

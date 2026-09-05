@@ -1028,14 +1028,28 @@ small {
 }
 
 .about-logo {
-    width: 84px;
-    height: 84px;
+    display: block;
+    width: min(100%, calc(100vw - 3rem));
+    max-width: calc(100vw - 3rem);
+    margin: 0 auto;
+    height: auto;
     object-fit: contain;
 }
 
 .about-copy {
     margin: 0;
     color: var(--color-muted);
+}
+
+.about-links {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.about-links a {
+    color: var(--color-accent);
+    text-decoration: underline;
 }
 
 @media (max-width: 1280px) {
