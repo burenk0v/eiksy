@@ -221,6 +221,7 @@ class OpsyShell {
     private notifications: NotificationItem[] = [];
     private toastQueue: NotificationItem[] = [];
     private showNotificationCenter = false;
+    private showSidebarActionsMenu = false;
 
     constructor() {
         const saved = localStorage.getItem(THEME_KEY);
@@ -405,15 +406,18 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.openSessionModalForCreate();
         });
         root?.querySelector<HTMLButtonElement>('[data-open-vault-modal]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.showVaultModal = true;
             this.vaultModalTab = 'browser';
             this.initializeSettingsDrafts();
             this.render();
         });
         root?.querySelector<HTMLButtonElement>('[data-open-keepass-modal]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.showKeePassModal = true;
             this.keepassModalTab = 'browser';
             this.initializeSettingsDrafts();
@@ -421,6 +425,7 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.showSettingsModal = true;
             this.initializeSettingsDrafts();
             this.render();
@@ -428,11 +433,21 @@ class OpsyShell {
                 void this.loadCloudModels(false);
             }
         });
+        root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-actions-menu]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = !this.showSidebarActionsMenu;
+            this.render();
+        });
+        root?.querySelector<HTMLDivElement>('[data-sidebar-actions-menu-overlay]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
+            this.render();
+        });
         root?.querySelector<HTMLButtonElement>('[data-open-notification-center]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.showNotificationCenter = true;
             this.render();
         });
         root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-panel]')?.addEventListener('click', () => {
+            this.showSidebarActionsMenu = false;
             this.sidebarCollapsed = !this.sidebarCollapsed;
             localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(this.sidebarCollapsed));
             this.render();
@@ -1402,11 +1417,19 @@ class OpsyShell {
                         <h1>opsy</h1>
                     </div>
                     <div class="panel-header-actions">
-                        <button class="icon-button" data-open-session-modal title="New session">+</button>
-                        <button class="icon-button" data-open-vault-modal title="Vault window">🗄️</button>
-                        <button class="icon-button" data-open-keepass-modal title="KeePass window">🔑</button>
+                        <div class="sidebar-actions-menu-wrap">
+                            <button class="icon-button" data-toggle-sidebar-actions-menu title="Session manager menu" aria-label="Session manager menu">☰</button>
+                            ${this.showSidebarActionsMenu ? `
+                                <div class="sidebar-actions-menu-overlay" data-sidebar-actions-menu-overlay></div>
+                                <div class="sidebar-actions-menu">
+                                    <button class="sidebar-actions-menu-item" data-open-session-modal><span class="sidebar-actions-menu-icon">+</span><span>New session</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-vault-modal><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-keepass-modal><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-modal><span class="sidebar-actions-menu-icon">⚙</span><span>Settings</span></button>
+                                </div>
+                            ` : ''}
+                        </div>
                         <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ''}</button>
-                        <button class="icon-button" data-open-settings-modal title="Settings">⚙</button>
                         <button class="icon-button panel-toggle-button" data-toggle-sidebar-panel title="Collapse sessions panel" aria-label="Collapse sessions panel">◀</button>
                     </div>
                 </div>
