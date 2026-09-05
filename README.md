@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/burenk0v/opsy/main/frontend/src/assets/images/logo-universal.png" alt="opsy logo" width="180" />
+  <img src="https://raw.githubusercontent.com/burenk0v/opsy/main/frontend/src/assets/images/logo.png" alt="opsy logo" width="180" />
 </p>
 
 <p align="center">

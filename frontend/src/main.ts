@@ -1,7 +1,8 @@
 import './style.css';
 import './app.css';
 import '@xterm/xterm/css/xterm.css';
-import logoUniversal from './assets/images/logo-universal.png';
+import appLogo from './assets/images/logo.png';
+import appFavicon from './assets/images/favicon.ico';
 
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -225,6 +226,7 @@ class OpsyShell {
         this.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
         this.assistantCollapsed = localStorage.getItem(ASSISTANT_COLLAPSED_KEY) === 'true';
         this.applyTheme();
+        this.applyFavicon();
     }
 
     private applyTheme(): void {
@@ -233,6 +235,20 @@ class OpsyShell {
             document.documentElement.classList.add(this.theme);
         }
         localStorage.setItem(THEME_KEY, this.theme);
+    }
+
+    private applyFavicon(): void {
+        const existing = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+        if (existing) {
+            existing.href = appFavicon;
+            return;
+        }
+
+        const link = document.createElement('link');
+        link.rel = 'icon';
+        link.type = 'image/x-icon';
+        link.href = appFavicon;
+        document.head.appendChild(link);
     }
 
     async bootstrap(): Promise<void> {
@@ -1804,7 +1820,7 @@ class OpsyShell {
                         <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
                             <div class="section-title">About</div>
                             <div class="about-panel">
-                                <img class="about-logo" src="${logoUniversal}" alt="Opsy logo" />
+                                <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
                                 <p class="about-copy">${APP_METADATA.name}</p>
                                 <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                                 <p class="about-copy">License: ${APP_METADATA.license}</p>
