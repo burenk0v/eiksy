@@ -151,6 +151,7 @@ function isTheme(value: string | null | undefined): value is Theme {
 const root = document.querySelector<HTMLDivElement>('#app');
 
 class OpsyShell {
+    private readonly sidebarActionsMenuID = 'sidebar-actions-menu';
     private readonly untaggedFilterTag = '__untagged__';
     private shellState: ShellState | null = null;
     private activeTabId = '';
@@ -406,18 +407,18 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-session-modal]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.openSessionModalForCreate();
         });
         root?.querySelector<HTMLButtonElement>('[data-open-vault-modal]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.showVaultModal = true;
             this.vaultModalTab = 'browser';
             this.initializeSettingsDrafts();
             this.render();
         });
         root?.querySelector<HTMLButtonElement>('[data-open-keepass-modal]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.showKeePassModal = true;
             this.keepassModalTab = 'browser';
             this.initializeSettingsDrafts();
@@ -425,7 +426,7 @@ class OpsyShell {
         });
 
         root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.showSettingsModal = true;
             this.initializeSettingsDrafts();
             this.render();
@@ -436,18 +437,51 @@ class OpsyShell {
         root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-actions-menu]')?.addEventListener('click', () => {
             this.showSidebarActionsMenu = !this.showSidebarActionsMenu;
             this.render();
+            if (this.showSidebarActionsMenu) {
+                this.focusFirstSidebarActionsMenuItem();
+            }
         });
         root?.querySelector<HTMLDivElement>('[data-sidebar-actions-menu-overlay]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
-            this.render();
+            this.closeSidebarActionsMenu(true);
+        });
+        root?.querySelector<HTMLDivElement>('[data-sidebar-actions-menu]')?.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                this.closeSidebarActionsMenu(true);
+                return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                return;
+            }
+            const items = Array.from(root?.querySelectorAll<HTMLButtonElement>('.sidebar-actions-menu-item') ?? []);
+            if (items.length === 0) {
+                return;
+            }
+            event.preventDefault();
+            const activeIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+            if (event.key === 'Home') {
+                items[0]?.focus();
+                return;
+            }
+            if (event.key === 'End') {
+                items[items.length - 1]?.focus();
+                return;
+            }
+            if (event.key === 'ArrowDown') {
+                const nextIndex = activeIndex >= 0 ? (activeIndex + 1) % items.length : 0;
+                items[nextIndex]?.focus();
+                return;
+            }
+            const prevIndex = activeIndex >= 0 ? (activeIndex - 1 + items.length) % items.length : items.length - 1;
+            items[prevIndex]?.focus();
         });
         root?.querySelector<HTMLButtonElement>('[data-open-notification-center]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.showNotificationCenter = true;
             this.render();
         });
         root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-panel]')?.addEventListener('click', () => {
-            this.showSidebarActionsMenu = false;
+            this.closeSidebarActionsMenu();
             this.sidebarCollapsed = !this.sidebarCollapsed;
             localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(this.sidebarCollapsed));
             this.render();
@@ -1418,14 +1452,14 @@ class OpsyShell {
                     </div>
                     <div class="panel-header-actions">
                         <div class="sidebar-actions-menu-wrap">
-                            <button class="icon-button" data-toggle-sidebar-actions-menu title="Session manager menu" aria-label="Session manager menu">☰</button>
+                            <button class="icon-button" data-toggle-sidebar-actions-menu title="Session manager menu" aria-label="Session manager menu" aria-haspopup="true" aria-expanded="${this.showSidebarActionsMenu ? 'true' : 'false'}" aria-controls="${this.sidebarActionsMenuID}">☰</button>
                             ${this.showSidebarActionsMenu ? `
                                 <div class="sidebar-actions-menu-overlay" data-sidebar-actions-menu-overlay></div>
-                                <div class="sidebar-actions-menu">
-                                    <button class="sidebar-actions-menu-item" data-open-session-modal><span class="sidebar-actions-menu-icon">+</span><span>New session</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-vault-modal><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-keepass-modal><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-settings-modal><span class="sidebar-actions-menu-icon">⚙</span><span>Settings</span></button>
+                                <div class="sidebar-actions-menu" id="${this.sidebarActionsMenuID}" data-sidebar-actions-menu role="menu">
+                                    <button class="sidebar-actions-menu-item" data-open-session-modal role="menuitem"><span class="sidebar-actions-menu-icon">+</span><span>New session</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-vault-modal role="menuitem"><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-keepass-modal role="menuitem"><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-modal role="menuitem"><span class="sidebar-actions-menu-icon">⚙</span><span>Settings</span></button>
                                 </div>
                             ` : ''}
                         </div>
@@ -2371,6 +2405,25 @@ class OpsyShell {
         this.errorMessage = message;
         if (message.trim()) {
             this.pushNotification('error', message);
+        }
+    }
+
+    private focusFirstSidebarActionsMenuItem(): void {
+        requestAnimationFrame(() => {
+            root?.querySelector<HTMLButtonElement>('.sidebar-actions-menu-item')?.focus();
+        });
+    }
+
+    private closeSidebarActionsMenu(focusTrigger = false): void {
+        if (!this.showSidebarActionsMenu) {
+            return;
+        }
+        this.showSidebarActionsMenu = false;
+        this.render();
+        if (focusTrigger) {
+            requestAnimationFrame(() => {
+                root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-actions-menu]')?.focus();
+            });
         }
     }
 
