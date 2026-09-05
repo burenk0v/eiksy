@@ -64,6 +64,7 @@ jobs:
         run: echo "WAILS_VERSION=$(tr -d '\r\n' < .github/wails-cli-version)" >> "$GITHUB_ENV"
 
       - name: Install Wails CLI
+        shell: bash
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
 
       - name: Add Go bin directory to PATH
