@@ -55,6 +55,13 @@ type RuntimeSessionView struct {
 	Description string `json:"description"`
 }
 
+const (
+	vaultAuthMethodToken   = "token"
+	vaultAuthMethodOIDC    = "oidc"
+	vaultAuthMethodOIDCSec = "oidc-sec"
+	vaultAuthMethodDomain  = "domain"
+)
+
 type Service struct {
 	ctx          context.Context
 	store        stateStore
@@ -450,19 +457,16 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 	if strings.TrimSpace(cfg.VaultMountPoint) == "" {
 		return nil, fmt.Errorf("vault mountpoint is not configured")
 	}
-	vaultToken, err := s.store.LoadSecret(securestorage.VaultTokenKey())
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(vaultToken) == "" {
-		return nil, fmt.Errorf("vault token is not configured")
-	}
 	parsed, err := url.Parse(strings.TrimSpace(cfg.VaultAddress))
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return nil, fmt.Errorf("vault address must be a valid http or https url")
 	}
+	token, err := s.resolveVaultAccessToken(parsed, cfg)
+	if err != nil {
+		return nil, err
+	}
 	if cfg.VaultAutoRenewToken {
-		if err := s.renewVaultToken(parsed, vaultToken); err != nil {
+		if err := s.renewVaultToken(parsed, token); err != nil {
 			s.EmitLog("warn", fmt.Sprintf("Vault token auto-renew failed: %v", err))
 		}
 	}
@@ -474,7 +478,7 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 	if err != nil {
 		return nil, fmt.Errorf("build vault request: %w", err)
 	}
-	req.Header.Set("X-Vault-Token", vaultToken)
+	req.Header.Set("X-Vault-Token", token)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -633,6 +637,77 @@ func (s *Service) renewVaultToken(baseURL *url.URL, token string) error {
 		return fmt.Errorf("vault token renewal returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
 	}
 	return nil
+}
+
+func (s *Service) resolveVaultAccessToken(baseURL *url.URL, cfg settings.AppSettings) (string, error) {
+	authMethod := normalizeVaultAuthMethod(cfg.VaultAuthMethod)
+	if authMethod == vaultAuthMethodToken {
+		token, err := s.store.LoadSecret(securestorage.VaultTokenKey())
+		if err != nil {
+			return "", err
+		}
+		token = strings.TrimSpace(token)
+		if token == "" {
+			return "", fmt.Errorf("vault token is not configured")
+		}
+		return token, nil
+	}
+
+	login := strings.TrimSpace(cfg.VaultLogin)
+	if login == "" {
+		return "", fmt.Errorf("vault login is not configured")
+	}
+	password, err := s.store.LoadSecret(securestorage.VaultPasswordKey())
+	if err != nil {
+		return "", err
+	}
+	password = strings.TrimSpace(password)
+	if password == "" {
+		return "", fmt.Errorf("vault password is not configured")
+	}
+	return s.loginVault(baseURL, authMethod, login, password)
+}
+
+func (s *Service) loginVault(baseURL *url.URL, authMethod, login, password string) (string, error) {
+	endpoint := strings.TrimRight(baseURL.String(), "/") + "/v1/auth/" + authMethod + "/login/" + url.PathEscape(login)
+	payload, err := json.Marshal(map[string]string{"password": password})
+	if err != nil {
+		return "", fmt.Errorf("build vault login payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodPost, endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return "", fmt.Errorf("build vault login request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("vault login failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read vault login response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("vault login returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var parsed struct {
+		Auth struct {
+			ClientToken string `json:"client_token"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return "", fmt.Errorf("parse vault login response: %w", err)
+	}
+	token := strings.TrimSpace(parsed.Auth.ClientToken)
+	if token == "" {
+		return "", fmt.Errorf("vault login response missing client token")
+	}
+	return token, nil
 }
 
 func (s *Service) SelectAIProvider(providerID string) error {
@@ -795,6 +870,13 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.VaultProvider != "vault" && updated.VaultProvider != "keepass" {
 		updated.VaultProvider = settings.DefaultVaultProvider
 	}
+	if strings.TrimSpace(updated.VaultAuthMethod) == "" {
+		updated.VaultAuthMethod = current.VaultAuthMethod
+	}
+	updated.VaultAuthMethod = normalizeVaultAuthMethod(updated.VaultAuthMethod)
+	if strings.TrimSpace(updated.VaultLogin) == "" {
+		updated.VaultLogin = current.VaultLogin
+	}
 	if strings.TrimSpace(updated.KeePassPassword) != "" {
 		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {
 			return err
@@ -805,17 +887,38 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 			return err
 		}
 	}
+	if strings.TrimSpace(updated.VaultPassword) != "" {
+		if err := s.store.StoreSecret(securestorage.VaultPasswordKey(), strings.TrimSpace(updated.VaultPassword)); err != nil {
+			return err
+		}
+	}
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
+	updated.VaultLogin = strings.TrimSpace(updated.VaultLogin)
 	updated.KeePassDatabasePath = strings.TrimSpace(updated.KeePassDatabasePath)
 	updated.KeePassPassword = ""
 	updated.VaultToken = ""
+	updated.VaultPassword = ""
 	updated.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
 	updated.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
+	updated.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey())
 	updated.SSHForwardPorts = sanitizeForwardPorts(updated.SSHForwardPorts)
 	updated.SSHForwardHostID = strings.TrimSpace(updated.SSHForwardHostID)
 	updated.PortForwardRules = normalizeForwardRules(updated.PortForwardRules)
 	return s.store.UpdateSettings(updated)
+}
+
+func normalizeVaultAuthMethod(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case vaultAuthMethodOIDC:
+		return vaultAuthMethodOIDC
+	case vaultAuthMethodOIDCSec:
+		return vaultAuthMethodOIDCSec
+	case vaultAuthMethodDomain:
+		return vaultAuthMethodDomain
+	default:
+		return vaultAuthMethodToken
+	}
 }
 
 func (s *Service) DownloadLocalModel(ctx context.Context) error {
@@ -1318,9 +1421,11 @@ func cloneSessionProfile(profile sessions.Profile) sessions.Profile {
 func (s *Service) scrubSettingsForShell(appSettings settings.AppSettings) settings.AppSettings {
 	scrubbed := appSettings
 	scrubbed.VaultToken = ""
+	scrubbed.VaultPassword = ""
 	scrubbed.KeePassPassword = ""
 	scrubbed.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
 	scrubbed.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
+	scrubbed.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey())
 	return scrubbed
 }
 

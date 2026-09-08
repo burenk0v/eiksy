@@ -226,7 +226,14 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	}
 	service := app.NewService(store, nil, nil, nil)
 
-	cfg := settings.AppSettings{VaultAddress: "https://vault.example.com", VaultProvider: "vault", VaultToken: "vault-token"}
+	cfg := settings.AppSettings{
+		VaultAddress:    "https://vault.example.com",
+		VaultProvider:   "vault",
+		VaultAuthMethod: "domain",
+		VaultLogin:      "CORP\\ops",
+		VaultToken:      "vault-token",
+		VaultPassword:   "vault-password",
+	}
 	if err := service.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
@@ -236,5 +243,11 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	}
 	if stored.VaultToken != "" {
 		t.Fatalf("vault token must be scrubbed from shell state, got %q", stored.VaultToken)
+	}
+	if !stored.HasVaultPassword {
+		t.Fatal("expected shell settings to advertise encrypted vault password")
+	}
+	if stored.VaultPassword != "" {
+		t.Fatalf("vault password must be scrubbed from shell state, got %q", stored.VaultPassword)
 	}
 }

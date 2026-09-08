@@ -338,6 +338,62 @@ func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
 	}
 }
 
+func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
+	var loginCalls int
+	var listCalls int
+	var listedWithToken string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/oidc-sec/login/CORP\\alice":
+			loginCalls++
+			if r.Method != http.MethodPost {
+				t.Fatalf("expected login POST, got %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"auth":{"client_token":"dynamic-token"}}`))
+		case "/v1/secret/metadata/team":
+			listCalls++
+			listedWithToken = r.Header.Get("X-Vault-Token")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := memory.NewStore()
+	cfg := store.Settings()
+	cfg.VaultAddress = server.URL
+	cfg.VaultMountPoint = "secret"
+	cfg.VaultAuthMethod = "oidc-sec"
+	cfg.VaultLogin = `CORP\alice`
+	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-pass"); err != nil {
+		t.Fatalf("store vault password: %v", err)
+	}
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	service := NewService(store, nil, nil, nil)
+	entries, err := service.ListVaultSecrets("team")
+	if err != nil {
+		t.Fatalf("list vault secrets: %v", err)
+	}
+	if loginCalls != 1 {
+		t.Fatalf("expected 1 login call, got %d", loginCalls)
+	}
+	if listCalls != 1 {
+		t.Fatalf("expected 1 list call, got %d", listCalls)
+	}
+	if listedWithToken != "dynamic-token" {
+		t.Fatalf("expected listed token to be dynamic-token, got %q", listedWithToken)
+	}
+	if len(entries) != 1 || entries[0].Name != "prod" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil, nil)
 
@@ -403,6 +459,39 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 	}
 	if password != "keepass-secret" {
 		t.Fatalf("expected keepass password to persist, got %q", password)
+	}
+}
+
+func TestUpdateSettingsVaultPasswordPersistsOnBlankUpdate(t *testing.T) {
+	store := memory.NewStore()
+	service := NewService(store, nil, nil, nil)
+
+	initial := store.Settings()
+	initial.VaultAuthMethod = "domain"
+	initial.VaultLogin = "CORP\\ops"
+	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-secret"); err != nil {
+		t.Fatalf("store vault password: %v", err)
+	}
+	if err := store.UpdateSettings(initial); err != nil {
+		t.Fatalf("seed settings: %v", err)
+	}
+
+	updated := store.Settings()
+	updated.VaultPassword = ""
+	if err := service.UpdateSettings(updated); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	reloaded := store.Settings()
+	if !reloaded.HasVaultPassword {
+		t.Fatal("expected vault password flag to persist")
+	}
+	password, err := store.LoadSecret(securestorage.VaultPasswordKey())
+	if err != nil {
+		t.Fatalf("load vault password: %v", err)
+	}
+	if password != "vault-secret" {
+		t.Fatalf("expected vault password to persist, got %q", password)
 	}
 }
 

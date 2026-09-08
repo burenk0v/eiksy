@@ -16,6 +16,10 @@ func KeePassPasswordKey() string {
 	return "settings:keepass-password"
 }
 
+func VaultPasswordKey() string {
+	return "settings:vault-password"
+}
+
 func AIProviderTokenKey(providerID string) string {
 	return "ai-provider-token:" + providerID
 }

@@ -8,6 +8,7 @@ type WindowLayout struct {
 const (
 	DefaultVaultMountPoint = "secret"
 	DefaultVaultProvider   = "vault"
+	DefaultVaultAuthMethod = "token"
 )
 
 // PortForwardRule describes a single SSH local-port-forwarding rule.
@@ -33,10 +34,14 @@ type AppSettings struct {
 	VaultAddress        string            `json:"vaultAddress"`
 	VaultMountPoint     string            `json:"vaultMountPoint"`
 	VaultAutoRenewToken bool              `json:"vaultAutoRenewToken"`
+	VaultAuthMethod     string            `json:"vaultAuthMethod"`
+	VaultLogin          string            `json:"vaultLogin"`
 	VaultProvider       string            `json:"vaultProvider"`
 	KeePassDatabasePath string            `json:"keepassDatabasePath"`
 	KeePassPassword     string            `json:"-"`
 	VaultToken          string            `json:"-"`
+	VaultPassword       string            `json:"-"`
 	HasKeePassPassword  bool              `json:"hasKeePassPassword"`
 	HasVaultToken       bool              `json:"hasVaultToken"`
+	HasVaultPassword    bool              `json:"hasVaultPassword"`
 }
