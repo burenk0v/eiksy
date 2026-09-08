@@ -836,11 +836,15 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.VaultProvider != "vault" && updated.VaultProvider != "keepass" {
 		updated.VaultProvider = settings.DefaultVaultProvider
 	}
-	if strings.TrimSpace(updated.KeePassPassword) == "" {
-		updated.KeePassPassword = current.KeePassPassword
+	if strings.TrimSpace(updated.KeePassPassword) != "" {
+		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(updated.VaultToken) == "" {
-		updated.VaultToken = current.VaultToken
+	if strings.TrimSpace(updated.VaultToken) != "" {
+		if err := s.store.StoreSecret(securestorage.VaultTokenKey(), strings.TrimSpace(updated.VaultToken)); err != nil {
+			return err
+		}
 	}
 	if strings.TrimSpace(updated.KeePassPassword) != "" {
 		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {

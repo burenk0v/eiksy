@@ -49,7 +49,7 @@ type persistedSettings struct {
 	settings.AppSettings
 	VaultToken      string                     `json:"vaultToken,omitempty"`
 	KeePassPassword string                     `json:"keepassPassword,omitempty"`
-	AIState *persistedAIWorkspaceState `json:"aiState,omitempty"`
+	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
 
 type persistedAIWorkspaceState struct {
@@ -830,19 +830,19 @@ func legacySessionDerivedKey() []byte {
 
 func (p persistedSessionProfile) toProfile() sessions.Profile {
 	return sessions.Profile{
-		ID:               p.ID,
-		Name:             p.Name,
-		Group:            p.Group,
-		Tags:             append([]string(nil), p.Tags...),
-		Favorite:         p.Favorite,
-		ProtocolID:       p.ProtocolID,
-		Host:             p.Host,
-		Port:             p.Port,
-		Username:         p.Username,
-		Password:         sessions.EncryptedString(decodeLegacySessionSecret(p.Password)),
-		KeyPassphrase:    sessions.EncryptedString(decodeLegacySessionSecret(p.KeyPassphrase)),
-		SecretRef:        p.SecretRef,
-		Options:          cloneProfileOptions(p.Options),
-		LastLaunchedAt:   p.LastLaunchedAt,
+		ID:             p.ID,
+		Name:           p.Name,
+		Group:          p.Group,
+		Tags:           append([]string(nil), p.Tags...),
+		Favorite:       p.Favorite,
+		ProtocolID:     p.ProtocolID,
+		Host:           p.Host,
+		Port:           p.Port,
+		Username:       p.Username,
+		Password:       sessions.EncryptedString(decodeLegacySessionSecret(p.Password)),
+		KeyPassphrase:  sessions.EncryptedString(decodeLegacySessionSecret(p.KeyPassphrase)),
+		SecretRef:      p.SecretRef,
+		Options:        cloneProfileOptions(p.Options),
+		LastLaunchedAt: p.LastLaunchedAt,
 	}
 }
