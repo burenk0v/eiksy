@@ -159,9 +159,11 @@ func (s *Store) UpdateSettings(updated settings.AppSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	updated.VaultToken = ""
+	updated.VaultPassword = ""
 	updated.KeePassPassword = ""
 	updated.HasVaultToken = s.secretExistsLocked(securestorage.VaultTokenKey())
 	updated.HasKeePassPassword = s.secretExistsLocked(securestorage.KeePassPasswordKey())
+	updated.HasVaultPassword = s.secretExistsLocked(securestorage.VaultPasswordKey())
 	s.settings = updated
 	return nil
 }
@@ -394,6 +396,7 @@ func defaultSettings() settings.AppSettings {
 		SSHConfigAutoLoaded: false,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultAuthMethod:     settings.DefaultVaultAuthMethod,
 		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }

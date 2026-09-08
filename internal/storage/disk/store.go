@@ -243,9 +243,11 @@ func (s *Store) UpdateSettings(updated settings.AppSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	updated.VaultToken = ""
+	updated.VaultPassword = ""
 	updated.KeePassPassword = ""
 	updated.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
 	updated.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
+	updated.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
 	s.settings = updated
 	return s.saveSettings()
 }
@@ -445,9 +447,18 @@ func (s *Store) loadSettings() error {
 	if loaded.VaultProvider != "vault" && loaded.VaultProvider != "keepass" {
 		loaded.VaultProvider = defaults.VaultProvider
 	}
+	switch strings.ToLower(strings.TrimSpace(loaded.VaultAuthMethod)) {
+	case "oidc", "oidc-sec", "domain":
+		loaded.VaultAuthMethod = strings.ToLower(strings.TrimSpace(loaded.VaultAuthMethod))
+	default:
+		loaded.VaultAuthMethod = settings.DefaultVaultAuthMethod
+	}
+	loaded.VaultLogin = strings.TrimSpace(loaded.VaultLogin)
 	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
 	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey()) || loaded.VaultToken != ""
 	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey()) || loaded.KeePassPassword != ""
+	loaded.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
+	loaded.VaultPassword = ""
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
@@ -520,6 +531,7 @@ func (s *Store) EnsureMasterPassword(password string) error {
 	}
 	s.settings.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
 	s.settings.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
+	s.settings.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
 	for id, profile := range s.sessionProfiles {
 		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(id))
 		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(id))
@@ -610,6 +622,7 @@ func defaultSettings() settings.AppSettings {
 		SSHConfigAutoLoaded: false,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultAuthMethod:     settings.DefaultVaultAuthMethod,
 		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }
@@ -650,6 +663,7 @@ func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) per
 		AppSettings: app,
 	}
 	persisted.AppSettings.VaultToken = ""
+	persisted.AppSettings.VaultPassword = ""
 	persisted.AppSettings.KeePassPassword = ""
 	persisted.AIState = aiStateToPersisted(state)
 	return persisted
