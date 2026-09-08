@@ -43,7 +43,7 @@ type Store struct {
 
 type persistedSettings struct {
 	settings.AppSettings
-	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
+	AIState *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
 
 type persistedAIWorkspaceState struct {
