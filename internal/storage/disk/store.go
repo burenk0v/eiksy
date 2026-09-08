@@ -1,10 +1,6 @@
 package disk
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,9 +43,7 @@ type Store struct {
 
 type persistedSettings struct {
 	settings.AppSettings
-	VaultToken      string                     `json:"vaultToken,omitempty"`
-	KeePassPassword string                     `json:"keepassPassword,omitempty"`
-	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
+	AIState *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
 
 type persistedAIWorkspaceState struct {
@@ -69,25 +63,7 @@ type persistedAIProviderDescriptor struct {
 	Command    string           `json:"command,omitempty"`
 	Status     string           `json:"status"`
 	Selected   bool             `json:"selected"`
-	Token      string           `json:"token,omitempty"`
 	Configured bool             `json:"configured"`
-}
-
-type persistedSessionProfile struct {
-	ID             string            `json:"id"`
-	Name           string            `json:"name"`
-	Group          string            `json:"group"`
-	Tags           []string          `json:"tags"`
-	Favorite       bool              `json:"favorite"`
-	ProtocolID     string            `json:"protocolId"`
-	Host           string            `json:"host"`
-	Port           int               `json:"port"`
-	Username       string            `json:"username"`
-	Password       string            `json:"password,omitempty"`
-	KeyPassphrase  string            `json:"keyPassphrase,omitempty"`
-	SecretRef      string            `json:"secretRef,omitempty"`
-	Options        map[string]string `json:"options,omitempty"`
-	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
 }
 
 func NewStore() (*Store, error) {
@@ -383,7 +359,7 @@ func (s *Store) loadSessionProfiles() error {
 	if len(strings.TrimSpace(string(content))) == 0 {
 		return nil
 	}
-	var profiles []persistedSessionProfile
+	var profiles []sessions.Profile
 	if err := json.Unmarshal(content, &profiles); err != nil {
 		if renameErr := os.Rename(s.sessionsPath, s.sessionsPath+".fail"); renameErr != nil {
 			return fmt.Errorf("decode sessions file: %w (also failed to rename: %v)", err, renameErr)
@@ -394,9 +370,9 @@ func (s *Store) loadSessionProfiles() error {
 		return nil
 	}
 	for _, persisted := range profiles {
-		profile := cloneProfile(persisted.toProfile())
-		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID)) || strings.TrimSpace(string(profile.Password)) != ""
-		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID)) || strings.TrimSpace(string(profile.KeyPassphrase)) != ""
+		profile := cloneProfile(persisted)
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
+		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID))
 		s.sessionProfiles[profile.ID] = profile
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
 	}
@@ -423,8 +399,6 @@ func (s *Store) loadSettings() error {
 		return s.saveSettings()
 	}
 	loaded = persisted.AppSettings
-	loaded.VaultToken = strings.TrimSpace(persisted.VaultToken)
-	loaded.KeePassPassword = strings.TrimSpace(persisted.KeePassPassword)
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
 		loaded.Theme = defaults.Theme
@@ -455,10 +429,9 @@ func (s *Store) loadSettings() error {
 	}
 	loaded.VaultLogin = strings.TrimSpace(loaded.VaultLogin)
 	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
-	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey()) || loaded.VaultToken != ""
-	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey()) || loaded.KeePassPassword != ""
+	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
+	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
 	loaded.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
-	loaded.VaultPassword = ""
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
@@ -525,10 +498,6 @@ func (s *Store) EnsureMasterPassword(password string) error {
 		return err
 	}
 	s.mu.Lock()
-	if err := s.migrateLoadedLegacySecretsLocked(); err != nil {
-		s.mu.Unlock()
-		return err
-	}
 	s.settings.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
 	s.settings.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
 	s.settings.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
@@ -662,9 +631,6 @@ func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) per
 	persisted := persistedSettings{
 		AppSettings: app,
 	}
-	persisted.AppSettings.VaultToken = ""
-	persisted.AppSettings.VaultPassword = ""
-	persisted.AppSettings.KeePassPassword = ""
 	persisted.AIState = aiStateToPersisted(state)
 	return persisted
 }
@@ -703,7 +669,6 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 			Command:    provider.Command,
 			Status:     provider.Status,
 			Selected:   provider.Selected,
-			Token:      "",
 			Configured: provider.Configured,
 		})
 	}
@@ -728,135 +693,8 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 			Command:    provider.Command,
 			Status:     provider.Status,
 			Selected:   provider.Selected,
-			Token:      strings.TrimSpace(provider.Token),
 			Configured: provider.Configured,
 		})
 	}
 	return state
-}
-
-func (s *Store) migrateLoadedLegacySecretsLocked() error {
-	migratedSettings := false
-	if strings.TrimSpace(s.settings.VaultToken) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.VaultTokenKey(), strings.TrimSpace(s.settings.VaultToken)); err != nil {
-			return err
-		}
-		s.settings.VaultToken = ""
-		migratedSettings = true
-	}
-	if strings.TrimSpace(s.settings.KeePassPassword) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(s.settings.KeePassPassword)); err != nil {
-			return err
-		}
-		s.settings.KeePassPassword = ""
-		migratedSettings = true
-	}
-	for i := range s.aiState.Providers {
-		if strings.TrimSpace(s.aiState.Providers[i].Token) == "" {
-			continue
-		}
-		if err := s.secretManager.StoreSecret(securestorage.AIProviderTokenKey(s.aiState.Providers[i].ID), strings.TrimSpace(s.aiState.Providers[i].Token)); err != nil {
-			return err
-		}
-		s.aiState.Providers[i].Token = ""
-		migratedSettings = true
-	}
-	if migratedSettings {
-		if err := s.saveSettings(); err != nil {
-			return err
-		}
-	}
-
-	migratedProfiles := false
-	for id, profile := range s.sessionProfiles {
-		if strings.TrimSpace(string(profile.Password)) == "" && strings.TrimSpace(string(profile.KeyPassphrase)) == "" {
-			continue
-		}
-		if err := s.persistProfileSecrets(profile); err != nil {
-			return err
-		}
-		profile.Password = ""
-		profile.KeyPassphrase = ""
-		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(id))
-		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(id))
-		s.sessionProfiles[id] = profile
-		migratedProfiles = true
-	}
-	if migratedProfiles {
-		if err := s.saveSessionProfilesLocked(); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func cloneProfileOptions(options map[string]string) map[string]string {
-	if options == nil {
-		return nil
-	}
-	cloned := make(map[string]string, len(options))
-	for key, value := range options {
-		cloned[key] = value
-	}
-	return cloned
-}
-
-func decodeLegacySessionSecret(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if plaintext, err := decryptLegacySessionSecret(value); err == nil {
-		return plaintext
-	}
-	return value
-}
-
-func decryptLegacySessionSecret(encoded string) (string, error) {
-	data, err := base64.StdEncoding.DecodeString(encoded)
-	if err != nil {
-		return "", err
-	}
-	block, err := aes.NewCipher(legacySessionDerivedKey())
-	if err != nil {
-		return "", err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return "", err
-	}
-	nonceSize := gcm.NonceSize()
-	if len(data) < nonceSize {
-		return "", fmt.Errorf("ciphertext too short")
-	}
-	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
-	if err != nil {
-		return "", err
-	}
-	return string(plaintext), nil
-}
-
-func legacySessionDerivedKey() []byte {
-	sum := sha256.Sum256([]byte("zg4ewf1u"))
-	return sum[:]
-}
-
-func (p persistedSessionProfile) toProfile() sessions.Profile {
-	return sessions.Profile{
-		ID:             p.ID,
-		Name:           p.Name,
-		Group:          p.Group,
-		Tags:           append([]string(nil), p.Tags...),
-		Favorite:       p.Favorite,
-		ProtocolID:     p.ProtocolID,
-		Host:           p.Host,
-		Port:           p.Port,
-		Username:       p.Username,
-		Password:       sessions.EncryptedString(decodeLegacySessionSecret(p.Password)),
-		KeyPassphrase:  sessions.EncryptedString(decodeLegacySessionSecret(p.KeyPassphrase)),
-		SecretRef:      p.SecretRef,
-		Options:        cloneProfileOptions(p.Options),
-		LastLaunchedAt: p.LastLaunchedAt,
-	}
 }
