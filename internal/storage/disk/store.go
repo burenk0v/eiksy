@@ -48,6 +48,7 @@ type Store struct {
 type persistedSettings struct {
 	settings.AppSettings
 	VaultToken      string                     `json:"vaultToken,omitempty"`
+	VaultPassword   string                     `json:"vaultPassword,omitempty"`
 	KeePassPassword string                     `json:"keepassPassword,omitempty"`
 	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
@@ -424,6 +425,7 @@ func (s *Store) loadSettings() error {
 	}
 	loaded = persisted.AppSettings
 	loaded.VaultToken = strings.TrimSpace(persisted.VaultToken)
+	loaded.VaultPassword = strings.TrimSpace(persisted.VaultPassword)
 	loaded.KeePassPassword = strings.TrimSpace(persisted.KeePassPassword)
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
@@ -457,7 +459,7 @@ func (s *Store) loadSettings() error {
 	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
 	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey()) || loaded.VaultToken != ""
 	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey()) || loaded.KeePassPassword != ""
-	loaded.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
+	loaded.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey()) || loaded.VaultPassword != ""
 	loaded.VaultPassword = ""
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
@@ -749,6 +751,13 @@ func (s *Store) migrateLoadedLegacySecretsLocked() error {
 			return err
 		}
 		s.settings.KeePassPassword = ""
+		migratedSettings = true
+	}
+	if strings.TrimSpace(s.settings.VaultPassword) != "" {
+		if err := s.secretManager.StoreSecret(securestorage.VaultPasswordKey(), strings.TrimSpace(s.settings.VaultPassword)); err != nil {
+			return err
+		}
+		s.settings.VaultPassword = ""
 		migratedSettings = true
 	}
 	for i := range s.aiState.Providers {

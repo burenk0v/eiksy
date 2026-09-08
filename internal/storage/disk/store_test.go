@@ -76,6 +76,7 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	cfg.KeePassDatabasePath = "/tmp/keepass.kdbx"
 	cfg.KeePassPassword = "keepass-secret"
 	cfg.VaultToken = "vault-secret-token"
+	cfg.VaultPassword = "vault-login-password"
 	if err := service.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
@@ -104,7 +105,7 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read settings file: %v", err)
 	}
-	if strings.Contains(string(rawSettings), "vault-secret-token") || strings.Contains(string(rawSettings), "keepass-secret") || strings.Contains(string(rawSettings), "ai-secret-token") {
+	if strings.Contains(string(rawSettings), "vault-secret-token") || strings.Contains(string(rawSettings), "vault-login-password") || strings.Contains(string(rawSettings), "keepass-secret") || strings.Contains(string(rawSettings), "ai-secret-token") {
 		t.Fatalf("settings.json must not contain plaintext secrets: %s", rawSettings)
 	}
 	var persistedSettings map[string]any
@@ -113,6 +114,9 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	}
 	if _, ok := persistedSettings["vaultToken"]; ok {
 		t.Fatalf("vault token must not be serialized to settings.json")
+	}
+	if _, ok := persistedSettings["vaultPassword"]; ok {
+		t.Fatalf("vault password must not be serialized to settings.json")
 	}
 	if _, ok := persistedSettings["keepassPassword"]; ok {
 		t.Fatalf("keepass password must not be serialized to settings.json")
@@ -162,12 +166,12 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 			t.Fatalf("scan secret row: %v", err)
 		}
 		names = append(names, name)
-		if strings.Contains(value, "vault-secret-token") || strings.Contains(value, "keepass-secret") || strings.Contains(value, "ai-secret-token") || strings.Contains(value, "session-password") || strings.Contains(value, "ssh-key-passphrase") {
+		if strings.Contains(value, "vault-secret-token") || strings.Contains(value, "vault-login-password") || strings.Contains(value, "keepass-secret") || strings.Contains(value, "ai-secret-token") || strings.Contains(value, "session-password") || strings.Contains(value, "ssh-key-passphrase") {
 			t.Fatalf("secret row %q contains plaintext payload: %s", name, value)
 		}
 	}
-	if len(names) != 4 {
-		t.Fatalf("expected 4 encrypted secrets, got %d (%v)", len(names), names)
+	if len(names) != 5 {
+		t.Fatalf("expected 5 encrypted secrets, got %d (%v)", len(names), names)
 	}
 
 	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
@@ -196,6 +200,13 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	}
 	if keepassPassword != "keepass-secret" {
 		t.Fatalf("expected reloaded keepass password, got %q", keepassPassword)
+	}
+	vaultPassword, err := reloaded.LoadSecret(securestorage.VaultPasswordKey())
+	if err != nil {
+		t.Fatalf("load reloaded vault password: %v", err)
+	}
+	if vaultPassword != "vault-login-password" {
+		t.Fatalf("expected reloaded vault password, got %q", vaultPassword)
 	}
 	aiToken, err := reloaded.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"))
 	if err != nil {
@@ -266,6 +277,7 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 		"vaultMountPoint":     "secret",
 		"vaultProvider":       "vault",
 		"vaultToken":          "legacy-vault-token",
+		"vaultPassword":       "legacy-vault-password",
 		"keepassPassword":     "legacy-keepass-password",
 		"keepassDatabasePath": "/tmp/legacy.kdbx",
 		"aiState": map[string]any{
@@ -341,7 +353,7 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 	service := app.NewService(store, nil, nil, nil)
 
 	shell := service.GetShellState()
-	if !shell.Settings.HasVaultToken || !shell.Settings.HasKeePassPassword {
+	if !shell.Settings.HasVaultToken || !shell.Settings.HasKeePassPassword || !shell.Settings.HasVaultPassword {
 		t.Fatalf("expected legacy settings secrets to be advertised, got %+v", shell.Settings)
 	}
 	if !shell.AI.Providers[0].HasToken {
@@ -371,6 +383,9 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 	if secret, err := store.LoadSecret(securestorage.KeePassPasswordKey()); err != nil || secret != "legacy-keepass-password" {
 		t.Fatalf("expected migrated keepass password, got %q err=%v", secret, err)
 	}
+	if secret, err := store.LoadSecret(securestorage.VaultPasswordKey()); err != nil || secret != "legacy-vault-password" {
+		t.Fatalf("expected migrated vault password, got %q err=%v", secret, err)
+	}
 	if secret, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); err != nil || secret != "legacy-ai-token" {
 		t.Fatalf("expected migrated ai token, got %q err=%v", secret, err)
 	}
@@ -385,7 +400,7 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrated settings: %v", err)
 	}
-	if strings.Contains(string(rawSettings), "legacy-vault-token") || strings.Contains(string(rawSettings), "legacy-keepass-password") || strings.Contains(string(rawSettings), "legacy-ai-token") {
+	if strings.Contains(string(rawSettings), "legacy-vault-token") || strings.Contains(string(rawSettings), "legacy-vault-password") || strings.Contains(string(rawSettings), "legacy-keepass-password") || strings.Contains(string(rawSettings), "legacy-ai-token") {
 		t.Fatalf("expected migrated settings.json to be scrubbed, got %s", rawSettings)
 	}
 	rawSessions, err := os.ReadFile(filepath.Join(baseDir, "sessions.json"))
