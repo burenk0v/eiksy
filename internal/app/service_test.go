@@ -321,7 +321,7 @@ func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
 	var listedWithToken string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/auth/oidc-sec/login/CORP%5Calice":
+		case "/v1/auth/oidc-sec/login/CORP\\alice":
 			loginCalls++
 			if r.Method != http.MethodPost {
 				t.Fatalf("expected login POST, got %s", r.Method)
