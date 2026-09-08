@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -506,6 +507,54 @@ func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
 	}
 	if listedWithToken != "dynamic-token" {
 		t.Fatalf("expected listed token to be dynamic-token, got %q", listedWithToken)
+	}
+	if len(entries) != 1 || entries[0].Name != "prod" {
+		t.Fatalf("unexpected entries: %#v", entries)
+	}
+}
+
+func TestListVaultSecretsFallsBackToLoadedVaultPassword(t *testing.T) {
+	var loginCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/auth/domain/login/CORP\\alice":
+			loginCalls++
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read login body: %v", err)
+			}
+			if !strings.Contains(string(body), `"password":"legacy-pass"`) {
+				t.Fatalf("expected legacy password in login body, got %s", body)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"auth":{"client_token":"dynamic-token"}}`))
+		case "/v1/secret/metadata/team":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	store := memory.NewStore()
+	cfg := store.Settings()
+	cfg.VaultAddress = server.URL
+	cfg.VaultMountPoint = "secret"
+	cfg.VaultAuthMethod = "domain"
+	cfg.VaultLogin = `CORP\alice`
+	cfg.VaultPassword = "legacy-pass"
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+
+	service := NewService(store, nil, nil, nil)
+	entries, err := service.ListVaultSecrets("team")
+	if err != nil {
+		t.Fatalf("list vault secrets: %v", err)
+	}
+	if loginCalls != 1 {
+		t.Fatalf("expected 1 login call, got %d", loginCalls)
 	}
 	if len(entries) != 1 || entries[0].Name != "prod" {
 		t.Fatalf("unexpected entries: %#v", entries)

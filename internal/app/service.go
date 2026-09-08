@@ -685,10 +685,13 @@ func (s *Service) resolveVaultAccessToken(baseURL *url.URL, cfg settings.AppSett
 		return "", fmt.Errorf("vault login is not configured")
 	}
 	password, err := s.store.LoadSecret(securestorage.VaultPasswordKey())
-	if err != nil {
+	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return "", err
 	}
 	password = strings.TrimSpace(password)
+	if password == "" {
+		password = strings.TrimSpace(cfg.VaultPassword)
+	}
 	if password == "" {
 		return "", fmt.Errorf("vault password is not configured")
 	}
@@ -1477,7 +1480,7 @@ func (s *Service) scrubSettingsForShell(appSettings settings.AppSettings) settin
 	scrubbed.KeePassPassword = ""
 	scrubbed.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey()) || strings.TrimSpace(appSettings.VaultToken) != ""
 	scrubbed.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey()) || strings.TrimSpace(appSettings.KeePassPassword) != ""
-	scrubbed.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey())
+	scrubbed.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey()) || strings.TrimSpace(appSettings.VaultPassword) != ""
 	return scrubbed
 }
 
