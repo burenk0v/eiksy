@@ -460,7 +460,6 @@ func (s *Store) loadSettings() error {
 	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey()) || loaded.VaultToken != ""
 	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey()) || loaded.KeePassPassword != ""
 	loaded.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey()) || loaded.VaultPassword != ""
-	loaded.VaultPassword = ""
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
