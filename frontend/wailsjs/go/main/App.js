@@ -42,6 +42,10 @@ export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
 
+export function GetCloudProviderAuthSession(arg1) {
+  return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
+}
+
 export function ImportSSHConfig(arg1) {
   return window['go']['main']['App']['ImportSSHConfig'](arg1);
 }
@@ -112,6 +116,10 @@ export function SelectUploadFiles() {
 
 export function StartLocalModel() {
   return window['go']['main']['App']['StartLocalModel']();
+}
+
+export function StartCloudProviderAuth(arg1) {
+  return window['go']['main']['App']['StartCloudProviderAuth'](arg1);
 }
 
 export function UploadSFTPFiles(arg1, arg2, arg3) {

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"opsy/internal/domain/ai"
@@ -54,6 +55,15 @@ type RuntimeSessionView struct {
 	Description string `json:"description"`
 }
 
+type CloudProviderAuthSession struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	AuthURL  string `json:"authUrl,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
 type Service struct {
 	ctx          context.Context
 	store        stateStore
@@ -62,6 +72,8 @@ type Service struct {
 	sftpManager  sftpManager
 	httpClient   *http.Client
 	emitFn       func(eventName string, data ...interface{})
+	authMu       sync.Mutex
+	cloudAuth    *cloudAuthSession
 }
 
 type stateStore interface {

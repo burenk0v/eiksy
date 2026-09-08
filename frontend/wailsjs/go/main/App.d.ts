@@ -24,6 +24,8 @@ export function DownloadLocalModelWithProgress():Promise<void>;
 
 export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
+export function GetCloudProviderAuthSession(arg1:string):Promise<app.CloudProviderAuthSession>;
+
 export function GetShellState():Promise<app.ShellState>;
 
 export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
@@ -61,6 +63,8 @@ export function SelectDownloadDirectory():Promise<string>;
 export function SelectUploadFiles():Promise<Array<string>>;
 
 export function StartLocalModel():Promise<void>;
+
+export function StartCloudProviderAuth(arg1:string):Promise<app.CloudProviderAuthSession>;
 
 export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
