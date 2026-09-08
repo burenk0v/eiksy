@@ -463,14 +463,17 @@ class OpsyShell {
             this.render();
         });
 
-        root?.querySelector<HTMLButtonElement>('[data-open-settings-modal]')?.addEventListener('click', () => {
-            this.closeSidebarActionsMenu();
-            this.showSettingsModal = true;
-            this.initializeSettingsDrafts();
-            this.render();
-            if (this.settingsTab === 'ai') {
-                void this.loadCloudModels(false);
-            }
+        root?.querySelectorAll<HTMLButtonElement>('[data-open-settings-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.closeSidebarActionsMenu();
+                this.settingsTab = (button.dataset.openSettingsTab as SettingsTab) ?? 'ai';
+                this.showSettingsModal = true;
+                this.initializeSettingsDrafts();
+                this.render();
+                if (this.settingsTab === 'ai') {
+                    void this.loadCloudModels(false);
+                }
+            });
         });
         root?.querySelector<HTMLButtonElement>('[data-toggle-sidebar-actions-menu]')?.addEventListener('click', () => {
             this.showSidebarActionsMenu = !this.showSidebarActionsMenu;
@@ -548,15 +551,6 @@ class OpsyShell {
             });
         });
 
-        root?.querySelectorAll<HTMLButtonElement>('[data-settings-tab]').forEach((button) => {
-            button.addEventListener('click', () => {
-                this.settingsTab = (button.dataset.settingsTab as SettingsTab) ?? 'ai';
-                this.render();
-                if (this.settingsTab === 'ai') {
-                    void this.loadCloudModels(false);
-                }
-            });
-        });
         root?.querySelectorAll<HTMLButtonElement>('[data-vault-modal-tab]').forEach((button) => {
             button.addEventListener('click', () => {
                 this.vaultModalTab = (button.dataset.vaultModalTab as SecretsModalTab) ?? 'browser';
@@ -1574,7 +1568,11 @@ class OpsyShell {
                                     <button class="sidebar-actions-menu-item" data-open-session-modal role="menuitem"><span class="sidebar-actions-menu-icon">+</span><span>New session</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-vault-modal role="menuitem"><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-keepass-modal role="menuitem"><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-settings-modal role="menuitem"><span class="sidebar-actions-menu-icon">⚙</span><span>Settings</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="ai" role="menuitem"><span class="sidebar-actions-menu-icon">🤖</span><span>AI settings</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="sshconfig" role="menuitem"><span class="sidebar-actions-menu-icon">📥</span><span>SSH Config import</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="portforward" role="menuitem"><span class="sidebar-actions-menu-icon">🔀</span><span>Port forwarding</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="theme" role="menuitem"><span class="sidebar-actions-menu-icon">🎨</span><span>Theme</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="about" role="menuitem"><span class="sidebar-actions-menu-icon">ℹ️</span><span>About</span></button>
                                 </div>
                             ` : ''}
                         </div>
@@ -2058,85 +2056,87 @@ class OpsyShell {
     }
 
     private renderSettingsModal(): string {
-        const tabs: Array<{ id: SettingsTab; label: string }> = [
-            { id: 'ai', label: 'AI' },
-            { id: 'sshconfig', label: 'SSH Config' },
-            { id: 'portforward', label: 'Port forwarding' },
-            { id: 'theme', label: 'Theme' },
-            { id: 'about', label: 'About' },
-        ];
+        const titleByTab: Record<SettingsTab, string> = {
+            ai: 'AI settings',
+            sshconfig: 'SSH Config import',
+            portforward: 'Port forwarding',
+            theme: 'Theme',
+            about: 'About',
+        };
         const currentYear = new Date().getFullYear();
         const sshProfiles = (this.shellState?.sessionProfiles ?? []).filter((profile) => profile.protocolId === 'ssh');
+        const settingsContentByTab: Record<SettingsTab, string> = {
+            ai: `
+                <div class="section-title">AI Provider</div>
+                ${this.renderProviderSetup()}
+            `,
+            sshconfig: `
+                <div class="section-title">Import SSH Config</div>
+                <div class="import-box">
+                    <label class="import-label" for="ssh-config-import">Paste SSH config block</label>
+                    <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
+                    <button class="action-button secondary" data-import-ssh-config>Import</button>
+                </div>
+            `,
+            portforward: `
+                <div class="section-title">Port forwarding rules</div>
+                ${this.renderPortForwardRules()}
+                <form class="provider-form" data-pf-add-form style="margin-top:0.5rem;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 160px 1fr auto;gap:0.5rem;align-items:end;">
+                        <label style="margin:0;"><span style="font-size:0.78rem;">Local port(s)</span><input type="text" name="pfLocalPort" value="${escapeHtml(this.pfNewLocalPort)}" placeholder="8080,9000-9005" /></label>
+                        <label style="margin:0;"><span style="font-size:0.78rem;">Remote host</span><input type="text" name="pfRemoteHost" value="${escapeHtml(this.pfNewRemoteHost)}" placeholder="db.internal" /></label>
+                        <label style="margin:0;"><span style="font-size:0.78rem;">Remote port</span><input type="number" name="pfRemotePort" min="1" max="65535" value="${escapeHtml(this.pfNewRemotePort)}" placeholder="5432" /></label>
+                        <label style="margin:0;"><span style="font-size:0.78rem;">Target SSH host</span>
+                            <select name="pfHostId">
+                                <option value="">Select host</option>
+                                ${sshProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${this.pfNewHostId === profile.id ? 'selected' : ''}>${escapeHtml(profile.name)} (${escapeHtml(profile.host)})</option>`).join('')}
+                            </select>
+                        </label>
+                        <button class="action-button" type="submit" style="align-self:flex-end;">Add rule</button>
+                    </div>
+                </form>
+            `,
+            theme: `
+                <div class="section-title">Appearance</div>
+                <div class="theme-toggle-row">
+                    <span>Theme</span>
+                    <div class="theme-switch">
+                        <button class="${this.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 Dark</button>
+                        <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
+                        <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
+                    </div>
+                </div>
+            `,
+            about: `
+                <div class="section-title">About</div>
+                <div class="about-panel">
+                    <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
+                    <p class="about-copy">${APP_METADATA.name}</p>
+                    <p class="about-copy">Version: ${APP_METADATA.version}</p>
+                    <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
+                    <p class="about-copy">License: ${APP_METADATA.license}</p>
+                    <p class="about-copy">${APP_METADATA.legalNotice}</p>
+                    <p class="about-copy about-links">
+                        <a href="${APP_METADATA.repositoryUrl}" target="_blank" rel="noopener noreferrer">GitHub</a>
+                        <span>•</span>
+                        <a href="${APP_METADATA.latestReleaseUrl}" target="_blank" rel="noopener noreferrer">Latest release</a>
+                    </p>
+                </div>
+            `,
+        };
         return `
             <div class="modal-overlay">
                 <div class="modal-dialog wide settings-dialog">
                     <div class="panel-header compact-header">
                         <div>
-                            <div class="eyebrow">Settings</div>
-                            <h2>Preferences</h2>
+                            <div class="eyebrow">Settings window</div>
+                            <h2>${titleByTab[this.settingsTab]}</h2>
                         </div>
                         <button class="icon-button" data-close-modal>×</button>
                     </div>
-                    <nav class="modal-tabs">
-                        ${tabs.map((t) => `<button class="modal-tab ${this.settingsTab === t.id ? 'active' : ''}" data-settings-tab="${t.id}">${t.label}</button>`).join('')}
-                    </nav>
                     <div class="modal-body">
-                        <div class="modal-tab-panel ${this.settingsTab === 'ai' ? 'active' : ''}">
-                            <div class="section-title">AI Provider</div>
-                            ${this.renderProviderSetup()}
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'sshconfig' ? 'active' : ''}">
-                            <div class="section-title">Import SSH Config</div>
-                            <div class="import-box">
-                                <label class="import-label" for="ssh-config-import">Paste SSH config block</label>
-                                <textarea id="ssh-config-import" data-ssh-config-import placeholder="Host prod&#10;  HostName prod.internal&#10;  User ops&#10;  ProxyJump bastion">${escapeHtml(this.sshConfigDraft)}</textarea>
-                                <button class="action-button secondary" data-import-ssh-config>Import</button>
-                            </div>
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'portforward' ? 'active' : ''}">
-                            <div class="section-title">Port forwarding rules</div>
-                            ${this.renderPortForwardRules()}
-                            <form class="provider-form" data-pf-add-form style="margin-top:0.5rem;">
-                                <div style="display:grid;grid-template-columns:1fr 1fr 160px 1fr auto;gap:0.5rem;align-items:end;">
-                                    <label style="margin:0;"><span style="font-size:0.78rem;">Local port(s)</span><input type="text" name="pfLocalPort" value="${escapeHtml(this.pfNewLocalPort)}" placeholder="8080,9000-9005" /></label>
-                                    <label style="margin:0;"><span style="font-size:0.78rem;">Remote host</span><input type="text" name="pfRemoteHost" value="${escapeHtml(this.pfNewRemoteHost)}" placeholder="db.internal" /></label>
-                                    <label style="margin:0;"><span style="font-size:0.78rem;">Remote port</span><input type="number" name="pfRemotePort" min="1" max="65535" value="${escapeHtml(this.pfNewRemotePort)}" placeholder="5432" /></label>
-                                    <label style="margin:0;"><span style="font-size:0.78rem;">Target SSH host</span>
-                                        <select name="pfHostId">
-                                            <option value="">Select host</option>
-                                            ${sshProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${this.pfNewHostId === profile.id ? 'selected' : ''}>${escapeHtml(profile.name)} (${escapeHtml(profile.host)})</option>`).join('')}
-                                        </select>
-                                    </label>
-                                    <button class="action-button" type="submit" style="align-self:flex-end;">Add rule</button>
-                                </div>
-                            </form>
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'theme' ? 'active' : ''}">
-                            <div class="section-title">Appearance</div>
-                            <div class="theme-toggle-row">
-                                <span>Theme</span>
-                                <div class="theme-switch">
-                                    <button class="${this.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 Dark</button>
-                                    <button class="${this.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀ Light</button>
-                                    <button class="${this.theme === 'green' ? 'active' : ''}" data-set-theme="green">🟢 Green</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="modal-tab-panel ${this.settingsTab === 'about' ? 'active' : ''}">
-                            <div class="section-title">About</div>
-                            <div class="about-panel">
-                                <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
-                                <p class="about-copy">${APP_METADATA.name}</p>
-                                <p class="about-copy">Version: ${APP_METADATA.version}</p>
-                                <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
-                                <p class="about-copy">License: ${APP_METADATA.license}</p>
-                                <p class="about-copy">${APP_METADATA.legalNotice}</p>
-                                <p class="about-copy about-links">
-                                    <a href="${APP_METADATA.repositoryUrl}" target="_blank" rel="noopener noreferrer">GitHub</a>
-                                    <span>•</span>
-                                    <a href="${APP_METADATA.latestReleaseUrl}" target="_blank" rel="noopener noreferrer">Latest release</a>
-                                </p>
-                            </div>
+                        <div class="modal-tab-panel active">
+                            ${settingsContentByTab[this.settingsTab]}
                         </div>
                     </div>
                 </div>
