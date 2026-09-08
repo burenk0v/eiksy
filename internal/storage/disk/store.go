@@ -42,6 +42,7 @@ type Store struct {
 type persistedSettings struct {
 	settings.AppSettings
 	VaultToken      string                     `json:"vaultToken,omitempty"`
+	VaultPassword   string                     `json:"vaultPassword,omitempty"`
 	KeePassPassword string                     `json:"keepassPassword,omitempty"`
 	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
@@ -363,6 +364,7 @@ func (s *Store) loadSettings() error {
 	}
 	loaded = persisted.AppSettings
 	loaded.VaultToken = persisted.VaultToken
+	loaded.VaultPassword = persisted.VaultPassword
 	loaded.KeePassPassword = persisted.KeePassPassword
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
@@ -386,11 +388,19 @@ func (s *Store) loadSettings() error {
 	if loaded.VaultProvider != "vault" && loaded.VaultProvider != "keepass" {
 		loaded.VaultProvider = defaults.VaultProvider
 	}
+	switch strings.ToLower(strings.TrimSpace(loaded.VaultAuthMethod)) {
+	case "oidc", "oidc-sec", "domain":
+		loaded.VaultAuthMethod = strings.ToLower(strings.TrimSpace(loaded.VaultAuthMethod))
+	default:
+		loaded.VaultAuthMethod = settings.DefaultVaultAuthMethod
+	}
+	loaded.VaultLogin = strings.TrimSpace(loaded.VaultLogin)
 	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
 	loaded.KeePassPassword = strings.TrimSpace(loaded.KeePassPassword)
 	if loaded.VaultToken == "" {
 		loaded.VaultToken = defaults.VaultToken
 	}
+	loaded.VaultPassword = strings.TrimSpace(loaded.VaultPassword)
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
@@ -470,6 +480,7 @@ func defaultSettings() settings.AppSettings {
 		SSHConfigAutoLoaded: false,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultAuthMethod:     settings.DefaultVaultAuthMethod,
 		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }
@@ -508,9 +519,11 @@ func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) per
 	persisted := persistedSettings{
 		AppSettings:     app,
 		VaultToken:      strings.TrimSpace(app.VaultToken),
+		VaultPassword:   strings.TrimSpace(app.VaultPassword),
 		KeePassPassword: strings.TrimSpace(app.KeePassPassword),
 	}
 	persisted.AppSettings.VaultToken = ""
+	persisted.AppSettings.VaultPassword = ""
 	persisted.AppSettings.KeePassPassword = ""
 	persisted.AIState = aiStateToPersisted(state)
 	return persisted

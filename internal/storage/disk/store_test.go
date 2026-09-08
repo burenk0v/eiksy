@@ -19,7 +19,10 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	cfg.VaultAddress = "https://vault.example.com"
 	cfg.VaultMountPoint = "secret"
 	cfg.VaultAutoRenewToken = true
+	cfg.VaultAuthMethod = "domain"
+	cfg.VaultLogin = "CORP\\ops"
 	cfg.VaultToken = "vault-secret-token"
+	cfg.VaultPassword = "vault-secret-password"
 	cfg.VaultProvider = "keepass"
 	cfg.KeePassDatabasePath = "/tmp/keepass.kdbx"
 	cfg.KeePassPassword = "keepass-secret"
@@ -51,6 +54,9 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	if persisted["vaultToken"] != "vault-secret-token" {
 		t.Fatalf("expected vault token in settings file, got %#v", persisted["vaultToken"])
 	}
+	if persisted["vaultPassword"] != "vault-secret-password" {
+		t.Fatalf("expected vaultPassword in settings file, got %#v", persisted["vaultPassword"])
+	}
 	if persisted["vaultAutoRenewToken"] != true {
 		t.Fatalf("expected vaultAutoRenewToken in settings file, got %#v", persisted["vaultAutoRenewToken"])
 	}
@@ -81,6 +87,15 @@ func TestSettingsFilePersistsVaultAndAISecrets(t *testing.T) {
 	reloadedSettings := reloaded.Settings()
 	if reloadedSettings.VaultToken != "vault-secret-token" {
 		t.Fatalf("expected reloaded vault token, got %q", reloadedSettings.VaultToken)
+	}
+	if reloadedSettings.VaultAuthMethod != "domain" {
+		t.Fatalf("expected reloaded vault auth method domain, got %q", reloadedSettings.VaultAuthMethod)
+	}
+	if reloadedSettings.VaultLogin != "CORP\\ops" {
+		t.Fatalf("expected reloaded vault login CORP\\\\ops, got %q", reloadedSettings.VaultLogin)
+	}
+	if reloadedSettings.VaultPassword != "vault-secret-password" {
+		t.Fatalf("expected reloaded vault password, got %q", reloadedSettings.VaultPassword)
 	}
 	if !reloadedSettings.VaultAutoRenewToken {
 		t.Fatal("expected reloaded vault auto renew token setting")

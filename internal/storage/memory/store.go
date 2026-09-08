@@ -310,6 +310,7 @@ func defaultSettings() settings.AppSettings {
 		SSHConfigAutoLoaded: false,
 		VaultMountPoint:     settings.DefaultVaultMountPoint,
 		VaultAutoRenewToken: false,
+		VaultAuthMethod:     settings.DefaultVaultAuthMethod,
 		VaultProvider:       settings.DefaultVaultProvider,
 	}
 }

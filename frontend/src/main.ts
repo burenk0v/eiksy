@@ -99,6 +99,7 @@ type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme' | 'about';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type SecretsModalTab = 'browser' | 'settings';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
+type VaultAuthMethod = 'token' | 'oidc' | 'oidc-sec' | 'domain';
 
 type PortForwardRule = {
     ports?: string;
@@ -219,7 +220,10 @@ class OpsyShell {
     private cloudDraftToken = '';
     private vaultDraftAddress = '';
     private vaultDraftMountPoint = '';
+    private vaultDraftAuthMethod: VaultAuthMethod = 'token';
+    private vaultDraftLogin = '';
     private vaultDraftToken = '';
+    private vaultDraftPassword = '';
     private vaultDraftAutoRenewToken = false;
     private vaultDraftKeePassDatabasePath = '';
     private vaultDraftKeePassPassword = '';
@@ -843,7 +847,10 @@ class OpsyShell {
                 ...this.shellState.settings,
                 vaultAddress: this.vaultDraftAddress,
                 vaultMountPoint: this.vaultDraftMountPoint,
+                vaultAuthMethod: this.vaultDraftAuthMethod,
+                vaultLogin: this.vaultDraftLogin,
                 vaultToken: this.vaultDraftToken,
+                vaultPassword: this.vaultDraftPassword,
                 vaultAutoRenewToken: this.vaultDraftAutoRenewToken,
             } as unknown as settingsModels.AppSettings;
             await this.runAction(async () => UpdateSettings(updated), 'Unable to save Vault settings');
@@ -864,8 +871,19 @@ class OpsyShell {
         root?.querySelector<HTMLInputElement>('[data-vault-mount]')?.addEventListener('input', (event) => {
             this.vaultDraftMountPoint = (event.currentTarget as HTMLInputElement).value;
         });
+        root?.querySelector<HTMLSelectElement>('[data-vault-auth-method]')?.addEventListener('change', (event) => {
+            const value = (event.currentTarget as HTMLSelectElement).value;
+            this.vaultDraftAuthMethod = normalizeVaultAuthMethod(value);
+            this.render();
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-login]')?.addEventListener('input', (event) => {
+            this.vaultDraftLogin = (event.currentTarget as HTMLInputElement).value;
+        });
         root?.querySelector<HTMLInputElement>('[data-vault-token]')?.addEventListener('input', (event) => {
             this.vaultDraftToken = (event.currentTarget as HTMLInputElement).value;
+        });
+        root?.querySelector<HTMLInputElement>('[data-vault-password]')?.addEventListener('input', (event) => {
+            this.vaultDraftPassword = (event.currentTarget as HTMLInputElement).value;
         });
         root?.querySelector<HTMLInputElement>('[data-vault-renew]')?.addEventListener('change', (event) => {
             this.vaultDraftAutoRenewToken = (event.currentTarget as HTMLInputElement).checked;
@@ -1952,9 +1970,27 @@ class OpsyShell {
                                     <input type="text" data-vault-mount name="vaultMountPoint" value="${escapeHtml(this.vaultDraftMountPoint)}" placeholder="secret" />
                                 </label>
                                 <label>
-                                    <span>Token</span>
-                                    <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
+                                    <span>Auth method</span>
+                                    <select data-vault-auth-method name="vaultAuthMethod">
+                                        <option value="token" ${this.vaultDraftAuthMethod === 'token' ? 'selected' : ''}>token</option>
+                                        <option value="oidc" ${this.vaultDraftAuthMethod === 'oidc' ? 'selected' : ''}>oidc</option>
+                                        <option value="oidc-sec" ${this.vaultDraftAuthMethod === 'oidc-sec' ? 'selected' : ''}>oidc-sec</option>
+                                        <option value="domain" ${this.vaultDraftAuthMethod === 'domain' ? 'selected' : ''}>domain login/password</option>
+                                    </select>
                                 </label>
+                                ${this.vaultDraftAuthMethod === 'token'
+                                    ? `<label>
+                                            <span>Token</span>
+                                            <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
+                                       </label>`
+                                    : `<label>
+                                            <span>Login</span>
+                                            <input type="text" data-vault-login name="vaultLogin" value="${escapeHtml(this.vaultDraftLogin)}" placeholder="DOMAIN\\\\user" />
+                                       </label>
+                                       <label>
+                                            <span>Password</span>
+                                            <input type="password" data-vault-password name="vaultPassword" value="${escapeHtml(this.vaultDraftPassword)}" />
+                                       </label>`}
                                 <label class="inline-check">
                                     <span>Auto-renew token</span>
                                     <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? 'checked' : ''} />
@@ -2452,7 +2488,10 @@ class OpsyShell {
         this.cloudDraftToken = '';
         this.vaultDraftAddress = shellSettings?.vaultAddress ?? '';
         this.vaultDraftMountPoint = shellSettings?.vaultMountPoint ?? 'secret';
+        this.vaultDraftAuthMethod = normalizeVaultAuthMethod(shellSettings?.vaultAuthMethod);
+        this.vaultDraftLogin = shellSettings?.vaultLogin ?? '';
         this.vaultDraftToken = '';
+        this.vaultDraftPassword = '';
         this.vaultDraftAutoRenewToken = shellSettings?.vaultAutoRenewToken ?? false;
         this.vaultDraftKeePassDatabasePath = shellSettings?.keepassDatabasePath ?? '';
         this.vaultDraftKeePassPassword = '';
@@ -2691,6 +2730,14 @@ function parentVaultPath(value: string): string {
         return '';
     }
     return normalized.slice(0, index);
+}
+
+function normalizeVaultAuthMethod(value: unknown): VaultAuthMethod {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (normalized === 'oidc' || normalized === 'oidc-sec' || normalized === 'domain') {
+        return normalized;
+    }
+    return 'token';
 }
 
 function formatBytes(value: number): string {

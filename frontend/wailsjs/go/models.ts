@@ -430,10 +430,13 @@ export namespace settings {
 	    vaultAddress: string;
 	    vaultMountPoint: string;
 	    vaultAutoRenewToken: boolean;
+	    vaultAuthMethod: string;
+	    vaultLogin: string;
 	    vaultProvider: string;
 	    keepassDatabasePath: string;
 	    keepassPassword: string;
 	    vaultToken: string;
+	    vaultPassword: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -453,10 +456,13 @@ export namespace settings {
 	        this.vaultAddress = source["vaultAddress"];
 	        this.vaultMountPoint = source["vaultMountPoint"];
 	        this.vaultAutoRenewToken = source["vaultAutoRenewToken"];
+	        this.vaultAuthMethod = source["vaultAuthMethod"];
+	        this.vaultLogin = source["vaultLogin"];
 	        this.vaultProvider = source["vaultProvider"];
 	        this.keepassDatabasePath = source["keepassDatabasePath"];
 	        this.keepassPassword = source["keepassPassword"];
 	        this.vaultToken = source["vaultToken"];
+	        this.vaultPassword = source["vaultPassword"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
