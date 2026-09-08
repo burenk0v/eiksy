@@ -1,13 +1,8 @@
 package disk
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/rand"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -268,7 +263,7 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	}
 }
 
-func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
+func TestLegacySerializedSecretsAreIgnored(t *testing.T) {
 	baseDir := t.TempDir()
 	keyring := newMemoryKeyring()
 
@@ -319,7 +314,7 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 			"host":       "legacy.internal",
 			"port":       22,
 			"username":   "ops",
-			"password":   mustEncryptLegacySessionSecret(t, "legacy-session-password"),
+			"password":   "legacy-session-password",
 			"options": map[string]any{
 				"auth_method": "password",
 			},
@@ -331,7 +326,7 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 			"host":          "legacy.internal",
 			"port":          22,
 			"username":      "ops",
-			"keyPassphrase": mustEncryptLegacySessionSecret(t, "legacy-key-passphrase"),
+			"keyPassphrase": "legacy-key-passphrase",
 			"options": map[string]any{
 				"auth_method":          "key",
 				"ssh_private_key_path": "~/.ssh/id_ed25519",
@@ -353,11 +348,11 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 	service := app.NewService(store, nil, nil, nil)
 
 	shell := service.GetShellState()
-	if !shell.Settings.HasVaultToken || !shell.Settings.HasKeePassPassword || !shell.Settings.HasVaultPassword {
-		t.Fatalf("expected legacy settings secrets to be advertised, got %+v", shell.Settings)
+	if shell.Settings.HasVaultToken || shell.Settings.HasKeePassPassword || shell.Settings.HasVaultPassword {
+		t.Fatalf("legacy settings secrets must be ignored, got %+v", shell.Settings)
 	}
-	if !shell.AI.Providers[0].HasToken {
-		t.Fatal("expected legacy AI token to be advertised")
+	if shell.AI.Providers[0].HasToken {
+		t.Fatal("legacy AI token must be ignored")
 	}
 
 	var passwordSeen, keyPassphraseSeen bool
@@ -369,63 +364,30 @@ func TestLegacySecretsMigrateToSecureStorageAfterUnlock(t *testing.T) {
 			keyPassphraseSeen = profile.HasKeyPassphrase
 		}
 	}
-	if !passwordSeen || !keyPassphraseSeen {
-		t.Fatalf("expected legacy session secrets to be advertised")
+	if passwordSeen || keyPassphraseSeen {
+		t.Fatalf("legacy session secrets must be ignored")
 	}
 
 	if err := store.EnsureMasterPassword("master-password"); err != nil {
 		t.Fatalf("ensure master password: %v", err)
 	}
 
-	if secret, err := store.LoadSecret(securestorage.VaultTokenKey()); err != nil || secret != "legacy-vault-token" {
-		t.Fatalf("expected migrated vault token, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.VaultTokenKey()); err != nil || secret != "" {
+		t.Fatalf("expected legacy vault token to stay absent, got %q err=%v", secret, err)
 	}
-	if secret, err := store.LoadSecret(securestorage.KeePassPasswordKey()); err != nil || secret != "legacy-keepass-password" {
-		t.Fatalf("expected migrated keepass password, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.KeePassPasswordKey()); err != nil || secret != "" {
+		t.Fatalf("expected legacy keepass password to stay absent, got %q err=%v", secret, err)
 	}
-	if secret, err := store.LoadSecret(securestorage.VaultPasswordKey()); err != nil || secret != "legacy-vault-password" {
-		t.Fatalf("expected migrated vault password, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.VaultPasswordKey()); err != nil || secret != "" {
+		t.Fatalf("expected legacy vault password to stay absent, got %q err=%v", secret, err)
 	}
-	if secret, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); err != nil || secret != "legacy-ai-token" {
-		t.Fatalf("expected migrated ai token, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); err != nil || secret != "" {
+		t.Fatalf("expected legacy ai token to stay absent, got %q err=%v", secret, err)
 	}
-	if secret, err := store.LoadSecret(securestorage.SessionPasswordKey("legacy-password")); err != nil || secret != "legacy-session-password" {
-		t.Fatalf("expected migrated session password, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.SessionPasswordKey("legacy-password")); err != nil || secret != "" {
+		t.Fatalf("expected legacy session password to stay absent, got %q err=%v", secret, err)
 	}
-	if secret, err := store.LoadSecret(securestorage.SessionKeyPassphraseKey("legacy-key")); err != nil || secret != "legacy-key-passphrase" {
-		t.Fatalf("expected migrated key passphrase, got %q err=%v", secret, err)
+	if secret, err := store.LoadSecret(securestorage.SessionKeyPassphraseKey("legacy-key")); err != nil || secret != "" {
+		t.Fatalf("expected legacy key passphrase to stay absent, got %q err=%v", secret, err)
 	}
-
-	rawSettings, err := os.ReadFile(filepath.Join(baseDir, "settings.json"))
-	if err != nil {
-		t.Fatalf("read migrated settings: %v", err)
-	}
-	if strings.Contains(string(rawSettings), "legacy-vault-token") || strings.Contains(string(rawSettings), "legacy-vault-password") || strings.Contains(string(rawSettings), "legacy-keepass-password") || strings.Contains(string(rawSettings), "legacy-ai-token") {
-		t.Fatalf("expected migrated settings.json to be scrubbed, got %s", rawSettings)
-	}
-	rawSessions, err := os.ReadFile(filepath.Join(baseDir, "sessions.json"))
-	if err != nil {
-		t.Fatalf("read migrated sessions: %v", err)
-	}
-	if strings.Contains(string(rawSessions), "legacy-session-password") || strings.Contains(string(rawSessions), "legacy-key-passphrase") {
-		t.Fatalf("expected migrated sessions.json to be scrubbed, got %s", rawSessions)
-	}
-}
-
-func mustEncryptLegacySessionSecret(t *testing.T, plaintext string) string {
-	t.Helper()
-	block, err := aes.NewCipher(legacySessionDerivedKey())
-	if err != nil {
-		t.Fatalf("create cipher: %v", err)
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		t.Fatalf("create gcm: %v", err)
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		t.Fatalf("generate nonce: %v", err)
-	}
-	ciphertext := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
-	return base64.StdEncoding.EncodeToString(ciphertext)
 }
