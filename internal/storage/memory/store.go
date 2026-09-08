@@ -12,6 +12,7 @@ import (
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	"opsy/internal/domain/workspace"
+	"opsy/internal/securestorage"
 )
 
 const maxLaunchHistoryEntries = 100
@@ -30,6 +31,8 @@ type Store struct {
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
 	eventCounter        int64
+	secrets             map[string]string
+	secureStatus        securestorage.Status
 }
 
 func NewStore() *Store {
@@ -45,6 +48,8 @@ func NewStore() *Store {
 		settings:            defaultSettings(),
 		workspaceLayout:     defaultWorkspaceLayout(),
 		events:              []workspace.Event{},
+		secrets:             map[string]string{},
+		secureStatus:        securestorage.Status{Available: true, Configured: true, Unlocked: true},
 	}
 }
 
@@ -80,6 +85,11 @@ func (s *Store) UpsertSessionProfile(profile sessions.Profile) error {
 	defer s.mu.Unlock()
 
 	profile = cloneProfile(profile)
+	s.persistProfileSecretsLocked(profile)
+	profile.Password = ""
+	profile.KeyPassphrase = ""
+	profile.HasPassword = s.secretExistsLocked(securestorage.SessionPasswordKey(profile.ID))
+	profile.HasKeyPassphrase = s.secretExistsLocked(securestorage.SessionKeyPassphraseKey(profile.ID))
 	if _, ok := s.sessionProfiles[profile.ID]; !ok {
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
 	}
@@ -97,6 +107,8 @@ func (s *Store) DeleteSessionProfile(profileID string) error {
 	}
 
 	delete(s.sessionProfiles, profileID)
+	delete(s.secrets, securestorage.SessionPasswordKey(profileID))
+	delete(s.secrets, securestorage.SessionKeyPassphraseKey(profileID))
 	filtered := make([]string, 0, len(s.sessionOrder))
 	for _, id := range s.sessionOrder {
 		if id != profileID {
@@ -138,11 +150,20 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	defer s.mu.Unlock()
 
 	s.aiState = cloneAIState(state)
+	for i := range s.aiState.Providers {
+		s.aiState.Providers[i].Token = ""
+	}
 }
 
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	updated.VaultToken = ""
+	updated.VaultPassword = ""
+	updated.KeePassPassword = ""
+	updated.HasVaultToken = s.secretExistsLocked(securestorage.VaultTokenKey())
+	updated.HasKeePassPassword = s.secretExistsLocked(securestorage.KeePassPasswordKey())
+	updated.HasVaultPassword = s.secretExistsLocked(securestorage.VaultPasswordKey())
 	s.settings = updated
 	return nil
 }
@@ -274,6 +295,71 @@ func (s *Store) nextEventIDLocked() string {
 	return fmt.Sprintf("event-%d", s.eventCounter)
 }
 
+func (s *Store) SecureStorageStatus() securestorage.Status {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.secureStatus
+}
+
+func (s *Store) EnsureMasterPassword(password string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(password) == "" {
+		return fmt.Errorf("master password is required")
+	}
+	s.secureStatus = securestorage.Status{Available: true, Configured: true, Unlocked: true}
+	return nil
+}
+
+func (s *Store) SecretExists(key string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.secretExistsLocked(key)
+}
+
+func (s *Store) LoadSecret(key string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.secrets[key], nil
+}
+
+func (s *Store) StoreSecret(key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.secrets[key] = value
+	return nil
+}
+
+func (s *Store) DeleteSecret(key string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.secrets, key)
+	return nil
+}
+
+func (s *Store) secretExistsLocked(key string) bool {
+	_, ok := s.secrets[key]
+	return ok
+}
+
+func (s *Store) persistProfileSecretsLocked(profile sessions.Profile) {
+	authMethod := "password"
+	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
+		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
+	}
+	if strings.TrimSpace(string(profile.Password)) != "" {
+		s.secrets[securestorage.SessionPasswordKey(profile.ID)] = strings.TrimSpace(string(profile.Password))
+	}
+	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
+		s.secrets[securestorage.SessionKeyPassphraseKey(profile.ID)] = strings.TrimSpace(string(profile.KeyPassphrase))
+	}
+	if authMethod == "key" {
+		delete(s.secrets, securestorage.SessionPasswordKey(profile.ID))
+	} else {
+		delete(s.secrets, securestorage.SessionKeyPassphraseKey(profile.ID))
+	}
+}
+
 func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
@@ -347,5 +433,6 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 		}
 	}
 	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
+	cloned.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	return cloned
 }

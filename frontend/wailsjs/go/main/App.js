@@ -42,6 +42,10 @@ export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
 
+export function GetSecureStorageStatus() {
+  return window['go']['main']['App']['GetSecureStorageStatus']();
+}
+
 export function ImportSSHConfig(arg1) {
   return window['go']['main']['App']['ImportSSHConfig'](arg1);
 }
@@ -128,6 +132,10 @@ export function ClearChat() {
 
 export function AcceptSSHHostKey(arg1) {
   return window['go']['main']['App']['AcceptSSHHostKey'](arg1);
+}
+
+export function EnsureMasterPassword(arg1) {
+  return window['go']['main']['App']['EnsureMasterPassword'](arg1);
 }
 
 export function UpdateSettings(arg1) {

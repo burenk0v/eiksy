@@ -86,7 +86,13 @@ func authMethodFromPrivateKey(options map[string]string) (xssh.AuthMethod, error
 	if err != nil {
 		return nil, fmt.Errorf("read ssh private key %q: %w", path, err)
 	}
-	signer, err := xssh.ParsePrivateKey(privateKey)
+	passphrase := strings.TrimSpace(optionValue(options, "ssh_private_key_passphrase"))
+	var signer xssh.Signer
+	if passphrase != "" {
+		signer, err = xssh.ParsePrivateKeyWithPassphrase(privateKey, []byte(passphrase))
+	} else {
+		signer, err = xssh.ParsePrivateKey(privateKey)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("parse ssh private key %q: %w", path, err)
 	}
