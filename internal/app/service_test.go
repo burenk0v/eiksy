@@ -10,6 +10,7 @@ import (
 	"opsy/internal/domain/ai"
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
+	"opsy/internal/securestorage"
 	"opsy/internal/storage/memory"
 )
 
@@ -112,8 +113,15 @@ func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *tes
 	if !ok {
 		t.Fatal("updated profile not found")
 	}
-	if string(profile.Password) != "keep-me" {
-		t.Fatalf("expected password to be preserved, got %q", profile.Password)
+	if !profile.HasPassword {
+		t.Fatal("expected password flag to be preserved")
+	}
+	password, err := store.LoadSecret(securestorage.SessionPasswordKey("prod-ssh"))
+	if err != nil {
+		t.Fatalf("load preserved password: %v", err)
+	}
+	if password != "keep-me" {
+		t.Fatalf("expected password to be preserved, got %q", password)
 	}
 }
 
@@ -155,8 +163,15 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 	if cloudProvider.Status != "ready" {
 		t.Fatalf("expected cloud provider status ready, got %q", cloudProvider.Status)
 	}
-	if cloudProvider.Token != "secret-token" {
-		t.Fatalf("expected cloud token to be saved, got %q", cloudProvider.Token)
+	if !cloudProvider.HasToken {
+		t.Fatal("expected cloud provider token flag to be set")
+	}
+	token, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"))
+	if err != nil {
+		t.Fatalf("load saved cloud token: %v", err)
+	}
+	if token != "secret-token" {
+		t.Fatalf("expected cloud token to be saved, got %q", token)
 	}
 }
 
@@ -172,8 +187,12 @@ func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
 
 	state := service.GetShellState()
 	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
-	if cloudProvider.Token != "secret-token" {
-		t.Fatalf("expected cloud token to be preserved, got %q", cloudProvider.Token)
+	token, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"))
+	if err != nil {
+		t.Fatalf("load preserved cloud token: %v", err)
+	}
+	if token != "secret-token" {
+		t.Fatalf("expected cloud token to be preserved, got %q", token)
 	}
 	if cloudProvider.Model != "gpt-5.7" {
 		t.Fatalf("expected updated model to be saved, got %q", cloudProvider.Model)
@@ -259,8 +278,10 @@ func TestListVaultSecretsRenewsTokenWhenEnabled(t *testing.T) {
 	cfg := store.Settings()
 	cfg.VaultAddress = server.URL
 	cfg.VaultMountPoint = "secret"
-	cfg.VaultToken = "vault-token"
 	cfg.VaultAutoRenewToken = true
+	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil {
+		t.Fatalf("store vault token: %v", err)
+	}
 	if err := store.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
@@ -299,8 +320,10 @@ func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
 	cfg := store.Settings()
 	cfg.VaultAddress = server.URL
 	cfg.VaultMountPoint = "secret"
-	cfg.VaultToken = "vault-token"
 	cfg.VaultAutoRenewToken = true
+	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil {
+		t.Fatalf("store vault token: %v", err)
+	}
 	if err := store.UpdateSettings(cfg); err != nil {
 		t.Fatalf("update settings: %v", err)
 	}
@@ -357,7 +380,9 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 	initial := store.Settings()
 	initial.VaultProvider = "keepass"
 	initial.KeePassDatabasePath = "/tmp/dev.kdbx"
-	initial.KeePassPassword = "keepass-secret"
+	if err := store.StoreSecret(securestorage.KeePassPasswordKey(), "keepass-secret"); err != nil {
+		t.Fatalf("store keepass password: %v", err)
+	}
 	if err := store.UpdateSettings(initial); err != nil {
 		t.Fatalf("seed settings: %v", err)
 	}
@@ -369,8 +394,15 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 	}
 
 	reloaded := store.Settings()
-	if reloaded.KeePassPassword != "keepass-secret" {
-		t.Fatalf("expected keepass password to persist, got %q", reloaded.KeePassPassword)
+	if !reloaded.HasKeePassPassword {
+		t.Fatal("expected keepass password flag to persist")
+	}
+	password, err := store.LoadSecret(securestorage.KeePassPasswordKey())
+	if err != nil {
+		t.Fatalf("load keepass password: %v", err)
+	}
+	if password != "keepass-secret" {
+		t.Fatalf("expected keepass password to persist, got %q", password)
 	}
 }
 

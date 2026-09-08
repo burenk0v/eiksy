@@ -25,6 +25,7 @@ import (
 	sftpdomain "opsy/internal/domain/sftp"
 	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/domain/workspace"
+	"opsy/internal/securestorage"
 
 	"github.com/tobischo/gokeepasslib/v3"
 )
@@ -77,6 +78,12 @@ type stateStore interface {
 	Events() []workspace.Event
 	UpdateAIState(ai.WorkspaceState)
 	UpdateSettings(settings.AppSettings) error
+	SecureStorageStatus() securestorage.Status
+	EnsureMasterPassword(string) error
+	SecretExists(string) bool
+	LoadSecret(string) (string, error)
+	StoreSecret(string, string) error
+	DeleteSecret(string) error
 	OpenRuntimeTab(workspace.Tab)
 	CloseRuntimeTab(string) bool
 	RecordLaunch(string)
@@ -148,19 +155,22 @@ func (s *Service) GetShellState() ShellState {
 	for _, tab := range tabs {
 		activeSessions = append(activeSessions, RuntimeSessionView(tab))
 	}
+	profiles := s.scrubProfilesForShell(s.store.SessionProfiles())
+	aiState := s.scrubAIStateForShell(s.store.AIState())
+	appSettings := s.scrubSettingsForShell(s.store.Settings())
 
 	return ShellState{
 		Protocols:           s.store.Protocols(),
-		SessionProfiles:     s.store.SessionProfiles(),
+		SessionProfiles:     profiles,
 		ActiveSessions:      activeSessions,
 		SessionHistory:      s.store.LaunchHistory(),
 		CredentialProviders: s.store.CredentialProviders(),
-		AI:                  s.store.AIState(),
+		AI:                  aiState,
 		Workspace: WorkspaceView{
 			Layout:       s.store.WorkspaceLayout(),
 			RecentEvents: s.store.Events(),
 		},
-		Settings: s.store.Settings(),
+		Settings: appSettings,
 	}
 }
 
@@ -178,13 +188,8 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	if profile.ID == "" {
 		profile.ID = s.nextProfileID(profile.Name)
 	}
-	if existing, found := s.store.SessionProfile(profile.ID); found {
-		if profile.LastLaunchedAt == "" {
-			profile.LastLaunchedAt = existing.LastLaunchedAt
-		}
-		if string(profile.Password) == "" {
-			profile.Password = existing.Password
-		}
+	if existing, found := s.store.SessionProfile(profile.ID); found && profile.LastLaunchedAt == "" {
+		profile.LastLaunchedAt = existing.LastLaunchedAt
 	}
 
 	if err := mutator.UpsertSessionProfile(profile); err != nil {
@@ -257,6 +262,10 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 		s.emitFn(fmt.Sprintf("terminal:output:%s", tabID), map[string]string{"data": data})
 	})
 	_ = s.updateTabStatus(tabID, "connecting")
+	profile, err := s.profileWithSecrets(profile)
+	if err != nil {
+		return err
+	}
 	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options); err != nil {
@@ -429,7 +438,11 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 		return nil, fmt.Errorf("unsupported vault provider %q", selectedProvider)
 	}
 	if selectedProvider == "keepass" {
-		return s.listKeePassSecrets(path, cfg.KeePassDatabasePath, cfg.KeePassPassword)
+		keepassPassword, err := s.store.LoadSecret(securestorage.KeePassPasswordKey())
+		if err != nil {
+			return nil, err
+		}
+		return s.listKeePassSecrets(path, cfg.KeePassDatabasePath, keepassPassword)
 	}
 	if strings.TrimSpace(cfg.VaultAddress) == "" {
 		return nil, fmt.Errorf("vault address is not configured")
@@ -437,7 +450,11 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 	if strings.TrimSpace(cfg.VaultMountPoint) == "" {
 		return nil, fmt.Errorf("vault mountpoint is not configured")
 	}
-	if strings.TrimSpace(cfg.VaultToken) == "" {
+	vaultToken, err := s.store.LoadSecret(securestorage.VaultTokenKey())
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(vaultToken) == "" {
 		return nil, fmt.Errorf("vault token is not configured")
 	}
 	parsed, err := url.Parse(strings.TrimSpace(cfg.VaultAddress))
@@ -445,7 +462,7 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 		return nil, fmt.Errorf("vault address must be a valid http or https url")
 	}
 	if cfg.VaultAutoRenewToken {
-		if err := s.renewVaultToken(parsed, cfg.VaultToken); err != nil {
+		if err := s.renewVaultToken(parsed, vaultToken); err != nil {
 			s.EmitLog("warn", fmt.Sprintf("Vault token auto-renew failed: %v", err))
 		}
 	}
@@ -457,7 +474,7 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 	if err != nil {
 		return nil, fmt.Errorf("build vault request: %w", err)
 	}
-	req.Header.Set("X-Vault-Token", cfg.VaultToken)
+	req.Header.Set("X-Vault-Token", vaultToken)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -660,12 +677,15 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 		state.Providers[i].Selected = i == index
 	}
 
+	if token != "" {
+		if err := s.store.StoreSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID), token); err != nil {
+			return err
+		}
+	}
 	state.Providers[index].Model = model
 	state.Providers[index].Endpoint = endpoint
-	if token == "" {
-		token = state.Providers[index].Token
-	}
-	state.Providers[index].Token = token
+	state.Providers[index].Token = ""
+	state.Providers[index].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(state.Providers[index].ID))
 	state.Providers[index].Status = "ready"
 	state.Providers[index].Configured = true
 	s.store.UpdateAIState(state)
@@ -688,7 +708,11 @@ func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 	if token == "" {
 		state := s.store.AIState()
 		if index := providerIndexByClass(state.Providers, ai.ProviderClassOpenAICompatible); index >= 0 {
-			token = strings.TrimSpace(state.Providers[index].Token)
+			token, err = s.store.LoadSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID))
+			if err != nil {
+				return nil, err
+			}
+			token = strings.TrimSpace(token)
 		}
 	}
 
@@ -771,17 +795,23 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.VaultProvider != "vault" && updated.VaultProvider != "keepass" {
 		updated.VaultProvider = settings.DefaultVaultProvider
 	}
-	if strings.TrimSpace(updated.KeePassPassword) == "" {
-		updated.KeePassPassword = current.KeePassPassword
+	if strings.TrimSpace(updated.KeePassPassword) != "" {
+		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {
+			return err
+		}
 	}
-	if strings.TrimSpace(updated.VaultToken) == "" {
-		updated.VaultToken = current.VaultToken
+	if strings.TrimSpace(updated.VaultToken) != "" {
+		if err := s.store.StoreSecret(securestorage.VaultTokenKey(), strings.TrimSpace(updated.VaultToken)); err != nil {
+			return err
+		}
 	}
 	updated.VaultAddress = strings.TrimSpace(updated.VaultAddress)
 	updated.VaultMountPoint = strings.Trim(strings.TrimSpace(updated.VaultMountPoint), "/")
 	updated.KeePassDatabasePath = strings.TrimSpace(updated.KeePassDatabasePath)
-	updated.KeePassPassword = strings.TrimSpace(updated.KeePassPassword)
-	updated.VaultToken = strings.TrimSpace(updated.VaultToken)
+	updated.KeePassPassword = ""
+	updated.VaultToken = ""
+	updated.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
+	updated.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
 	updated.SSHForwardPorts = sanitizeForwardPorts(updated.SSHForwardPorts)
 	updated.SSHForwardHostID = strings.TrimSpace(updated.SSHForwardHostID)
 	updated.PortForwardRules = normalizeForwardRules(updated.PortForwardRules)
@@ -860,6 +890,10 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	}
 	if s.sftpManager.Connected(tabID) {
 		return nil
+	}
+	profile, err := s.profileWithSecrets(profile)
+	if err != nil {
+		return err
 	}
 	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options)
 }
@@ -940,6 +974,7 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
 	profile.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
+	profile.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	if profile.Port <= 0 {
 		profile.Port = 22
 	}
@@ -1154,7 +1189,10 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 	}
 
 	state := s.store.AIState()
-	provider := s.activeConfiguredProvider(state)
+	provider, err := s.activeConfiguredProvider(state)
+	if err != nil {
+		return err
+	}
 	if provider == nil {
 		return fmt.Errorf("no AI provider is configured; configure one in Settings first")
 	}
@@ -1194,13 +1232,96 @@ func (s *Service) AcceptSSHHostKey(tabID string) error {
 	return s.sshManager.AcceptHostKey(tabID)
 }
 
-func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) *ai.ProviderDescriptor {
+func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) (*ai.ProviderDescriptor, error) {
 	for i := range state.Providers {
 		if state.Providers[i].Selected && state.Providers[i].Configured {
-			return &state.Providers[i]
+			provider := state.Providers[i]
+			if provider.Class == ai.ProviderClassOpenAICompatible {
+				token, err := s.store.LoadSecret(securestorage.AIProviderTokenKey(provider.ID))
+				if err != nil {
+					return nil, err
+				}
+				provider.Token = strings.TrimSpace(token)
+				provider.HasToken = provider.Token != ""
+			}
+			return &provider, nil
 		}
 	}
-	return nil
+	return nil, nil
+}
+
+func (s *Service) GetSecureStorageStatus() securestorage.Status {
+	return s.store.SecureStorageStatus()
+}
+
+func (s *Service) EnsureMasterPassword(password string) error {
+	return s.store.EnsureMasterPassword(password)
+}
+
+func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile, error) {
+	password, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID))
+	if err != nil {
+		return sessions.Profile{}, err
+	}
+	keyPassphrase, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID))
+	if err != nil {
+		return sessions.Profile{}, err
+	}
+	cloned := cloneSessionProfile(profile)
+	cloned.Password = sessions.EncryptedString(password)
+	cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
+	if cloned.Options == nil {
+		cloned.Options = map[string]string{}
+	}
+	if keyPassphrase != "" {
+		cloned.Options["ssh_private_key_passphrase"] = keyPassphrase
+	}
+	return cloned, nil
+}
+
+func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.Profile {
+	scrubbed := make([]sessions.Profile, 0, len(profiles))
+	for _, profile := range profiles {
+		clone := cloneSessionProfile(profile)
+		clone.Password = ""
+		clone.KeyPassphrase = ""
+		clone.HasPassword = s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID))
+		clone.HasKeyPassphrase = s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID))
+		scrubbed = append(scrubbed, clone)
+	}
+	return scrubbed
+}
+
+func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceState {
+	scrubbed := state
+	scrubbed.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
+	for i := range scrubbed.Providers {
+		scrubbed.Providers[i].Token = ""
+		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID))
+	}
+	scrubbed.Messages = append([]ai.ChatMessage{}, state.Messages...)
+	return scrubbed
+}
+
+func cloneSessionProfile(profile sessions.Profile) sessions.Profile {
+	cloned := profile
+	cloned.Tags = append([]string(nil), profile.Tags...)
+	if profile.Options != nil {
+		cloned.Options = make(map[string]string, len(profile.Options))
+		for key, value := range profile.Options {
+			cloned.Options[key] = value
+		}
+	}
+	return cloned
+}
+
+func (s *Service) scrubSettingsForShell(appSettings settings.AppSettings) settings.AppSettings {
+	scrubbed := appSettings
+	scrubbed.VaultToken = ""
+	scrubbed.KeePassPassword = ""
+	scrubbed.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
+	scrubbed.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
+	return scrubbed
 }
 
 func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage, chatSessionID string) (string, error) {

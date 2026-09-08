@@ -37,4 +37,6 @@ type AppSettings struct {
 	KeePassDatabasePath string            `json:"keepassDatabasePath"`
 	KeePassPassword     string            `json:"-"`
 	VaultToken          string            `json:"-"`
+	HasKeePassPassword  bool              `json:"hasKeePassPassword"`
+	HasVaultToken       bool              `json:"hasVaultToken"`
 }
