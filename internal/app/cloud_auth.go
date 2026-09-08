@@ -124,7 +124,7 @@ func (s *Service) handleCloudProviderAuthCallback(sessionID, allowedOrigin strin
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, _ = io.WriteString(w, `<!doctype html><html><body><p>Authorization completed. You can close this window.</p></body></html>`)
-	go s.stopCloudProviderAuthSession(sessionID)
+	go s.closeCloudProviderAuthServer(sessionID)
 }
 
 func readCloudProviderAuthToken(r *http.Request) (string, error) {
@@ -205,13 +205,18 @@ func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, messa
 	return true
 }
 
-func (s *Service) stopCloudProviderAuthSession(sessionID string) {
+func (s *Service) closeCloudProviderAuthServer(sessionID string) {
 	s.authMu.Lock()
 	defer s.authMu.Unlock()
 	if s.cloudAuth == nil || s.cloudAuth.state.ID != sessionID {
 		return
 	}
-	s.stopCloudAuthLocked()
+	session := s.cloudAuth
+	if session.timer != nil {
+		session.timer.Stop()
+		session.timer = nil
+	}
+	go s.stopCloudAuthServer(session)
 }
 
 func (s *Service) stopCloudAuthLocked() {
