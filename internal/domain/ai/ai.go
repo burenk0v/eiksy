@@ -18,6 +18,7 @@ type ProviderDescriptor struct {
 	Status     string        `json:"status"`
 	Selected   bool          `json:"selected"`
 	Token      string        `json:"-"`
+	HasToken   bool          `json:"hasToken"`
 	Configured bool          `json:"configured"`
 }
 

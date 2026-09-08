@@ -18,11 +18,12 @@ This repository now contains the initial application skeleton for:
 
 - protocol registry with SSH, SFTP, and RDP descriptors
 - session manager models for saved profiles, launch history, and active tabs
-- SSH config import into session profiles, including ProxyJump, SSH agent, and local tunnel options
+- SSH config import into session profiles, including ProxyJump, SSH agent, local tunnel options, and encrypted SSH key passphrases
 - SSH terminal tabs with SFTP browsing and in-app remote file editing
 - credential provider contracts for HashiCorp Vault, KeePass, and Windows Password Manager
 - AI provider models for local and OpenAI-compatible backends
 - local Qwen3 8B model download and llama.cpp launch flow alongside configurable cloud endpoint/token setup
+- OS keychain-backed master-password flow with Argon2id-derived encryption keys, XChaCha20-Poly1305 secret encryption, and SQLite secret storage
 - backend-owned workspace state rendered by a thin Wails frontend shell
 
 ## Development
@@ -46,6 +47,8 @@ Install frontend dependencies once before running frontend build commands direct
 ```bash
 cd frontend && npm ci
 ```
+
+On first launch the app asks for a master password to enable encrypted secret storage. If you skip it, the app keeps working and asks again only when you try to save a password, token, or SSH key passphrase.
 
 Run the frontend-backed desktop app in development mode:
 
