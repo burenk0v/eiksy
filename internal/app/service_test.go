@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -246,6 +248,122 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	}
 	if !strings.HasPrefix(authHeader, "Bearer ") {
 		t.Fatalf("expected bearer authorization header, got %q", authHeader)
+	}
+}
+
+func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+	defer stopCloudAuthSessionForTest(service)
+
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
+	if err != nil {
+		t.Fatalf("start cloud provider auth: %v", err)
+	}
+	if session.Status != "pending" {
+		t.Fatalf("expected pending auth session, got %q", session.Status)
+	}
+
+	authURL, err := url.Parse(session.AuthURL)
+	if err != nil {
+		t.Fatalf("parse auth url: %v", err)
+	}
+	if authURL.Scheme != "https" || authURL.Host != "sourcegraph.example.com" {
+		t.Fatalf("unexpected auth url origin: %s", session.AuthURL)
+	}
+	if authURL.Path != "/user/settings/tokens/new/callback" {
+		t.Fatalf("unexpected auth url path: %s", authURL.Path)
+	}
+	if !strings.HasPrefix(authURL.Query().Get("requestFrom"), "CODY_CLI-") {
+		t.Fatalf("unexpected requestFrom value: %q", authURL.Query().Get("requestFrom"))
+	}
+}
+
+func TestStartCloudProviderAuthRejectsUnsupportedEndpoint(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+
+	_, err := service.StartCloudProviderAuth("https://api.openai.com/v1")
+	if err == nil || !strings.Contains(err.Error(), "Sourcegraph/Cody-compatible") {
+		t.Fatalf("expected unsupported endpoint error, got %v", err)
+	}
+}
+
+func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+	defer stopCloudAuthSessionForTest(service)
+
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
+	if err != nil {
+		t.Fatalf("start cloud provider auth: %v", err)
+	}
+
+	authURL, err := url.Parse(session.AuthURL)
+	if err != nil {
+		t.Fatalf("parse auth url: %v", err)
+	}
+	requestFrom := authURL.Query().Get("requestFrom")
+	port := strings.TrimPrefix(requestFrom, "CODY_CLI-")
+	if port == requestFrom || port == "" {
+		t.Fatalf("unexpected requestFrom value: %q", requestFrom)
+	}
+
+	resp, err := http.Get("http://localhost:" + port + "/api/sourcegraph/token?token=browser-token")
+	if err != nil {
+		t.Fatalf("invoke callback: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected callback status 200, got %d", resp.StatusCode)
+	}
+
+	completed, err := service.GetCloudProviderAuthSession(session.ID)
+	if err != nil {
+		t.Fatalf("get auth session: %v", err)
+	}
+	if completed.Status != "completed" {
+		t.Fatalf("expected completed auth session, got %q", completed.Status)
+	}
+	if completed.Token != "browser-token" {
+		t.Fatalf("expected received token to be returned, got %q", completed.Token)
+	}
+}
+
+func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil, nil)
+	defer stopCloudAuthSessionForTest(service)
+
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
+	if err != nil {
+		t.Fatalf("start cloud provider auth: %v", err)
+	}
+
+	authURL, err := url.Parse(session.AuthURL)
+	if err != nil {
+		t.Fatalf("parse auth url: %v", err)
+	}
+	requestFrom := authURL.Query().Get("requestFrom")
+	port := strings.TrimPrefix(requestFrom, "CODY_CLI-")
+	if port == requestFrom || port == "" {
+		t.Fatalf("unexpected requestFrom value: %q", requestFrom)
+	}
+
+	resp, err := http.Post("http://127.0.0.1:"+port+"/api/sourcegraph/token", "application/json", bytes.NewBufferString(`{"accessToken":"posted-token"}`))
+	if err != nil {
+		t.Fatalf("post callback: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected callback status 200, got %d", resp.StatusCode)
+	}
+
+	completed, err := service.GetCloudProviderAuthSession(session.ID)
+	if err != nil {
+		t.Fatalf("get auth session: %v", err)
+	}
+	if completed.Status != "completed" {
+		t.Fatalf("expected completed auth session, got %q", completed.Status)
+	}
+	if completed.Token != "posted-token" {
+		t.Fatalf("expected posted token to be returned, got %q", completed.Token)
 	}
 }
 
@@ -532,6 +650,12 @@ func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
 	if got := withRules.Options["local_forwards"]; got != "15432:db.internal:5432" {
 		t.Fatalf("unexpected forward specs: %q", got)
 	}
+}
+
+func stopCloudAuthSessionForTest(service *Service) {
+	service.authMu.Lock()
+	defer service.authMu.Unlock()
+	service.stopCloudAuthLocked()
 }
 
 func seedStore(t *testing.T) *memory.Store {

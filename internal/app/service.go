@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"opsy/internal/domain/ai"
@@ -55,6 +57,15 @@ type RuntimeSessionView struct {
 	Description string `json:"description"`
 }
 
+type CloudProviderAuthSession struct {
+	ID       string `json:"id"`
+	Status   string `json:"status"`
+	AuthURL  string `json:"authUrl,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Message  string `json:"message,omitempty"`
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
 const (
 	vaultAuthMethodToken   = "token"
 	vaultAuthMethodOIDC    = "oidc"
@@ -70,6 +81,8 @@ type Service struct {
 	sftpManager  sftpManager
 	httpClient   *http.Client
 	emitFn       func(eventName string, data ...interface{})
+	authMu       sync.Mutex
+	cloudAuth    *cloudAuthSession
 }
 
 type stateStore interface {
@@ -195,8 +208,16 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	if profile.ID == "" {
 		profile.ID = s.nextProfileID(profile.Name)
 	}
-	if existing, found := s.store.SessionProfile(profile.ID); found && profile.LastLaunchedAt == "" {
-		profile.LastLaunchedAt = existing.LastLaunchedAt
+	if existing, found := s.store.SessionProfile(profile.ID); found {
+		if profile.LastLaunchedAt == "" {
+			profile.LastLaunchedAt = existing.LastLaunchedAt
+		}
+		if strings.TrimSpace(string(profile.Password)) == "" {
+			profile.Password = existing.Password
+		}
+		if strings.TrimSpace(string(profile.KeyPassphrase)) == "" {
+			profile.KeyPassphrase = existing.KeyPassphrase
+		}
 	}
 
 	if err := mutator.UpsertSessionProfile(profile); err != nil {
@@ -446,8 +467,11 @@ func (s *Service) ListVaultSecretsForProvider(provider, path string) ([]vaultdom
 	}
 	if selectedProvider == "keepass" {
 		keepassPassword, err := s.store.LoadSecret(securestorage.KeePassPasswordKey())
-		if err != nil {
+		if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 			return nil, err
+		}
+		if strings.TrimSpace(keepassPassword) == "" {
+			keepassPassword = cfg.KeePassPassword
 		}
 		return s.listKeePassSecrets(path, cfg.KeePassDatabasePath, keepassPassword)
 	}
@@ -643,10 +667,13 @@ func (s *Service) resolveVaultAccessToken(baseURL *url.URL, cfg settings.AppSett
 	authMethod := normalizeVaultAuthMethod(cfg.VaultAuthMethod)
 	if authMethod == vaultAuthMethodToken {
 		token, err := s.store.LoadSecret(securestorage.VaultTokenKey())
-		if err != nil {
+		if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 			return "", err
 		}
 		token = strings.TrimSpace(token)
+		if token == "" {
+			token = strings.TrimSpace(cfg.VaultToken)
+		}
 		if token == "" {
 			return "", fmt.Errorf("vault token is not configured")
 		}
@@ -752,6 +779,17 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 		state.Providers[i].Selected = i == index
 	}
 
+	if token == "" {
+		existingToken, err := s.store.LoadSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID))
+		switch {
+		case err == nil && strings.TrimSpace(existingToken) != "":
+			token = strings.TrimSpace(existingToken)
+		case err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired):
+			return err
+		case strings.TrimSpace(state.Providers[index].Token) != "":
+			token = strings.TrimSpace(state.Providers[index].Token)
+		}
+	}
 	if token != "" {
 		if err := s.store.StoreSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID), token); err != nil {
 			return err
@@ -784,10 +822,13 @@ func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 		state := s.store.AIState()
 		if index := providerIndexByClass(state.Providers, ai.ProviderClassOpenAICompatible); index >= 0 {
 			token, err = s.store.LoadSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID))
-			if err != nil {
+			if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 				return nil, err
 			}
 			token = strings.TrimSpace(token)
+			if token == "" {
+				token = strings.TrimSpace(state.Providers[index].Token)
+			}
 		}
 	}
 
@@ -884,6 +925,11 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	}
 	if strings.TrimSpace(updated.VaultToken) != "" {
 		if err := s.store.StoreSecret(securestorage.VaultTokenKey(), strings.TrimSpace(updated.VaultToken)); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(updated.KeePassPassword) != "" {
+		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {
 			return err
 		}
 	}
@@ -1341,10 +1387,12 @@ func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) (*ai.Provide
 			provider := state.Providers[i]
 			if provider.Class == ai.ProviderClassOpenAICompatible {
 				token, err := s.store.LoadSecret(securestorage.AIProviderTokenKey(provider.ID))
-				if err != nil {
+				if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 					return nil, err
 				}
-				provider.Token = strings.TrimSpace(token)
+				if strings.TrimSpace(token) != "" {
+					provider.Token = strings.TrimSpace(token)
+				}
 				provider.HasToken = provider.Token != ""
 			}
 			return &provider, nil
@@ -1363,21 +1411,25 @@ func (s *Service) EnsureMasterPassword(password string) error {
 
 func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile, error) {
 	password, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID))
-	if err != nil {
+	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
 	keyPassphrase, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID))
-	if err != nil {
+	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
 	cloned := cloneSessionProfile(profile)
-	cloned.Password = sessions.EncryptedString(password)
-	cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
+	if strings.TrimSpace(password) != "" {
+		cloned.Password = sessions.EncryptedString(password)
+	}
+	if strings.TrimSpace(keyPassphrase) != "" {
+		cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
+	}
 	if cloned.Options == nil {
 		cloned.Options = map[string]string{}
 	}
-	if keyPassphrase != "" {
-		cloned.Options["ssh_private_key_passphrase"] = keyPassphrase
+	if strings.TrimSpace(string(cloned.KeyPassphrase)) != "" {
+		cloned.Options["ssh_private_key_passphrase"] = strings.TrimSpace(string(cloned.KeyPassphrase))
 	}
 	return cloned, nil
 }
@@ -1388,8 +1440,8 @@ func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.
 		clone := cloneSessionProfile(profile)
 		clone.Password = ""
 		clone.KeyPassphrase = ""
-		clone.HasPassword = s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID))
-		clone.HasKeyPassphrase = s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID))
+		clone.HasPassword = s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID)) || strings.TrimSpace(string(profile.Password)) != ""
+		clone.HasKeyPassphrase = s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID)) || strings.TrimSpace(string(profile.KeyPassphrase)) != ""
 		scrubbed = append(scrubbed, clone)
 	}
 	return scrubbed
@@ -1400,7 +1452,7 @@ func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceStat
 	scrubbed.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
 	for i := range scrubbed.Providers {
 		scrubbed.Providers[i].Token = ""
-		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID))
+		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID)) || strings.TrimSpace(state.Providers[i].Token) != ""
 	}
 	scrubbed.Messages = append([]ai.ChatMessage{}, state.Messages...)
 	return scrubbed
@@ -1423,8 +1475,8 @@ func (s *Service) scrubSettingsForShell(appSettings settings.AppSettings) settin
 	scrubbed.VaultToken = ""
 	scrubbed.VaultPassword = ""
 	scrubbed.KeePassPassword = ""
-	scrubbed.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
-	scrubbed.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
+	scrubbed.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey()) || strings.TrimSpace(appSettings.VaultToken) != ""
+	scrubbed.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey()) || strings.TrimSpace(appSettings.KeePassPassword) != ""
 	scrubbed.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey())
 	return scrubbed
 }

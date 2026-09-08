@@ -189,6 +189,14 @@ func (a *App) ListCloudModels(endpoint string, token string) ([]string, error) {
 	return a.currentService().ListCloudModels(endpoint, token)
 }
 
+func (a *App) StartCloudProviderAuth(endpoint string) (app.CloudProviderAuthSession, error) {
+	return a.currentService().StartCloudProviderAuth(endpoint)
+}
+
+func (a *App) GetCloudProviderAuthSession(sessionID string) (app.CloudProviderAuthSession, error) {
+	return a.currentService().GetCloudProviderAuthSession(sessionID)
+}
+
 func (a *App) DownloadLocalModel() error {
 	return a.currentService().DownloadLocalModel(a.ctx)
 }

@@ -38,6 +38,10 @@ export function DownloadSFTPFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['DownloadSFTPFiles'](arg1, arg2, arg3);
 }
 
+export function GetCloudProviderAuthSession(arg1) {
+  return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
+}
+
 export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
@@ -112,6 +116,10 @@ export function SelectDownloadDirectory() {
 
 export function SelectUploadFiles() {
   return window['go']['main']['App']['SelectUploadFiles']();
+}
+
+export function StartCloudProviderAuth(arg1) {
+  return window['go']['main']['App']['StartCloudProviderAuth'](arg1);
 }
 
 export function StartLocalModel() {

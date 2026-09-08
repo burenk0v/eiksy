@@ -18,6 +18,7 @@ import {
     DeleteSessionProfile,
     DisconnectSSH,
     EnsureMasterPassword,
+    GetCloudProviderAuthSession,
     GetSecureStorageStatus,
     GetShellState,
     OpenRDP,
@@ -35,13 +36,15 @@ import {
     SendChatMessage,
     SendSSHInput,
     ResizeTerminal,
+    StartCloudProviderAuth,
     UploadSFTPFiles,
     UpdateSettings,
 } from '../wailsjs/go/main/App';
-import { EventsOn } from '../wailsjs/runtime/runtime';
+import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime';
 import type { ai as aiModels, app as appModels, securestorage as securestorageModels, sessions, settings as settingsModels, sftp as sftpModels, vault as vaultModels } from '../wailsjs/go/models';
 
 type ShellState = appModels.ShellState;
+type CloudProviderAuthSession = appModels.CloudProviderAuthSession;
 type RuntimeSession = appModels.RuntimeSessionView;
 type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
@@ -239,6 +242,10 @@ class OpsyShell {
     private cloudDraftModel = '';
     private cloudDraftEndpoint = '';
     private cloudDraftToken = '';
+    private cloudAuthSessionId = '';
+    private cloudAuthPending = false;
+    private cloudAuthMessage = '';
+    private cloudAuthPollTimer: number | null = null;
     private vaultDraftAddress = '';
     private vaultDraftMountPoint = '';
     private vaultDraftAuthMethod: VaultAuthMethod = 'token';
@@ -784,6 +791,9 @@ class OpsyShell {
         });
         root?.querySelector<HTMLButtonElement>('[data-load-cloud-models]')?.addEventListener('click', async () => {
             await this.loadCloudModels(true);
+        });
+        root?.querySelector<HTMLButtonElement>('[data-start-cloud-auth]')?.addEventListener('click', async () => {
+            await this.startCloudProviderAuth();
         });
 
         const chatForm = root?.querySelector<HTMLFormElement>('[data-chat-form]');
@@ -1863,12 +1873,116 @@ class OpsyShell {
         }
     }
 
+    private async startCloudProviderAuth(): Promise<void> {
+        const provider = this.selectedProvider();
+        const endpoint = (this.cloudDraftEndpoint || provider?.endpoint || '').trim();
+        if (!endpoint) {
+            this.setErrorMessage('Enter endpoint first.');
+            return;
+        }
+
+        this.clearCloudAuthPolling();
+        this.cloudAuthPending = true;
+        this.cloudAuthMessage = 'Opening browser authorization…';
+        this.render();
+
+        try {
+            const session = await StartCloudProviderAuth(endpoint);
+            this.cloudAuthSessionId = session.id;
+            this.cloudAuthMessage = session.message || 'Waiting for browser authorization.';
+            if (session.authUrl) {
+                BrowserOpenURL(session.authUrl);
+            }
+            this.scheduleCloudAuthPoll(session.id);
+            this.render();
+        } catch (error) {
+            this.cloudAuthPending = false;
+            this.cloudAuthMessage = '';
+            this.setErrorMessage(formatError('Unable to start browser authorization', error));
+            this.render();
+        }
+    }
+
+    private scheduleCloudAuthPoll(sessionID: string): void {
+        this.clearCloudAuthPolling();
+        this.cloudAuthPollTimer = window.setTimeout(() => {
+            void this.pollCloudProviderAuthSession(sessionID);
+        }, 1000);
+    }
+
+    private clearCloudAuthPolling(): void {
+        if (this.cloudAuthPollTimer !== null) {
+            window.clearTimeout(this.cloudAuthPollTimer);
+            this.cloudAuthPollTimer = null;
+        }
+    }
+
+    private async pollCloudProviderAuthSession(sessionID: string): Promise<void> {
+        try {
+            const session = await GetCloudProviderAuthSession(sessionID);
+            this.applyCloudProviderAuthSession(session);
+        } catch (error) {
+            if (sessionID !== this.cloudAuthSessionId) {
+                return;
+            }
+            this.cloudAuthPending = false;
+            this.cloudAuthMessage = '';
+            this.setErrorMessage(formatError('Unable to finish browser authorization', error));
+            this.render();
+        }
+    }
+
+    private applyCloudProviderAuthSession(session: CloudProviderAuthSession): void {
+        if (session.id !== this.cloudAuthSessionId) {
+            return;
+        }
+
+        this.cloudAuthMessage = session.message || '';
+        if (session.status === 'completed') {
+            this.cloudDraftToken = session.token || '';
+            this.cloudAuthPending = false;
+            this.clearCloudAuthPolling();
+            this.cloudAuthMessage = session.message || 'Token received from browser authorization.';
+            this.pushNotification('info', this.cloudAuthMessage);
+            this.render();
+            return;
+        }
+
+        if (session.status === 'failed' || session.status === 'expired') {
+            this.cloudAuthPending = false;
+            this.clearCloudAuthPolling();
+            const message = session.message || 'Browser authorization did not complete.';
+            this.cloudAuthMessage = message;
+            this.pushNotification(session.status === 'expired' ? 'warn' : 'error', message);
+            this.render();
+            return;
+        }
+
+        this.cloudAuthPending = true;
+        this.scheduleCloudAuthPoll(session.id);
+        this.render();
+    }
+
+    private supportsCloudProviderBrowserAuth(endpoint: string): boolean {
+        const normalized = endpoint.trim();
+        if (!normalized) {
+            return false;
+        }
+        try {
+            const url = new URL(normalized);
+            return /\/\.?api\/llm\/openai(?:\/|$)/.test(url.pathname);
+        } catch {
+            return false;
+        }
+    }
+
     private renderProviderSetup(): string {
         const provider = this.selectedProvider();
         if (!provider) {
             return '<div class="empty-state">No AI provider configured yet.</div>';
         }
         const selectedModel = this.cloudDraftModel || provider.model || '';
+        const browserAuthSupported = this.supportsCloudProviderBrowserAuth(this.cloudDraftEndpoint || provider.endpoint || '');
         return `
             <form class="provider-form" data-cloud-form>
                 <label>
@@ -1887,6 +2001,13 @@ class OpsyShell {
                     <input type="password" data-cloud-token name="token" value="${escapeHtml(this.cloudDraftToken)}" placeholder="sk-..." />
                 </label>
                 ${provider.hasToken && !this.cloudDraftToken ? '<div class="section-copy">A token is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ''}
+                ${browserAuthSupported ? `
+                    <div class="provider-form-actions">
+                        <button class="action-button secondary" type="button" data-start-cloud-auth ${this.cloudAuthPending ? 'disabled' : ''}>${this.cloudAuthPending ? 'Waiting for browser auth…' : 'Get token via browser auth'}</button>
+                        <span class="section-copy">For Sourcegraph/Cody-compatible endpoints.</span>
+                    </div>
+                    ${this.cloudAuthMessage ? `<div class="section-copy">${escapeHtml(this.cloudAuthMessage)}</div>` : ''}
+                ` : '<div class="section-copy">Browser auth is available for Sourcegraph/Cody-compatible endpoints.</div>'}
                 <div class="provider-form-actions">
                     <button class="action-button secondary" type="button" data-load-cloud-models ${this.cloudModelsLoading ? 'disabled' : ''}>${this.cloudModelsLoading ? 'Loading models…' : 'Load models'}</button>
                     ${this.cloudModelsError ? `<span class="section-copy">${escapeHtml(this.cloudModelsError)}</span>` : ''}
@@ -2581,11 +2702,15 @@ class OpsyShell {
     }
 
     private initializeSettingsDrafts(): void {
+        this.clearCloudAuthPolling();
         const provider = this.selectedProvider();
         const shellSettings = this.shellState?.settings;
         this.cloudDraftModel = provider?.model ?? '';
         this.cloudDraftEndpoint = provider?.endpoint ?? '';
         this.cloudDraftToken = '';
+        this.cloudAuthSessionId = '';
+        this.cloudAuthPending = false;
+        this.cloudAuthMessage = '';
         this.vaultDraftAddress = shellSettings?.vaultAddress ?? '';
         this.vaultDraftMountPoint = shellSettings?.vaultMountPoint ?? 'secret';
         this.vaultDraftAuthMethod = normalizeVaultAuthMethod(shellSettings?.vaultAuthMethod);

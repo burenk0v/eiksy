@@ -103,6 +103,28 @@ export namespace ai {
 
 export namespace app {
 	
+	export class CloudProviderAuthSession {
+	    id: string;
+	    status: string;
+	    authUrl?: string;
+	    token?: string;
+	    message?: string;
+	    endpoint?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CloudProviderAuthSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.status = source["status"];
+	        this.authUrl = source["authUrl"];
+	        this.token = source["token"];
+	        this.message = source["message"];
+	        this.endpoint = source["endpoint"];
+	    }
+	}
 	export class RuntimeSessionView {
 	    id: string;
 	    title: string;
