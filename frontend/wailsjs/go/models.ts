@@ -40,6 +40,7 @@ export namespace ai {
 	    command?: string;
 	    status: string;
 	    selected: boolean;
+	    hasToken: boolean;
 	    configured: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -57,6 +58,7 @@ export namespace ai {
 	        this.command = source["command"];
 	        this.status = source["status"];
 	        this.selected = source["selected"];
+	        this.hasToken = source["hasToken"];
 	        this.configured = source["configured"];
 	    }
 	}
@@ -336,7 +338,8 @@ export namespace sessions {
 	    host: string;
 	    port: number;
 	    username: string;
-	    password?: string;
+	    hasPassword: boolean;
+	    hasKeyPassphrase: boolean;
 	    secretRef?: string;
 	    options?: Record<string, string>;
 	    lastLaunchedAt?: string;
@@ -356,7 +359,8 @@ export namespace sessions {
 	        this.host = source["host"];
 	        this.port = source["port"];
 	        this.username = source["username"];
-	        this.password = source["password"];
+	        this.hasPassword = source["hasPassword"];
+	        this.hasKeyPassphrase = source["hasKeyPassphrase"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
@@ -373,6 +377,7 @@ export namespace sessions {
 	    port: number;
 	    username: string;
 	    password?: string;
+	    keyPassphrase?: string;
 	    secretRef?: string;
 	    options?: Record<string, string>;
 	    lastLaunchedAt?: string;
@@ -393,6 +398,7 @@ export namespace sessions {
 	        this.port = source["port"];
 	        this.username = source["username"];
 	        this.password = source["password"];
+	        this.keyPassphrase = source["keyPassphrase"];
 	        this.secretRef = source["secretRef"];
 	        this.options = source["options"];
 	        this.lastLaunchedAt = source["lastLaunchedAt"];
@@ -456,6 +462,8 @@ export namespace settings {
 	    keepassDatabasePath: string;
 	    keepassPassword: string;
 	    vaultToken: string;
+	    hasKeePassPassword: boolean;
+	    hasVaultToken: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new AppSettings(source);
@@ -479,6 +487,8 @@ export namespace settings {
 	        this.keepassDatabasePath = source["keepassDatabasePath"];
 	        this.keepassPassword = source["keepassPassword"];
 	        this.vaultToken = source["vaultToken"];
+	        this.hasKeePassPassword = source["hasKeePassPassword"];
+	        this.hasVaultToken = source["hasVaultToken"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -614,6 +624,27 @@ export namespace vault {
 	        this.name = source["name"];
 	        this.path = source["path"];
 	        this.isDir = source["isDir"];
+	    }
+	}
+
+}
+
+export namespace securestorage {
+	
+	export class Status {
+	    available: boolean;
+	    configured: boolean;
+	    unlocked: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new Status(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.configured = source["configured"];
+	        this.unlocked = source["unlocked"];
 	    }
 	}
 

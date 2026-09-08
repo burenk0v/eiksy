@@ -14,6 +14,7 @@ import (
 	sftpdomain "opsy/internal/domain/sftp"
 	vaultdomain "opsy/internal/domain/vault"
 	"opsy/internal/llm"
+	"opsy/internal/securestorage"
 	sftpmanager "opsy/internal/sftp"
 	sshmanager "opsy/internal/ssh"
 	"opsy/internal/storage/disk"
@@ -162,6 +163,14 @@ func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
 
 func (a *App) OpenSessionWindow() error {
 	return nil
+}
+
+func (a *App) GetSecureStorageStatus() securestorage.Status {
+	return a.currentService().GetSecureStorageStatus()
+}
+
+func (a *App) EnsureMasterPassword(password string) error {
+	return a.currentService().EnsureMasterPassword(password)
 }
 
 func (a *App) UpdateSettings(input settings.AppSettings) error {

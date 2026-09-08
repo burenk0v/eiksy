@@ -5,6 +5,7 @@ import {app} from '../models';
 import {sftp} from '../models';
 import {settings} from '../models';
 import {vault} from '../models';
+import {securestorage} from '../models';
 
 export function CancelModelDownload():Promise<void>;
 
@@ -27,6 +28,8 @@ export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Pr
 export function GetCloudProviderAuthSession(arg1:string):Promise<app.CloudProviderAuthSession>;
 
 export function GetShellState():Promise<app.ShellState>;
+
+export function GetSecureStorageStatus():Promise<securestorage.Status>;
 
 export function ImportSSHConfig(arg1:string):Promise<Array<sessions.Profile>>;
 
@@ -62,9 +65,9 @@ export function SelectDownloadDirectory():Promise<string>;
 
 export function SelectUploadFiles():Promise<Array<string>>;
 
-export function StartLocalModel():Promise<void>;
-
 export function StartCloudProviderAuth(arg1:string):Promise<app.CloudProviderAuthSession>;
+
+export function StartLocalModel():Promise<void>;
 
 export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
@@ -73,5 +76,7 @@ export function SendChatMessage(arg1:string):Promise<void>;
 export function ClearChat():Promise<void>;
 
 export function AcceptSSHHostKey(arg1:string):Promise<void>;
+
+export function EnsureMasterPassword(arg1:string):Promise<void>;
 
 export function UpdateSettings(arg1:settings.AppSettings):Promise<void>;

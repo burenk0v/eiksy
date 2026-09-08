@@ -17,8 +17,10 @@ import {
     DownloadSFTPFiles,
     DeleteSessionProfile,
     DisconnectSSH,
-    GetShellState,
+    EnsureMasterPassword,
     GetCloudProviderAuthSession,
+    GetSecureStorageStatus,
+    GetShellState,
     OpenRDP,
     LaunchSession,
     ListSFTPFiles,
@@ -39,15 +41,16 @@ import {
     UpdateSettings,
 } from '../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime';
-import type { ai as aiModels, app as appModels, sessions, settings as settingsModels, sftp as sftpModels, vault as vaultModels } from '../wailsjs/go/models';
+import type { ai as aiModels, app as appModels, securestorage as securestorageModels, sessions, settings as settingsModels, sftp as sftpModels, vault as vaultModels } from '../wailsjs/go/models';
 
 type ShellState = appModels.ShellState;
-type RuntimeSession = appModels.RuntimeSessionView;
 type CloudProviderAuthSession = appModels.CloudProviderAuthSession;
+type RuntimeSession = appModels.RuntimeSessionView;
 type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
 type FileEntry = sftpModels.FileEntry;
 type VaultSecretNode = vaultModels.SecretNode;
+type SecureStorageStatus = securestorageModels.Status;
 
 type SessionFormState = {
     name: string;
@@ -55,6 +58,7 @@ type SessionFormState = {
     port: string;
     username: string;
     password: string;
+    keyPassphrase: string;
     authMethod: 'password' | 'key';
     privateKeyPath: string;
     protocolId: string;
@@ -62,6 +66,8 @@ type SessionFormState = {
     proxyJump: string;
     localForwards: string;
     useSSHAgent: boolean;
+    hasSavedPassword: boolean;
+    hasSavedKeyPassphrase: boolean;
 };
 
 type SFTPState = {
@@ -119,6 +125,19 @@ type NotificationItem = {
     level: NotificationLevel;
     message: string;
     time: string;
+};
+
+type MasterPasswordDialogMode = 'create' | 'unlock';
+
+type MasterPasswordDialogState = {
+    visible: boolean;
+    mode: MasterPasswordDialogMode;
+    password: string;
+    confirm: string;
+    error: string;
+    reason: string;
+    required: boolean;
+    resolver: ((completed: boolean) => void) | null;
 };
 
 type SessionContextMenuState = {
@@ -200,6 +219,8 @@ class OpsyShell {
     private theme: Theme;
     private sessionContextMenu: SessionContextMenuState = { visible: false, x: 0, y: 0, profileId: '' };
     private hostKeyDialog: HostKeyDialogState = { visible: false, tabId: '', profileId: '', fingerprint: '', hostname: '' };
+    private masterPasswordDialog: MasterPasswordDialogState = { visible: false, mode: 'create', password: '', confirm: '', error: '', reason: '', required: false, resolver: null };
+    private startupMasterPasswordPrompted = false;
     private selectedSessionTags = new Set<string>();
     private knownSessionTags = new Set<string>();
     private sessionTagFilterInitialized = false;
@@ -274,6 +295,7 @@ class OpsyShell {
 
         this.registerGlobalEvents();
         await this.refresh();
+        void this.promptForMasterPasswordOnStartup();
         window.addEventListener('resize', () => this.fitActiveTerminal());
     }
 
@@ -377,6 +399,7 @@ class OpsyShell {
             ${this.showVaultModal ? this.renderVaultModal() : ''}
             ${this.showKeePassModal ? this.renderKeePassModal() : ''}
             ${this.showNotificationCenter ? this.renderNotificationCenter() : ''}
+            ${this.masterPasswordDialog.visible ? this.renderMasterPasswordDialog() : ''}
             ${this.renderToasts()}
         `;
 
@@ -779,7 +802,12 @@ class OpsyShell {
             this.aiStatus = 'thinking';
             this.render();
             try {
-                await SendChatMessage(payload);
+                const sent = await this.withMasterPasswordRetry(() => SendChatMessage(payload), 'Master password setup was cancelled, so the saved AI provider token remains locked.');
+                if (typeof sent === 'undefined') {
+                    this.aiStatus = 'idle';
+                    this.render();
+                    return;
+                }
                 this.chatDraftMessage = '';
                 await this.refresh('');
             } catch (error) {
@@ -833,6 +861,42 @@ class OpsyShell {
                 this.keepassModalTab = 'browser';
                 this.render();
             });
+        });
+
+        root?.querySelector<HTMLFormElement>('[data-master-password-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const password = this.masterPasswordDialog.password;
+            if (!password) {
+                this.masterPasswordDialog.error = 'Enter a master password.';
+                this.render();
+                return;
+            }
+            if (this.masterPasswordDialog.mode === 'create' && password !== this.masterPasswordDialog.confirm) {
+                this.masterPasswordDialog.error = 'Master password confirmation does not match.';
+                this.render();
+                return;
+            }
+            try {
+                await EnsureMasterPassword(password);
+                this.resolveMasterPasswordDialog(true);
+                await this.refresh('');
+            } catch (error) {
+                this.masterPasswordDialog.error = formatError(this.masterPasswordDialog.mode === 'create' ? 'Unable to create master password' : 'Unable to unlock secure storage', error);
+                this.masterPasswordDialog.password = '';
+                this.masterPasswordDialog.confirm = '';
+                this.render();
+            }
+        });
+        root?.querySelector<HTMLInputElement>('[data-master-password-input]')?.addEventListener('input', (event) => {
+            this.masterPasswordDialog.password = (event.currentTarget as HTMLInputElement).value;
+            this.masterPasswordDialog.error = '';
+        });
+        root?.querySelector<HTMLInputElement>('[data-master-password-confirm]')?.addEventListener('input', (event) => {
+            this.masterPasswordDialog.confirm = (event.currentTarget as HTMLInputElement).value;
+            this.masterPasswordDialog.error = '';
+        });
+        root?.querySelector<HTMLButtonElement>('[data-master-password-cancel]')?.addEventListener('click', () => {
+            this.resolveMasterPasswordDialog(false);
         });
 
         root?.querySelectorAll<HTMLButtonElement>('[data-set-theme]').forEach((button) => {
@@ -964,6 +1028,7 @@ class OpsyShell {
                 port: Number(formData.get('port') ?? (protocolId === 'rdp' ? 3389 : 22)),
                 username: String(formData.get('username') ?? ''),
                 password: String(authMethod === 'password' ? (formData.get('password') ?? '') : ''),
+                keyPassphrase: String(authMethod === 'key' ? (formData.get('keyPassphrase') ?? '') : ''),
                 protocolId,
                 tags: this.sessionForm.tags,
                 favorite: false,
@@ -995,7 +1060,10 @@ class OpsyShell {
                 profile.options = options;
             }
             try {
-                await CreateSessionProfile(profile);
+                const saved = await this.withMasterPasswordRetry(() => CreateSessionProfile(profile), 'Master password setup was cancelled, so the session profile was not saved.');
+                if (typeof saved === 'undefined') {
+                    return;
+                }
                 this.showSessionModal = false;
                 this.editingProfileID = '';
                 this.sessionForm = this.defaultSessionForm();
@@ -1111,7 +1179,10 @@ class OpsyShell {
 
     private async connectSSHWithHostKeyHandling(tabId: string, profileId: string): Promise<boolean> {
         try {
-            await ConnectSSH(tabId, profileId);
+            const connected = await this.withMasterPasswordRetry(() => ConnectSSH(tabId, profileId), 'Master password setup was cancelled, so the saved SSH credentials remain locked.');
+            if (typeof connected === 'undefined') {
+                return false;
+            }
             return true;
         } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
@@ -1135,7 +1206,10 @@ class OpsyShell {
     private async retrySSHConnect(tabId: string, profileId: string): Promise<void> {
         try {
             this.ensureTerminalSubscription(tabId);
-            await ConnectSSH(tabId, profileId);
+            const connected = await this.withMasterPasswordRetry(() => ConnectSSH(tabId, profileId), 'Master password setup was cancelled, so the saved SSH credentials remain locked.');
+            if (typeof connected === 'undefined') {
+                return;
+            }
             this.fitActiveTerminal();
             await this.refresh('');
             await this.ensureActiveSFTPLoaded(true);
@@ -1300,7 +1374,16 @@ class OpsyShell {
         this.setProviderState(provider, { ...currentState, loading: true, error: '' });
         this.render();
         try {
-            const entries = await ListVaultSecretsForProvider(provider, normalizedPath);
+            const entries = await this.withMasterPasswordRetry(() => ListVaultSecretsForProvider(provider, normalizedPath), `Master password setup was cancelled, so the saved ${provider === 'keepass' ? 'KeePass' : 'Vault'} credentials remain locked.`);
+            if (!entries) {
+                this.setProviderState(provider, {
+                    ...currentState,
+                    loading: false,
+                    error: '',
+                });
+                this.render();
+                return;
+            }
             this.setProviderState(provider, {
                 path: normalizedPath,
                 entries,
@@ -1751,7 +1834,13 @@ class OpsyShell {
         this.cloudModelsError = '';
         this.render();
         try {
-            const models = await ListCloudModels(endpoint, token);
+            const models = await this.withMasterPasswordRetry(() => ListCloudModels(endpoint, token), 'Master password setup was cancelled, so the saved AI provider token remains locked.');
+            if (!models) {
+                this.cloudModels = [];
+                this.cloudModelsLoading = false;
+                this.render();
+                return;
+            }
             this.cloudModels = models;
             this.cloudModelsEndpoint = endpoint;
             this.cloudModelsError = models.length > 0 ? '' : 'No models returned by API.';
@@ -1856,12 +1945,26 @@ class OpsyShell {
         this.render();
     }
 
+    private supportsCloudProviderBrowserAuth(endpoint: string): boolean {
+        const normalized = endpoint.trim();
+        if (!normalized) {
+            return false;
+        }
+        try {
+            const url = new URL(normalized);
+            return /\/\.?api\/llm\/openai(?:\/|$)/.test(url.pathname);
+        } catch {
+            return false;
+        }
+    }
+
     private renderProviderSetup(): string {
         const provider = this.selectedProvider();
         if (!provider) {
             return '<div class="empty-state">No AI provider configured yet.</div>';
         }
         const selectedModel = this.cloudDraftModel || provider.model || '';
+        const browserAuthSupported = this.supportsCloudProviderBrowserAuth(this.cloudDraftEndpoint || provider.endpoint || '');
         return `
             <form class="provider-form" data-cloud-form>
                 <label>
@@ -1879,11 +1982,14 @@ class OpsyShell {
                     <span>API token (optional)</span>
                     <input type="password" data-cloud-token name="token" value="${escapeHtml(this.cloudDraftToken)}" placeholder="sk-..." />
                 </label>
-                <div class="provider-form-actions">
-                    <button class="action-button secondary" type="button" data-start-cloud-auth ${this.cloudAuthPending ? 'disabled' : ''}>${this.cloudAuthPending ? 'Waiting for browser auth…' : 'Get token via browser auth'}</button>
-                    <span class="section-copy">Compatible with Sourcegraph/Cody-style authorization.</span>
-                </div>
-                ${this.cloudAuthMessage ? `<div class="section-copy">${escapeHtml(this.cloudAuthMessage)}</div>` : ''}
+                ${provider.hasToken && !this.cloudDraftToken ? '<div class="section-copy">A token is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ''}
+                ${browserAuthSupported ? `
+                    <div class="provider-form-actions">
+                        <button class="action-button secondary" type="button" data-start-cloud-auth ${this.cloudAuthPending ? 'disabled' : ''}>${this.cloudAuthPending ? 'Waiting for browser auth…' : 'Get token via browser auth'}</button>
+                        <span class="section-copy">For Sourcegraph/Cody-compatible endpoints.</span>
+                    </div>
+                    ${this.cloudAuthMessage ? `<div class="section-copy">${escapeHtml(this.cloudAuthMessage)}</div>` : ''}
+                ` : '<div class="section-copy">Browser auth is available for Sourcegraph/Cody-compatible endpoints.</div>'}
                 <div class="provider-form-actions">
                     <button class="action-button secondary" type="button" data-load-cloud-models ${this.cloudModelsLoading ? 'disabled' : ''}>${this.cloudModelsLoading ? 'Loading models…' : 'Load models'}</button>
                     ${this.cloudModelsError ? `<span class="section-copy">${escapeHtml(this.cloudModelsError)}</span>` : ''}
@@ -2060,6 +2166,7 @@ class OpsyShell {
                                     <span>Token</span>
                                     <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
                                 </label>
+                                ${this.shellState?.settings.hasVaultToken && !this.vaultDraftToken ? '<div class="section-copy">A Vault token is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ''}
                                 <label class="inline-check">
                                     <span>Auto-renew token</span>
                                     <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? 'checked' : ''} />
@@ -2111,6 +2218,7 @@ class OpsyShell {
                                     <span>KeePass password</span>
                                     <input type="password" data-keepass-password name="keepassPassword" value="${escapeHtml(this.vaultDraftKeePassPassword)}" />
                                 </label>
+                                ${this.shellState?.settings.hasKeePassPassword && !this.vaultDraftKeePassPassword ? '<div class="section-copy">A KeePass password is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ''}
                                 <div class="provider-form-actions">
                                     <button class="action-button" type="submit">Save KeePass settings</button>
                                 </div>
@@ -2157,6 +2265,7 @@ class OpsyShell {
             port: String(profile.port || (profile.protocolId === 'rdp' ? 3389 : 22)),
             username: profile.username || '',
             password: '',
+            keyPassphrase: '',
             authMethod,
             privateKeyPath: options.ssh_private_key_path ?? '',
             protocolId: profile.protocolId || 'ssh',
@@ -2164,6 +2273,8 @@ class OpsyShell {
             proxyJump: options.proxy_jump ?? '',
             localForwards: options.local_forwards ?? '',
             useSSHAgent: options.use_ssh_agent === 'true',
+            hasSavedPassword: Boolean(profile.hasPassword),
+            hasSavedKeyPassphrase: Boolean(profile.hasKeyPassphrase),
         };
     }
 
@@ -2216,8 +2327,11 @@ class OpsyShell {
                                 </label>
                                 ` : ''}
                                 ${this.sessionForm.authMethod === 'key' && supportsKeyAuth
-                                    ? `<label><span>Private key path</span><input name="privateKeyPath" value="${escapeHtml(this.sessionForm.privateKeyPath)}" placeholder="~/.ssh/id_ed25519" required /></label>`
-                                    : `<label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>`}
+                                    ? `<label><span>Private key path</span><input name="privateKeyPath" value="${escapeHtml(this.sessionForm.privateKeyPath)}" placeholder="~/.ssh/id_ed25519" required /></label>
+                                       <label><span>Key passphrase</span><input name="keyPassphrase" type="password" value="${escapeHtml(this.sessionForm.keyPassphrase)}" placeholder="Optional" /></label>
+                                       ${isEditing && this.sessionForm.hasSavedKeyPassphrase ? '<div class="section-copy">Leave the key passphrase blank to keep the saved encrypted passphrase.</div>' : ''}`
+                                    : `<label><span>Password</span><input name="password" type="password" value="${escapeHtml(this.sessionForm.password)}" /></label>
+                                       ${isEditing && this.sessionForm.hasSavedPassword ? '<div class="section-copy">Leave the password blank to keep the saved encrypted password.</div>' : ''}`}
                             </div>
                             <div class="modal-tab-panel ${this.sessionModalTab === 'other' ? 'active' : ''}">
                                 <label><span>Name</span><input name="name" value="${escapeHtml(this.sessionForm.name)}" required /></label>
@@ -2481,6 +2595,7 @@ class OpsyShell {
         this.sessionForm.port = root?.querySelector<HTMLInputElement>('input[name="port"]')?.value ?? this.sessionForm.port;
         this.sessionForm.username = root?.querySelector<HTMLInputElement>('input[name="username"]')?.value ?? this.sessionForm.username;
         this.sessionForm.password = root?.querySelector<HTMLInputElement>('input[name="password"]')?.value ?? this.sessionForm.password;
+        this.sessionForm.keyPassphrase = root?.querySelector<HTMLInputElement>('input[name="keyPassphrase"]')?.value ?? this.sessionForm.keyPassphrase;
         this.sessionForm.privateKeyPath = root?.querySelector<HTMLInputElement>('input[name="privateKeyPath"]')?.value ?? this.sessionForm.privateKeyPath;
         const authMethodValue = root?.querySelector<HTMLSelectElement>('select[name="authMethod"]')?.value;
         this.sessionForm.authMethod = authMethodValue === 'key'
@@ -2567,6 +2682,129 @@ class OpsyShell {
         this.vaultDraftKeePassPassword = '';
     }
 
+    private async promptForMasterPasswordOnStartup(): Promise<void> {
+        if (this.startupMasterPasswordPrompted) {
+            return;
+        }
+        this.startupMasterPasswordPrompted = true;
+        let status: SecureStorageStatus;
+        try {
+            status = await GetSecureStorageStatus();
+        } catch {
+            return;
+        }
+        if (!status.available || status.configured) {
+            return;
+        }
+        await this.requestMasterPassword('create', false, 'Create a master password to securely store passwords and tokens in the OS keychain-backed vault.');
+    }
+
+    private async withMasterPasswordRetry<T>(action: () => Promise<T>, cancelMessage: string): Promise<T | undefined> {
+        try {
+            return await action();
+        } catch (error) {
+            if (!this.isMasterPasswordRequiredError(error)) {
+                throw error;
+            }
+            const ready = await this.ensureMasterPasswordForLockedSecrets();
+            if (!ready) {
+                this.pushNotification('error', cancelMessage);
+                return undefined;
+            }
+            return await action();
+        }
+    }
+
+    private async ensureMasterPasswordForLockedSecrets(): Promise<boolean> {
+        let status: SecureStorageStatus;
+        try {
+            status = await GetSecureStorageStatus();
+        } catch (error) {
+            this.pushNotification('error', formatError('Unable to check secure storage status', error));
+            return false;
+        }
+        if (!status.available) {
+            this.pushNotification('error', 'Secure storage is unavailable on this system, so saved passwords and tokens cannot be unlocked.');
+            return false;
+        }
+        if (status.unlocked) {
+            return true;
+        }
+        const mode: MasterPasswordDialogMode = status.configured ? 'unlock' : 'create';
+        const reason = mode === 'create'
+            ? 'Create a master password to securely save passwords and tokens before continuing.'
+            : 'Enter your master password to unlock saved passwords and tokens before continuing.';
+        return this.requestMasterPassword(mode, true, reason);
+    }
+
+    private requestMasterPassword(mode: MasterPasswordDialogMode, required: boolean, reason: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            this.masterPasswordDialog = {
+                visible: true,
+                mode,
+                password: '',
+                confirm: '',
+                error: '',
+                reason,
+                required,
+                resolver: resolve,
+            };
+            this.render();
+            requestAnimationFrame(() => {
+                root?.querySelector<HTMLInputElement>('[data-master-password-input]')?.focus();
+            });
+        });
+    }
+
+    private resolveMasterPasswordDialog(completed: boolean): void {
+        const resolver = this.masterPasswordDialog.resolver;
+        this.masterPasswordDialog = { visible: false, mode: 'create', password: '', confirm: '', error: '', reason: '', required: false, resolver: null };
+        this.render();
+        resolver?.(completed);
+    }
+
+    private renderMasterPasswordDialog(): string {
+        const isCreate = this.masterPasswordDialog.mode === 'create';
+        return `
+            <div class="modal-overlay">
+                <div class="modal-dialog">
+                    <div class="panel-header compact-header">
+                        <div>
+                            <div class="eyebrow">Secure storage</div>
+                            <h2>${isCreate ? 'Create master password' : 'Unlock secure storage'}</h2>
+                        </div>
+                        ${this.masterPasswordDialog.required ? '' : '<button class="icon-button" data-master-password-cancel>×</button>'}
+                    </div>
+                    <div class="modal-body">
+                        <form class="provider-form" data-master-password-form>
+                            <div class="section-copy">${escapeHtml(this.masterPasswordDialog.reason)}</div>
+                            <label>
+                                <span>Master password</span>
+                                <input type="password" data-master-password-input value="${escapeHtml(this.masterPasswordDialog.password)}" autocomplete="new-password" />
+                            </label>
+                            ${isCreate ? `
+                                <label>
+                                    <span>Confirm master password</span>
+                                    <input type="password" data-master-password-confirm value="${escapeHtml(this.masterPasswordDialog.confirm)}" autocomplete="new-password" />
+                                </label>
+                            ` : ''}
+                            ${this.masterPasswordDialog.error ? `<div class="error-banner">${escapeHtml(this.masterPasswordDialog.error)}</div>` : ''}
+                            <div class="provider-form-actions">
+                                ${this.masterPasswordDialog.required ? '' : '<button class="action-button secondary" type="button" data-master-password-cancel>Later</button>'}
+                                <button class="action-button" type="submit">${isCreate ? 'Save master password' : 'Unlock'}</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private isMasterPasswordRequiredError(error: unknown): boolean {
+        const message = error instanceof Error ? error.message : String(error);
+        return message.toLowerCase().includes('master password required');
+    }
+
     private renderToasts(): string {
         if (this.toastQueue.length === 0) {
             return '';
@@ -2619,7 +2857,10 @@ class OpsyShell {
 
     private async runAction(action: () => Promise<void>, prefix: string): Promise<void> {
         try {
-            await action();
+            const completed = await this.withMasterPasswordRetry(action, `${prefix}: master password setup was cancelled.`);
+            if (typeof completed === 'undefined') {
+                return;
+            }
             await this.refresh('');
         } catch (error) {
             this.setErrorMessage(formatError(prefix, error));
@@ -2634,6 +2875,7 @@ class OpsyShell {
             port: '22',
             username: '',
             password: '',
+            keyPassphrase: '',
             authMethod: 'password',
             privateKeyPath: '',
             protocolId: 'ssh',
@@ -2641,6 +2883,8 @@ class OpsyShell {
             proxyJump: '',
             localForwards: '',
             useSSHAgent: false,
+            hasSavedPassword: false,
+            hasSavedKeyPassphrase: false,
         };
     }
 

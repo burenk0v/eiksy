@@ -30,9 +30,9 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 		return CloudProviderAuthSession{}, fmt.Errorf("cloud endpoint is required")
 	}
 
-	parsed, err := url.Parse(endpoint)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return CloudProviderAuthSession{}, fmt.Errorf("cloud endpoint must be a valid http or https url")
+	authURL, origin, err := sourcegraphCloudAuthURL(endpoint)
+	if err != nil {
+		return CloudProviderAuthSession{}, err
 	}
 
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
@@ -40,13 +40,12 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 		return CloudProviderAuthSession{}, fmt.Errorf("start local auth callback listener: %w", err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	origin := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
 
 	session := &cloudAuthSession{
 		state: CloudProviderAuthSession{
 			ID:       newCloudProviderAuthSessionID(),
 			Status:   "pending",
-			AuthURL:  fmt.Sprintf("%s/user/settings/tokens/new/callback?requestFrom=CODY_CLI-%d", origin, port),
+			AuthURL:  fmt.Sprintf("%s?requestFrom=CODY_CLI-%d", authURL, port),
 			Message:  "Waiting for browser authorization.",
 			Endpoint: endpoint,
 		},
@@ -250,4 +249,19 @@ func newCloudProviderAuthSessionID() string {
 		return fmt.Sprintf("cloud-auth-%d", time.Now().UTC().UnixNano())
 	}
 	return "cloud-auth-" + hex.EncodeToString(data[:])
+}
+
+func sourcegraphCloudAuthURL(endpoint string) (authURL string, origin string, err error) {
+	parsed, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", "", fmt.Errorf("cloud endpoint must be a valid http or https url")
+	}
+
+	normalizedPath := strings.TrimRight(parsed.EscapedPath(), "/")
+	if !strings.Contains(normalizedPath, "/api/llm/openai") && !strings.Contains(normalizedPath, "/.api/llm/openai") {
+		return "", "", fmt.Errorf("browser authorization is supported only for Sourcegraph/Cody-compatible endpoints")
+	}
+
+	origin = (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
+	return origin + "/user/settings/tokens/new/callback", origin, nil
 }

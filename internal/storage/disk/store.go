@@ -1,6 +1,10 @@
 package disk
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -16,6 +20,7 @@ import (
 	"opsy/internal/domain/settings"
 	"opsy/internal/domain/workspace"
 	"opsy/internal/llm"
+	"opsy/internal/securestorage"
 )
 
 const maxLaunchHistoryEntries = 100
@@ -37,13 +42,14 @@ type Store struct {
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
 	eventCounter        int64
+	secretManager       *securestorage.Manager
 }
 
 type persistedSettings struct {
 	settings.AppSettings
 	VaultToken      string                     `json:"vaultToken,omitempty"`
 	KeePassPassword string                     `json:"keepassPassword,omitempty"`
-	AIState         *persistedAIWorkspaceState `json:"aiState,omitempty"`
+	AIState *persistedAIWorkspaceState `json:"aiState,omitempty"`
 }
 
 type persistedAIWorkspaceState struct {
@@ -67,6 +73,23 @@ type persistedAIProviderDescriptor struct {
 	Configured bool             `json:"configured"`
 }
 
+type persistedSessionProfile struct {
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Group          string            `json:"group"`
+	Tags           []string          `json:"tags"`
+	Favorite       bool              `json:"favorite"`
+	ProtocolID     string            `json:"protocolId"`
+	Host           string            `json:"host"`
+	Port           int               `json:"port"`
+	Username       string            `json:"username"`
+	Password       string            `json:"password,omitempty"`
+	KeyPassphrase  string            `json:"keyPassphrase,omitempty"`
+	SecretRef      string            `json:"secretRef,omitempty"`
+	Options        map[string]string `json:"options,omitempty"`
+	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
+}
+
 func NewStore() (*Store, error) {
 	baseDir, err := llm.OpsyDir()
 	if err != nil {
@@ -76,8 +99,25 @@ func NewStore() (*Store, error) {
 }
 
 func NewStoreAt(baseDir string) (*Store, error) {
+	return NewStoreAtWithKeyring(baseDir, nil)
+}
+
+func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(baseDir, "models"), 0o755); err != nil {
 		return nil, fmt.Errorf("create opsy directory: %w", err)
+	}
+
+	var (
+		secretManager *securestorage.Manager
+		err           error
+	)
+	if keyring == nil {
+		secretManager, err = securestorage.New(filepath.Join(baseDir, "secrets.db"))
+	} else {
+		secretManager, err = securestorage.NewWithKeyring(filepath.Join(baseDir, "secrets.db"), keyring)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	store := &Store{
@@ -95,6 +135,7 @@ func NewStoreAt(baseDir string) (*Store, error) {
 		settings:            defaultSettings(),
 		workspaceLayout:     defaultWorkspaceLayout(),
 		events:              []workspace.Event{},
+		secretManager:       secretManager,
 	}
 
 	if err := store.ensureFiles(); err != nil {
@@ -192,12 +233,19 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.aiState = cloneAIState(state)
+	for i := range s.aiState.Providers {
+		s.aiState.Providers[i].Token = ""
+	}
 	_ = s.saveSettings()
 }
 
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	updated.VaultToken = ""
+	updated.KeePassPassword = ""
+	updated.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
+	updated.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
 	s.settings = updated
 	return s.saveSettings()
 }
@@ -277,6 +325,13 @@ func (s *Store) UpsertSessionProfile(profile sessions.Profile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	profile = cloneProfile(profile)
+	if err := s.persistProfileSecrets(profile); err != nil {
+		return err
+	}
+	profile.Password = ""
+	profile.KeyPassphrase = ""
+	profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
+	profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID))
 	if _, ok := s.sessionProfiles[profile.ID]; !ok {
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
 	}
@@ -291,6 +346,8 @@ func (s *Store) DeleteSessionProfile(profileID string) error {
 		return fmt.Errorf("session profile %q not found", profileID)
 	}
 	delete(s.sessionProfiles, profileID)
+	_ = s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profileID))
+	_ = s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profileID))
 	filtered := make([]string, 0, len(s.sessionOrder))
 	for _, id := range s.sessionOrder {
 		if id != profileID {
@@ -324,7 +381,7 @@ func (s *Store) loadSessionProfiles() error {
 	if len(strings.TrimSpace(string(content))) == 0 {
 		return nil
 	}
-	var profiles []sessions.Profile
+	var profiles []persistedSessionProfile
 	if err := json.Unmarshal(content, &profiles); err != nil {
 		if renameErr := os.Rename(s.sessionsPath, s.sessionsPath+".fail"); renameErr != nil {
 			return fmt.Errorf("decode sessions file: %w (also failed to rename: %v)", err, renameErr)
@@ -334,8 +391,10 @@ func (s *Store) loadSessionProfiles() error {
 		}
 		return nil
 	}
-	for _, profile := range profiles {
-		profile = cloneProfile(profile)
+	for _, persisted := range profiles {
+		profile := cloneProfile(persisted.toProfile())
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID)) || strings.TrimSpace(string(profile.Password)) != ""
+		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID)) || strings.TrimSpace(string(profile.KeyPassphrase)) != ""
 		s.sessionProfiles[profile.ID] = profile
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
 	}
@@ -362,8 +421,8 @@ func (s *Store) loadSettings() error {
 		return s.saveSettings()
 	}
 	loaded = persisted.AppSettings
-	loaded.VaultToken = persisted.VaultToken
-	loaded.KeePassPassword = persisted.KeePassPassword
+	loaded.VaultToken = strings.TrimSpace(persisted.VaultToken)
+	loaded.KeePassPassword = strings.TrimSpace(persisted.KeePassPassword)
 	defaults := defaultSettings()
 	if loaded.Theme == "" {
 		loaded.Theme = defaults.Theme
@@ -387,10 +446,8 @@ func (s *Store) loadSettings() error {
 		loaded.VaultProvider = defaults.VaultProvider
 	}
 	loaded.KeePassDatabasePath = strings.TrimSpace(loaded.KeePassDatabasePath)
-	loaded.KeePassPassword = strings.TrimSpace(loaded.KeePassPassword)
-	if loaded.VaultToken == "" {
-		loaded.VaultToken = defaults.VaultToken
-	}
+	loaded.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey()) || loaded.VaultToken != ""
+	loaded.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey()) || loaded.KeePassPassword != ""
 	loaded.PortForwardRules = normalizePortForwardRules(loaded.PortForwardRules)
 	s.settings = loaded
 	if persisted.AIState != nil {
@@ -439,6 +496,89 @@ func ensureJSONFile(path string, defaultContent []byte) error {
 		return err
 	}
 	return os.WriteFile(path, defaultContent, 0o600)
+}
+
+func (s *Store) SecureStorageStatus() securestorage.Status {
+	if s.secretManager == nil {
+		return securestorage.Status{}
+	}
+	return s.secretManager.Status()
+}
+
+func (s *Store) EnsureMasterPassword(password string) error {
+	if s.secretManager == nil {
+		return fmt.Errorf("secure storage is unavailable")
+	}
+	err := s.secretManager.EnsureMasterPassword(password)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if err := s.migrateLoadedLegacySecretsLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.settings.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
+	s.settings.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
+	for id, profile := range s.sessionProfiles {
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(id))
+		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(id))
+		s.sessionProfiles[id] = profile
+	}
+	defer s.mu.Unlock()
+	return nil
+}
+
+func (s *Store) SecretExists(key string) bool {
+	return s.secretManager != nil && s.secretManager.SecretExists(key)
+}
+
+func (s *Store) LoadSecret(key string) (string, error) {
+	if s.secretManager == nil {
+		return "", fmt.Errorf("secure storage is unavailable")
+	}
+	return s.secretManager.LoadSecret(key)
+}
+
+func (s *Store) StoreSecret(key, value string) error {
+	if s.secretManager == nil {
+		return fmt.Errorf("secure storage is unavailable")
+	}
+	return s.secretManager.StoreSecret(key, value)
+}
+
+func (s *Store) DeleteSecret(key string) error {
+	if s.secretManager == nil {
+		return nil
+	}
+	return s.secretManager.DeleteSecret(key)
+}
+
+func (s *Store) persistProfileSecrets(profile sessions.Profile) error {
+	authMethod := "password"
+	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
+		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
+	}
+	if strings.TrimSpace(string(profile.Password)) != "" {
+		if err := s.secretManager.StoreSecret(securestorage.SessionPasswordKey(profile.ID), strings.TrimSpace(string(profile.Password))); err != nil {
+			return err
+		}
+	}
+	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
+		if err := s.secretManager.StoreSecret(securestorage.SessionKeyPassphraseKey(profile.ID), strings.TrimSpace(string(profile.KeyPassphrase))); err != nil {
+			return err
+		}
+	}
+	if authMethod == "key" {
+		if err := s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil {
+			return err
+		}
+	} else {
+		if err := s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func defaultProtocols() []protocols.Descriptor {
@@ -501,14 +641,13 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 		}
 	}
 	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
+	cloned.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	return cloned
 }
 
 func newPersistedSettings(app settings.AppSettings, state ai.WorkspaceState) persistedSettings {
 	persisted := persistedSettings{
-		AppSettings:     app,
-		VaultToken:      strings.TrimSpace(app.VaultToken),
-		KeePassPassword: strings.TrimSpace(app.KeePassPassword),
+		AppSettings: app,
 	}
 	persisted.AppSettings.VaultToken = ""
 	persisted.AppSettings.KeePassPassword = ""
@@ -550,7 +689,7 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 			Command:    provider.Command,
 			Status:     provider.Status,
 			Selected:   provider.Selected,
-			Token:      strings.TrimSpace(provider.Token),
+			Token:      "",
 			Configured: provider.Configured,
 		})
 	}
@@ -580,4 +719,130 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 		})
 	}
 	return state
+}
+
+func (s *Store) migrateLoadedLegacySecretsLocked() error {
+	migratedSettings := false
+	if strings.TrimSpace(s.settings.VaultToken) != "" {
+		if err := s.secretManager.StoreSecret(securestorage.VaultTokenKey(), strings.TrimSpace(s.settings.VaultToken)); err != nil {
+			return err
+		}
+		s.settings.VaultToken = ""
+		migratedSettings = true
+	}
+	if strings.TrimSpace(s.settings.KeePassPassword) != "" {
+		if err := s.secretManager.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(s.settings.KeePassPassword)); err != nil {
+			return err
+		}
+		s.settings.KeePassPassword = ""
+		migratedSettings = true
+	}
+	for i := range s.aiState.Providers {
+		if strings.TrimSpace(s.aiState.Providers[i].Token) == "" {
+			continue
+		}
+		if err := s.secretManager.StoreSecret(securestorage.AIProviderTokenKey(s.aiState.Providers[i].ID), strings.TrimSpace(s.aiState.Providers[i].Token)); err != nil {
+			return err
+		}
+		s.aiState.Providers[i].Token = ""
+		migratedSettings = true
+	}
+	if migratedSettings {
+		if err := s.saveSettings(); err != nil {
+			return err
+		}
+	}
+
+	migratedProfiles := false
+	for id, profile := range s.sessionProfiles {
+		if strings.TrimSpace(string(profile.Password)) == "" && strings.TrimSpace(string(profile.KeyPassphrase)) == "" {
+			continue
+		}
+		if err := s.persistProfileSecrets(profile); err != nil {
+			return err
+		}
+		profile.Password = ""
+		profile.KeyPassphrase = ""
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(id))
+		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(id))
+		s.sessionProfiles[id] = profile
+		migratedProfiles = true
+	}
+	if migratedProfiles {
+		if err := s.saveSessionProfilesLocked(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func cloneProfileOptions(options map[string]string) map[string]string {
+	if options == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(options))
+	for key, value := range options {
+		cloned[key] = value
+	}
+	return cloned
+}
+
+func decodeLegacySessionSecret(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if plaintext, err := decryptLegacySessionSecret(value); err == nil {
+		return plaintext
+	}
+	return value
+}
+
+func decryptLegacySessionSecret(encoded string) (string, error) {
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", err
+	}
+	block, err := aes.NewCipher(legacySessionDerivedKey())
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	plaintext, err := gcm.Open(nil, data[:nonceSize], data[nonceSize:], nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+func legacySessionDerivedKey() []byte {
+	sum := sha256.Sum256([]byte("zg4ewf1u"))
+	return sum[:]
+}
+
+func (p persistedSessionProfile) toProfile() sessions.Profile {
+	return sessions.Profile{
+		ID:               p.ID,
+		Name:             p.Name,
+		Group:            p.Group,
+		Tags:             append([]string(nil), p.Tags...),
+		Favorite:         p.Favorite,
+		ProtocolID:       p.ProtocolID,
+		Host:             p.Host,
+		Port:             p.Port,
+		Username:         p.Username,
+		Password:         sessions.EncryptedString(decodeLegacySessionSecret(p.Password)),
+		KeyPassphrase:    sessions.EncryptedString(decodeLegacySessionSecret(p.KeyPassphrase)),
+		SecretRef:        p.SecretRef,
+		Options:          cloneProfileOptions(p.Options),
+		LastLaunchedAt:   p.LastLaunchedAt,
+	}
 }

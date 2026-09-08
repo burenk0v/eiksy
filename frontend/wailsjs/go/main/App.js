@@ -38,12 +38,16 @@ export function DownloadSFTPFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['DownloadSFTPFiles'](arg1, arg2, arg3);
 }
 
+export function GetCloudProviderAuthSession(arg1) {
+  return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
+}
+
 export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }
 
-export function GetCloudProviderAuthSession(arg1) {
-  return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
+export function GetSecureStorageStatus() {
+  return window['go']['main']['App']['GetSecureStorageStatus']();
 }
 
 export function ImportSSHConfig(arg1) {
@@ -114,12 +118,12 @@ export function SelectUploadFiles() {
   return window['go']['main']['App']['SelectUploadFiles']();
 }
 
-export function StartLocalModel() {
-  return window['go']['main']['App']['StartLocalModel']();
-}
-
 export function StartCloudProviderAuth(arg1) {
   return window['go']['main']['App']['StartCloudProviderAuth'](arg1);
+}
+
+export function StartLocalModel() {
+  return window['go']['main']['App']['StartLocalModel']();
 }
 
 export function UploadSFTPFiles(arg1, arg2, arg3) {
@@ -136,6 +140,10 @@ export function ClearChat() {
 
 export function AcceptSSHHostKey(arg1) {
   return window['go']['main']['App']['AcceptSSHHostKey'](arg1);
+}
+
+export function EnsureMasterPassword(arg1) {
+  return window['go']['main']['App']['EnsureMasterPassword'](arg1);
 }
 
 export function UpdateSettings(arg1) {
