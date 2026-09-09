@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/burenk0v/opsy/releases/latest">
-    <img src="https://img.shields.io/github/v/release/burenk0v/opsy?display_name=tag&label=latest%20release" alt="Latest Release" />
+    <img src="https://img.shields.io/github/v/release/burenk0v/opsy" alt="Latest Release" />
   </a>
 </p>
 
