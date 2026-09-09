@@ -21,6 +21,8 @@ export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Pr
 
 export function GetCloudProviderAuthSession(arg1:string):Promise<app.CloudProviderAuthSession>;
 
+export function GetReleaseVersion():Promise<string>;
+
 export function GetShellState():Promise<app.ShellState>;
 
 export function GetSecureStorageStatus():Promise<securestorage.Status>;

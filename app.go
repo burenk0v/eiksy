@@ -64,6 +64,10 @@ func (a *App) GetShellState() app.ShellState {
 	return a.currentService().GetShellState()
 }
 
+func (a *App) GetReleaseVersion() string {
+	return resolveReleaseVersion()
+}
+
 // LaunchSession opens a new runtime tab from a saved session profile.
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) {
 	return a.currentService().LaunchSession(profileID)

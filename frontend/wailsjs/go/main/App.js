@@ -30,6 +30,10 @@ export function GetCloudProviderAuthSession(arg1) {
   return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
 }
 
+export function GetReleaseVersion() {
+  return window['go']['main']['App']['GetReleaseVersion']();
+}
+
 export function GetShellState() {
   return window['go']['main']['App']['GetShellState']();
 }

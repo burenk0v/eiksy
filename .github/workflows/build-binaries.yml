@@ -67,6 +67,16 @@ jobs:
         shell: bash
         run: echo "WAILS_VERSION=$(tr -d '\r\n' < .github/wails-cli-version)" >> "$GITHUB_ENV"
 
+      - name: Resolve release version metadata
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+          echo "RELEASE_VERSION=${VERSION}" >> "$GITHUB_ENV"
+
       - name: Install Wails CLI
         shell: bash
         run: go install github.com/wailsapp/wails/v2/cmd/wails@${WAILS_VERSION}
@@ -91,12 +101,12 @@ jobs:
       - name: Build Linux binary
         if: runner.os == 'Linux'
         shell: bash
-        run: wails build -clean -platform ${{ matrix.platform }} -tags webkit2_41 -o ${{ matrix.output_name }}
+        run: wails build -clean -platform ${{ matrix.platform }} -tags webkit2_41 -ldflags "-X main.releaseVersion=${RELEASE_VERSION}" -o ${{ matrix.output_name }}
 
       - name: Build Windows binary
         if: runner.os == 'Windows'
         shell: bash
-        run: wails build -clean -platform ${{ matrix.platform }} -o ${{ matrix.output_name }}
+        run: wails build -clean -platform ${{ matrix.platform }} -ldflags "-X main.releaseVersion=${RELEASE_VERSION}" -o ${{ matrix.output_name }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
