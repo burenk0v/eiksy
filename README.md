@@ -2,10 +2,10 @@
   <img src="frontend/src/assets/images/logo.png" alt="opsy logo" width="180">
 </p>
 
-<h1 align="center">opsy</h1>
+<h1 align="center">Eiksy</h1>
 
 <p align="center">
-  <strong>Ops. Secure. You.</strong><br>
+  <strong>Think. Connect. Operate.</strong><br>
   Secure remote operations workstation with AI at your side.
 </p>
 
