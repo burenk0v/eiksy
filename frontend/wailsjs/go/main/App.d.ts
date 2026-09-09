@@ -7,8 +7,6 @@ import {settings} from '../models';
 import {vault} from '../models';
 import {securestorage} from '../models';
 
-export function CancelModelDownload():Promise<void>;
-
 export function CloseSession(arg1:string):Promise<void>;
 
 export function ConnectSSH(arg1:string,arg2:string):Promise<void>;
@@ -18,10 +16,6 @@ export function CreateSessionProfile(arg1:sessions.ProfileInput):Promise<void>;
 export function DeleteSessionProfile(arg1:string):Promise<void>;
 
 export function DisconnectSSH(arg1:string):Promise<void>;
-
-export function DownloadLocalModel():Promise<void>;
-
-export function DownloadLocalModelWithProgress():Promise<void>;
 
 export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
@@ -66,8 +60,6 @@ export function SelectDownloadDirectory():Promise<string>;
 export function SelectUploadFiles():Promise<Array<string>>;
 
 export function StartCloudProviderAuth(arg1:string):Promise<app.CloudProviderAuthSession>;
-
-export function StartLocalModel():Promise<void>;
 
 export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 

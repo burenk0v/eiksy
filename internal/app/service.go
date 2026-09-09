@@ -74,14 +74,14 @@ const (
 )
 
 type Service struct {
-	ctx          context.Context
-	store        stateStore
-	sshManager   sshManager
-	sftpManager  sftpManager
-	httpClient   *http.Client
-	emitFn       func(eventName string, data ...interface{})
-	authMu       sync.Mutex
-	cloudAuth    *cloudAuthSession
+	ctx         context.Context
+	store       stateStore
+	sshManager  sshManager
+	sftpManager sftpManager
+	httpClient  *http.Client
+	emitFn      func(eventName string, data ...interface{})
+	authMu      sync.Mutex
+	cloudAuth   *cloudAuthSession
 }
 
 type stateStore interface {

@@ -3,7 +3,6 @@ package ai
 type ProviderClass string
 
 const (
-	ProviderClassLocal            ProviderClass = "local"
 	ProviderClassOpenAICompatible ProviderClass = "openai_compatible"
 )
 
@@ -13,8 +12,6 @@ type ProviderDescriptor struct {
 	Class      ProviderClass `json:"class"`
 	Model      string        `json:"model"`
 	Endpoint   string        `json:"endpoint,omitempty"`
-	LocalPath  string        `json:"localPath,omitempty"`
-	Command    string        `json:"command,omitempty"`
 	Status     string        `json:"status"`
 	Selected   bool          `json:"selected"`
 	Token      string        `json:"-"`

@@ -15,11 +15,13 @@ import (
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	"opsy/internal/domain/workspace"
-	"opsy/internal/llm"
 	"opsy/internal/securestorage"
 )
 
-const maxLaunchHistoryEntries = 100
+const (
+	maxLaunchHistoryEntries = 100
+	defaultOpsyDir          = ".opsy"
+)
 
 type Store struct {
 	mu                  sync.RWMutex
@@ -59,19 +61,25 @@ type persistedAIProviderDescriptor struct {
 	Class      ai.ProviderClass `json:"class"`
 	Model      string           `json:"model"`
 	Endpoint   string           `json:"endpoint,omitempty"`
-	LocalPath  string           `json:"localPath,omitempty"`
-	Command    string           `json:"command,omitempty"`
 	Status     string           `json:"status"`
 	Selected   bool             `json:"selected"`
 	Configured bool             `json:"configured"`
 }
 
 func NewStore() (*Store, error) {
-	baseDir, err := llm.OpsyDir()
+	baseDir, err := opsyDir()
 	if err != nil {
 		return nil, err
 	}
 	return NewStoreAt(baseDir)
+}
+
+func opsyDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+	return filepath.Join(homeDir, defaultOpsyDir), nil
 }
 
 func NewStoreAt(baseDir string) (*Store, error) {
@@ -665,8 +673,6 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 			Class:      provider.Class,
 			Model:      provider.Model,
 			Endpoint:   provider.Endpoint,
-			LocalPath:  provider.LocalPath,
-			Command:    provider.Command,
 			Status:     provider.Status,
 			Selected:   provider.Selected,
 			Configured: provider.Configured,
@@ -689,8 +695,6 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 			Class:      provider.Class,
 			Model:      provider.Model,
 			Endpoint:   provider.Endpoint,
-			LocalPath:  provider.LocalPath,
-			Command:    provider.Command,
 			Status:     provider.Status,
 			Selected:   provider.Selected,
 			Configured: provider.Configured,

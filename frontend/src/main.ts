@@ -315,13 +315,6 @@ class OpsyShell {
             this.aiStatus = data?.status === 'thinking' ? 'thinking' : 'idle';
             this.render();
         });
-        EventsOn('model:error', (...payload: unknown[]) => {
-            const data = payload[0] as { error?: string } | undefined;
-            if (!data?.error) {
-                return;
-            }
-            this.setErrorMessage(`Model error: ${data.error}`);
-        });
         EventsOn('ai:message', () => {
             void this.refresh('');
         });
