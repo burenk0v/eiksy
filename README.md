@@ -485,7 +485,7 @@ If you find opsy useful and want to support its development, see [`SUPPORT.md`](
 
 ## License
 
-opsy is released under the Apache License 2.0.
+opsy is licensed under **Apache-2.0**.
 
 See [`LICENSE`](./LICENSE) for the full license text.
 
