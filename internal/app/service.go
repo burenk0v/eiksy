@@ -76,7 +76,6 @@ const (
 type Service struct {
 	ctx          context.Context
 	store        stateStore
-	localManager localModelManager
 	sshManager   sshManager
 	sftpManager  sftpManager
 	httpClient   *http.Client
@@ -114,12 +113,6 @@ type sessionProfileMutator interface {
 	DeleteSessionProfile(string) error
 }
 
-type localModelManager interface {
-	DownloadQwen3Model(context.Context) (string, error)
-	DownloadQwen3ModelWithProgress(context.Context, func(downloaded, total int64)) (string, error)
-	StartLocalServer(context.Context, string) (string, string, error)
-}
-
 type sshManager interface {
 	Connect(context.Context, string, string, int, string, string, map[string]string) error
 	SendInput(string, string) error
@@ -141,14 +134,13 @@ type sftpManager interface {
 	Disconnect(string) error
 }
 
-func NewService(store stateStore, localManager localModelManager, sshManager sshManager, sftpManager sftpManager) *Service {
+func NewService(store stateStore, sshManager sshManager, sftpManager sftpManager) *Service {
 	service := &Service{
-		store:        store,
-		localManager: localManager,
-		sshManager:   sshManager,
-		sftpManager:  sftpManager,
-		httpClient:   &http.Client{Timeout: 120 * time.Second},
-		emitFn:       func(string, ...interface{}) {},
+		store:       store,
+		sshManager:  sshManager,
+		sftpManager: sftpManager,
+		httpClient:  &http.Client{Timeout: 120 * time.Second},
+		emitFn:      func(string, ...interface{}) {},
 	}
 	return service
 }
@@ -959,67 +951,6 @@ func normalizeVaultAuthMethod(value string) string {
 	default:
 		return vaultAuthMethodToken
 	}
-}
-
-func (s *Service) DownloadLocalModel(ctx context.Context) error {
-	return s.DownloadLocalModelWithProgress(ctx, nil)
-}
-
-func (s *Service) DownloadLocalModelWithProgress(ctx context.Context, progressFn func(downloaded, total int64)) error {
-	if s.localManager == nil {
-		return fmt.Errorf("local model manager is not configured")
-	}
-
-	modelPath, err := s.localManager.DownloadQwen3ModelWithProgress(s.resolveContext(ctx), progressFn)
-	if err != nil {
-		return err
-	}
-
-	state := s.store.AIState()
-	index := providerIndexByClass(state.Providers, ai.ProviderClassLocal)
-	if index < 0 {
-		return fmt.Errorf("local ai provider is not available")
-	}
-
-	for i := range state.Providers {
-		state.Providers[i].Selected = i == index
-	}
-
-	state.Providers[index].LocalPath = modelPath
-	state.Providers[index].Status = "downloaded"
-	state.Providers[index].Configured = false
-	s.store.UpdateAIState(state)
-	s.EmitLog("info", "Downloaded the Qwen3 8B local model.")
-	return nil
-}
-
-func (s *Service) StartLocalModel(ctx context.Context) error {
-	if s.localManager == nil {
-		return fmt.Errorf("local model manager is not configured")
-	}
-
-	state := s.store.AIState()
-	index := providerIndexByClass(state.Providers, ai.ProviderClassLocal)
-	if index < 0 {
-		return fmt.Errorf("local ai provider is not available")
-	}
-
-	endpoint, command, err := s.localManager.StartLocalServer(s.resolveContext(ctx), state.Providers[index].LocalPath)
-	if err != nil {
-		return err
-	}
-
-	for i := range state.Providers {
-		state.Providers[i].Selected = i == index
-	}
-
-	state.Providers[index].Endpoint = endpoint
-	state.Providers[index].Command = command
-	state.Providers[index].Status = "running via llama.cpp"
-	state.Providers[index].Configured = true
-	s.store.UpdateAIState(state)
-	s.EmitLog("info", "Started the Qwen3 8B local model with llama.cpp.")
-	return nil
 }
 
 func (s *Service) ensureSFTPConnection(tabID string) error {

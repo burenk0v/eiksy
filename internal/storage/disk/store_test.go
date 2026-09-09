@@ -55,7 +55,7 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create disk store: %v", err)
 	}
-	service := app.NewService(store, nil, nil, nil)
+	service := app.NewService(store, nil, nil)
 	if status := service.GetSecureStorageStatus(); !status.Available || status.Configured || status.Unlocked {
 		t.Fatalf("unexpected initial secure storage status: %+v", status)
 	}
@@ -235,7 +235,7 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	if err := store.EnsureMasterPassword("master-password"); err != nil {
 		t.Fatalf("ensure master password: %v", err)
 	}
-	service := app.NewService(store, nil, nil, nil)
+	service := app.NewService(store, nil, nil)
 
 	cfg := settings.AppSettings{
 		VaultAddress:    "https://vault.example.com",
@@ -345,7 +345,7 @@ func TestLegacySerializedSecretsAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create disk store: %v", err)
 	}
-	service := app.NewService(store, nil, nil, nil)
+	service := app.NewService(store, nil, nil)
 
 	shell := service.GetShellState()
 	if shell.Settings.HasVaultToken || shell.Settings.HasKeePassPassword || shell.Settings.HasVaultPassword {

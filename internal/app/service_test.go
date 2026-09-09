@@ -17,7 +17,7 @@ import (
 )
 
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	state := service.GetShellState()
 
@@ -36,7 +36,7 @@ func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 }
 
 func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
-	service := NewService(seedStore(t), nil, nil, nil)
+	service := NewService(seedStore(t), nil, nil)
 
 	before := service.GetShellState()
 	launched, err := service.LaunchSession("artifact-mirror")
@@ -74,7 +74,7 @@ func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
 }
 
 func TestLaunchHistoryIsCapped(t *testing.T) {
-	service := NewService(seedStore(t), nil, nil, nil)
+	service := NewService(seedStore(t), nil, nil)
 
 	for range 150 {
 		if _, err := service.LaunchSession("artifact-mirror"); err != nil {
@@ -102,7 +102,7 @@ func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *tes
 	if err := store.UpsertSessionProfile(original); err != nil {
 		t.Fatalf("seed session profile: %v", err)
 	}
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 
 	updated := original
 	updated.Name = "prod-ssh-renamed"
@@ -128,7 +128,7 @@ func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *tes
 }
 
 func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	if err := service.SelectAIProvider("openai-compatible-cloud"); err != nil {
 		t.Fatalf("select ai provider: %v", err)
@@ -142,7 +142,7 @@ func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
 }
 
 func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
@@ -178,7 +178,7 @@ func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
 }
 
 func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
@@ -216,7 +216,7 @@ func TestListCloudModelsFetchesAndSortsUniqueModels(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 	models, err := service.ListCloudModels(server.URL+"/v1", "secret-token")
 	if err != nil {
 		t.Fatalf("list cloud models: %v", err)
@@ -238,7 +238,7 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	}))
 	defer server.Close()
 
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 	if err := service.SaveCloudProvider("gpt-5.6", server.URL+"/v1", "saved-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 }
 
 func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 	defer stopCloudAuthSessionForTest(service)
 
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
@@ -279,7 +279,7 @@ func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
 }
 
 func TestStartCloudProviderAuthRejectsUnsupportedEndpoint(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	_, err := service.StartCloudProviderAuth("https://api.openai.com/v1")
 	if err == nil || !strings.Contains(err.Error(), "Sourcegraph/Cody-compatible") {
@@ -288,7 +288,7 @@ func TestStartCloudProviderAuthRejectsUnsupportedEndpoint(t *testing.T) {
 }
 
 func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 	defer stopCloudAuthSessionForTest(service)
 
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
@@ -328,7 +328,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 	defer stopCloudAuthSessionForTest(service)
 
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
@@ -404,7 +404,7 @@ func TestListVaultSecretsRenewsTokenWhenEnabled(t *testing.T) {
 		t.Fatalf("update settings: %v", err)
 	}
 
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 	entries, err := service.ListVaultSecrets("team")
 	if err != nil {
 		t.Fatalf("list vault secrets: %v", err)
@@ -446,7 +446,7 @@ func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
 		t.Fatalf("update settings: %v", err)
 	}
 
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 	entries, err := service.ListVaultSecrets("team")
 	if err != nil {
 		t.Fatalf("list vault secrets: %v", err)
@@ -493,7 +493,7 @@ func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
 		t.Fatalf("update settings: %v", err)
 	}
 
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 	entries, err := service.ListVaultSecrets("team")
 	if err != nil {
 		t.Fatalf("list vault secrets: %v", err)
@@ -513,7 +513,7 @@ func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil, nil)
+	service := NewService(memory.NewStore(), nil, nil)
 
 	if err := service.SendChatMessage(nil, "hello"); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") {
 		t.Fatalf("expected provider configuration error, got %v", err)
@@ -549,7 +549,7 @@ func TestBuildPortForwardSpecsFallsBackToSamePortWhenRemotePortIsEmpty(t *testin
 
 func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 	store := memory.NewStore()
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 
 	initial := store.Settings()
 	initial.VaultProvider = "keepass"
@@ -582,7 +582,7 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 
 func TestUpdateSettingsVaultPasswordPersistsOnBlankUpdate(t *testing.T) {
 	store := memory.NewStore()
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 
 	initial := store.Settings()
 	initial.VaultAuthMethod = "domain"
@@ -645,7 +645,7 @@ func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
 		t.Fatalf("update settings: %v", err)
 	}
 
-	service := NewService(store, nil, nil, nil)
+	service := NewService(store, nil, nil)
 	withRules := service.applySSHForwardingSettings(source)
 	if got := withRules.Options["local_forwards"]; got != "15432:db.internal:5432" {
 		t.Fatalf("unexpected forward specs: %q", got)

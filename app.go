@@ -6,14 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"sync"
 
 	"opsy/internal/app"
 	"opsy/internal/domain/sessions"
 	"opsy/internal/domain/settings"
 	sftpdomain "opsy/internal/domain/sftp"
 	vaultdomain "opsy/internal/domain/vault"
-	"opsy/internal/llm"
 	"opsy/internal/securestorage"
 	sftpmanager "opsy/internal/sftp"
 	sshmanager "opsy/internal/ssh"
@@ -25,10 +23,8 @@ import (
 
 // App wires the Wails bridge to backend services.
 type App struct {
-	ctx            context.Context
-	service        *app.Service
-	downloadMu     sync.Mutex
-	downloadCancel context.CancelFunc
+	ctx     context.Context
+	service *app.Service
 }
 
 // NewApp creates the root application instance.
@@ -46,13 +42,10 @@ func (a *App) startup(ctx context.Context) {
 		store = nil
 	}
 
-	localManager, err := llm.NewManager()
-	localManagerErr := err
-
 	if store != nil {
-		a.service = app.NewService(store, localManager, sshmanager.NewManager(), sftpmanager.NewManager())
+		a.service = app.NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
 	} else {
-		a.service = app.NewService(memory.NewStore(), localManager, sshmanager.NewManager(), sftpmanager.NewManager())
+		a.service = app.NewService(memory.NewStore(), sshmanager.NewManager(), sftpmanager.NewManager())
 	}
 	a.service.SetRuntimeContext(ctx, func(eventName string, data ...interface{}) {
 		runtime.EventsEmit(ctx, eventName, data...)
@@ -63,9 +56,6 @@ func (a *App) startup(ctx context.Context) {
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
 		a.autoImportInitialSSHConfig()
-	}
-	if localManagerErr != nil {
-		a.service.EmitLog("warn", "Local model manager unavailable: "+localManagerErr.Error())
 	}
 }
 
@@ -197,53 +187,6 @@ func (a *App) GetCloudProviderAuthSession(sessionID string) (app.CloudProviderAu
 	return a.currentService().GetCloudProviderAuthSession(sessionID)
 }
 
-func (a *App) DownloadLocalModel() error {
-	return a.currentService().DownloadLocalModel(a.ctx)
-}
-
-func (a *App) CancelModelDownload() {
-	a.downloadMu.Lock()
-	cancel := a.downloadCancel
-	a.downloadCancel = nil
-	a.downloadMu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-}
-
-func (a *App) DownloadLocalModelWithProgress() error {
-	ctx, cancel := context.WithCancel(a.ctx)
-	a.downloadMu.Lock()
-	a.downloadCancel = cancel
-	a.downloadMu.Unlock()
-	defer func() {
-		a.downloadMu.Lock()
-		a.downloadCancel = nil
-		a.downloadMu.Unlock()
-		cancel()
-	}()
-	err := a.currentService().DownloadLocalModelWithProgress(ctx, func(downloaded, total int64) {
-		percent := 0.0
-		if total > 0 {
-			percent = float64(downloaded) / float64(total) * 100
-		}
-		runtime.EventsEmit(a.ctx, "model:progress", map[string]interface{}{
-			"downloaded": downloaded,
-			"total":      total,
-			"percent":    percent,
-		})
-	})
-	if err != nil {
-		runtime.EventsEmit(a.ctx, "model:error", map[string]string{"error": err.Error()})
-		return err
-	}
-	return nil
-}
-
-func (a *App) StartLocalModel() error {
-	return a.currentService().StartLocalModel(a.ctx)
-}
-
 func (a *App) SendChatMessage(message string) error {
 	return a.currentService().SendChatMessage(a.ctx, message)
 }
@@ -258,7 +201,7 @@ func (a *App) AcceptSSHHostKey(tabID string) error {
 
 func (a *App) currentService() *app.Service {
 	if a.service == nil {
-		svc := app.NewService(memory.NewStore(), nil, sshmanager.NewManager(), sftpmanager.NewManager())
+		svc := app.NewService(memory.NewStore(), sshmanager.NewManager(), sftpmanager.NewManager())
 		svc.SetRuntimeContext(a.ctx, func(eventName string, data ...interface{}) {
 			runtime.EventsEmit(a.ctx, eventName, data...)
 		})
