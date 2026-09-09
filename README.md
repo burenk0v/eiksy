@@ -23,8 +23,7 @@ The project currently includes:
 - SSH config import into session profiles, including ProxyJump, SSH agent, local tunnel options, and encrypted SSH key passphrases
 - SSH terminal tabs with SFTP browsing and in-app remote file editing
 - credential provider contracts for HashiCorp Vault, KeePass, and Windows Password Manager
-- AI provider models for local and OpenAI-compatible backends
-- local Qwen3 8B model download and llama.cpp launch flow alongside configurable cloud endpoint/token setup
+- AI provider setup for OpenAI-compatible cloud backends with configurable endpoint/token auth
 - OS keychain-backed master-password flow with Argon2id-derived encryption keys, XChaCha20-Poly1305 secret encryption, and SQLite secret storage
 - backend-owned workspace state rendered by a thin Wails frontend shell
 
