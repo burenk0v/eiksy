@@ -10,11 +10,13 @@
 
 # opsy
 
-Backend-first cross-platform workstation client built with Go and Wails.
+Opsy is a backend-first cross-platform workstation client built with Go and Wails.
 
-## Current scaffold
+> Opsy is intentionally developed in a vibe-coding style: rapid iteration, pragmatic decisions, and continuous refinement are part of both how the project was built and how it is expected to evolve.
 
-This repository now contains the initial application skeleton for:
+## What Opsy includes today
+
+The project currently includes:
 
 - protocol registry with SSH, SFTP, and RDP descriptors
 - session manager models for saved profiles, launch history, and active tabs
@@ -95,3 +97,9 @@ wails build -clean -platform windows/amd64 -o opsy-windows-amd64.exe
 GitHub Actions workflow `.github/workflows/build-binaries.yml` builds Windows and Linux binaries and uploads them as workflow artifacts on every push, pull request, and manual run.
 
 When you push a Git tag such as `v0.1.0`, the same workflow automatically creates a GitHub Release for that tag and attaches the built Linux and Windows binaries as release assets.
+
+## ❤️ Support Opsy
+
+If Opsy is useful to you, you can support its development:
+
+👉 [Support Opsy](./SUPPORT.md)
