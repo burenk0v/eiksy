@@ -492,5 +492,5 @@ See [`LICENSE`](./LICENSE) for the full license text.
 ---
 
 <p align="center">
-  <strong>Ops. Secure. You.</strong>
+  <strong>Think. Connect. Operate.</strong>
 </p>
