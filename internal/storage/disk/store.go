@@ -9,18 +9,19 @@ import (
 	"sync"
 	"time"
 
-	"opsy/internal/domain/ai"
-	"opsy/internal/domain/credentials"
-	"opsy/internal/domain/protocols"
-	"opsy/internal/domain/sessions"
-	"opsy/internal/domain/settings"
-	"opsy/internal/domain/workspace"
-	"opsy/internal/securestorage"
+	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/credentials"
+	"eiksy/internal/domain/protocols"
+	"eiksy/internal/domain/sessions"
+	"eiksy/internal/domain/settings"
+	"eiksy/internal/domain/workspace"
+	"eiksy/internal/securestorage"
 )
 
 const (
 	maxLaunchHistoryEntries = 100
-	defaultOpsyDir          = ".opsy"
+	defaultEiksyDir         = ".eiksy"
+	legacyOpsyDir           = ".opsy"
 )
 
 type Store struct {
@@ -67,19 +68,37 @@ type persistedAIProviderDescriptor struct {
 }
 
 func NewStore() (*Store, error) {
-	baseDir, err := opsyDir()
+	baseDir, err := eiksyDir()
 	if err != nil {
 		return nil, err
 	}
 	return NewStoreAt(baseDir)
 }
 
-func opsyDir() (string, error) {
+func eiksyDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("resolve user home dir: %w", err)
 	}
-	return filepath.Join(homeDir, defaultOpsyDir), nil
+	currentDir := filepath.Join(homeDir, defaultEiksyDir)
+	legacyDir := filepath.Join(homeDir, legacyOpsyDir)
+
+	if _, err := os.Stat(currentDir); err == nil {
+		return currentDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat eiksy directory: %w", err)
+	}
+
+	if _, err := os.Stat(legacyDir); err == nil {
+		if err := os.Rename(legacyDir, currentDir); err == nil {
+			return currentDir, nil
+		}
+		return legacyDir, nil
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("stat legacy opsy directory: %w", err)
+	}
+
+	return currentDir, nil
 }
 
 func NewStoreAt(baseDir string) (*Store, error) {
@@ -88,7 +107,7 @@ func NewStoreAt(baseDir string) (*Store, error) {
 
 func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(baseDir, "models"), 0o755); err != nil {
-		return nil, fmt.Errorf("create opsy directory: %w", err)
+		return nil, fmt.Errorf("create eiksy directory: %w", err)
 	}
 
 	var (

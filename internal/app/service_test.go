@@ -9,11 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"opsy/internal/domain/ai"
-	"opsy/internal/domain/sessions"
-	"opsy/internal/domain/settings"
-	"opsy/internal/securestorage"
-	"opsy/internal/storage/memory"
+	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/sessions"
+	"eiksy/internal/domain/settings"
+	"eiksy/internal/securestorage"
+	"eiksy/internal/storage/memory"
 )
 
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {

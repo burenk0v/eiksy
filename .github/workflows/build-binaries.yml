@@ -38,14 +38,14 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux/amd64
-            output_name: opsy-linux-amd64
-            artifact_name: opsy-linux-amd64
-            artifact_path: build/bin/opsy-linux-amd64
+            output_name: eiksy-linux-amd64
+            artifact_name: eiksy-linux-amd64
+            artifact_path: build/bin/eiksy-linux-amd64
           - os: windows-latest
             platform: windows/amd64
-            output_name: opsy-windows-amd64.exe
-            artifact_name: opsy-windows-amd64
-            artifact_path: build/bin/opsy-windows-amd64.exe
+            output_name: eiksy-windows-amd64.exe
+            artifact_name: eiksy-windows-amd64
+            artifact_path: build/bin/eiksy-windows-amd64.exe
 
     steps:
       - name: Checkout repository
@@ -129,11 +129,11 @@ jobs:
       matrix:
         include:
           - platform: linux/amd64
-            output_name: opsy-linux-amd64
-            artifact_name: opsy-linux-amd64
+            output_name: eiksy-linux-amd64
+            artifact_name: eiksy-linux-amd64
           - platform: windows/amd64
-            output_name: opsy-windows-amd64.exe
-            artifact_name: opsy-windows-amd64
+            output_name: eiksy-windows-amd64.exe
+            artifact_name: eiksy-windows-amd64
     steps:
       - name: Download workflow artifact
         uses: actions/download-artifact@v4.1.3

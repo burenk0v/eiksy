@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"opsy/internal/domain/sessions"
+	"eiksy/internal/domain/sessions"
 )
 
 func (s *Service) ImportSSHConfig(raw string) ([]sessions.Profile, error) {
