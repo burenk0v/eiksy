@@ -1,9 +1,15 @@
 <p align="center">
   <img src="frontend/src/assets/images/logo.png" alt="opsy logo" width="180">
-</p><h1 align="center">opsy</h1><p align="center">
+</p>
+
+<h1 align="center">opsy</h1>
+
+<p align="center">
   <strong>Ops. Secure. You.</strong><br>
   Secure remote operations workstation with AI at your side.
-</p><p align="center">
+</p>
+
+<p align="center">
   <a href="https://github.com/burenk0v/opsy/releases/latest">
     <img src="https://img.shields.io/github/v/release/burenk0v/opsy?label=latest%20release" alt="Latest Release">
   </a>
@@ -13,13 +19,17 @@
   <a href="https://github.com/burenk0v/opsy/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/burenk0v/opsy" alt="License">
   </a>
-</p><p align="center">
+</p>
+
+<p align="center">
   <a href="https://github.com/burenk0v/opsy/releases/latest">Download</a> ·
   <a href="https://github.com/burenk0v/opsy/issues">Issues</a> ·
   <a href="https://github.com/burenk0v/opsy/security">Security</a>
-</p>---
+</p>
 
-What is opsy?
+---
+
+## What is opsy?
 
 opsy is a cross-platform remote operations workstation built with Go and Wails.
 
@@ -31,9 +41,9 @@ Instead of switching between terminal clients, SFTP tools, RDP applications, pas
 
 ---
 
-Features
+## Features
 
-SSH
+### SSH
 
 - SSH terminal sessions
 - Import existing SSH configuration
@@ -45,7 +55,7 @@ SSH
 - Session history
 - Multiple active sessions
 
-SFTP
+### SFTP
 
 - Remote file browsing
 - Directory navigation
@@ -53,11 +63,11 @@ SFTP
 - Remote file editing
 - SFTP alongside SSH sessions
 
-RDP
+### RDP
 
 RDP support is part of the remote-session architecture and is being actively developed.
 
-Credential management
+### Credential management
 
 opsy provides a common credential-provider abstraction for different storage backends:
 
@@ -73,7 +83,7 @@ Sensitive local data is protected using:
 - XChaCha20-Poly1305 encryption
 - encrypted SQLite storage
 
-AI
+### AI
 
 opsy supports OpenAI-compatible AI providers.
 
@@ -92,14 +102,15 @@ The goal is to make AI a natural part of everyday infrastructure operations.
 
 ---
 
-Architecture
+## Architecture
 
 opsy follows a backend-first desktop architecture.
 
+```mermaid
 flowchart TB
     UI["Wails UI<br/>Web Frontend"]
     API["Go Backend"]
-    
+
     SESSION["Session Manager"]
     PROTOCOL["Protocol Layer"]
     CREDS["Credential Providers"]
@@ -121,6 +132,7 @@ flowchart TB
     PROTOCOL --> SSH
     PROTOCOL --> RDP
     CREDS --> VAULT
+```
 
 The frontend is intentionally kept relatively thin.
 
@@ -130,12 +142,13 @@ This keeps the architecture easier to test, maintain and extend.
 
 ---
 
-AI-assisted operations
+## AI-assisted operations
 
 AI can be extremely useful when working with infrastructure — but unrestricted AI access to production systems creates obvious security risks.
 
 opsy is designed around a human-in-the-loop approach.
 
+```text
 User
   │
   ▼
@@ -151,6 +164,7 @@ opsy
           │
           ▼
          User
+```
 
 The user remains the final decision maker.
 
@@ -158,13 +172,13 @@ The long-term goal is to provide powerful AI assistance without turning the work
 
 ---
 
-Security
+## Security
 
 Security is a core part of the opsy architecture.
 
 The application can work with sensitive credentials and remote infrastructure, so security is treated as a design requirement rather than an optional feature.
 
-Security principles
+### Security principles
 
 - Secrets should never be stored in plaintext.
 - Credentials should be separated from ordinary application configuration.
@@ -173,7 +187,7 @@ Security principles
 - Potentially destructive operations should remain under user control.
 - Sensitive information should not be written to logs.
 
-Local secret storage
+### Local secret storage
 
 Local sensitive data is protected using:
 
@@ -182,15 +196,15 @@ Local sensitive data is protected using:
 - XChaCha20-Poly1305 encryption
 - encrypted SQLite storage
 
-For security vulnerabilities, please follow the instructions in ""SECURITY.md"" (./SECURITY.md) rather than opening a public issue.
+For security vulnerabilities, please follow the instructions in [`SECURITY.md`](./SECURITY.md) rather than opening a public issue.
 
 ---
 
-Download
+## Download
 
 Download the latest release from GitHub:
 
-"Download the latest release" (https://github.com/burenk0v/opsy/releases/latest)
+[Download the latest release](https://github.com/burenk0v/opsy/releases/latest)
 
 Currently available platforms include:
 
@@ -201,102 +215,124 @@ Additional platforms may be added as the project evolves.
 
 ---
 
-Installation
+## Installation
 
-Windows
+### Windows
 
-1. Open the "latest release" (https://github.com/burenk0v/opsy/releases/latest).
+1. Open the [latest release](https://github.com/burenk0v/opsy/releases/latest).
 2. Download the Windows x64 binary.
-3. Run "opsy.exe".
+3. Run `opsy.exe`.
 
 No Go or Node.js installation is required for pre-built binaries.
 
-Linux
+### Linux
 
-1. Open the "latest release" (https://github.com/burenk0v/opsy/releases/latest).
+1. Open the [latest release](https://github.com/burenk0v/opsy/releases/latest).
 2. Download the Linux x64 binary.
 3. Make it executable:
 
+```bash
 chmod +x opsy-linux-amd64
+```
 
 4. Run:
 
+```bash
 ./opsy-linux-amd64
+```
 
 Depending on your Linux distribution, Wails/WebKit runtime dependencies may be required.
 
 ---
 
-Development
+## Development
 
-Requirements
+### Requirements
 
 - Go 1.25+
 - Node.js 20+
 - Wails CLI 2.14.0
 - Platform-specific Wails dependencies
 
-Clone
+### Clone
 
+```bash
 git clone https://github.com/burenk0v/opsy.git
 cd opsy
+```
 
-Install frontend dependencies
+### Install frontend dependencies
 
+```bash
 cd frontend
 npm ci
 cd ..
+```
 
-Development mode
+### Development mode
 
+```bash
 wails dev
+```
 
-Backend tests
+### Backend tests
 
+```bash
 go test ./...
+```
 
-Frontend build
+### Frontend build
 
+```bash
 cd frontend
 npm run build
+```
 
 ---
 
-Building
+## Building
 
 Build output is placed in:
 
+```text
 build/bin/
+```
 
-Linux
+### Linux
 
 Install the required build dependencies:
 
+```bash
 sudo apt-get update
 
 sudo apt-get install -y --no-install-recommends \
   build-essential \
   libgtk-3-dev \
   libwebkit2gtk-4.1-dev
+```
 
 Build:
 
+```bash
 wails build \
   -clean \
   -platform linux/amd64 \
   -tags webkit2_41 \
   -o opsy-linux-amd64
+```
 
-Windows
+### Windows
 
+```bash
 wails build \
   -clean \
   -platform windows/amd64 \
   -o opsy-windows-amd64.exe
+```
 
 ---
 
-CI/CD
+## CI/CD
 
 GitHub Actions automatically builds the application for supported platforms.
 
@@ -311,38 +347,42 @@ The build pipeline:
 
 Release builds are created automatically when a version tag matching:
 
+```text
 vX.Y.Z
+```
 
 is pushed.
 
 For example:
 
+```bash
 git tag vX.Y.Z
 git push origin vX.Y.Z
+```
 
 The README intentionally uses the latest release instead of referencing a specific version.
 
 ---
 
-Configuration and secrets
+## Configuration and secrets
 
 Never commit sensitive information to the repository.
 
 Do not commit:
 
-.env
-passwords
-API tokens
-Vault tokens
-SSH private keys
-RDP credentials
-certificates containing private keys
+- `.env`
+- passwords
+- API tokens
+- Vault tokens
+- SSH private keys
+- RDP credentials
+- certificates containing private keys
 
 Use the application's encrypted storage or an external credential provider for sensitive data.
 
 ---
 
-Project status
+## Project status
 
 opsy is an actively developed open-source project.
 
@@ -358,7 +398,7 @@ Some components are still evolving and may change between releases.
 
 ---
 
-Roadmap
+## Roadmap
 
 Planned areas of development include:
 
@@ -380,9 +420,9 @@ The roadmap is intentionally flexible and will evolve with the project.
 
 ---
 
-Why Go + Wails?
+## Why Go + Wails?
 
-Go
+### Go
 
 Go provides:
 
@@ -393,7 +433,7 @@ Go provides:
 - simple distribution as a native binary
 - a mature ecosystem for infrastructure tooling
 
-Wails
+### Wails
 
 Wails combines:
 
@@ -405,7 +445,7 @@ This allows opsy to keep infrastructure logic in Go while maintaining a flexible
 
 ---
 
-Development philosophy
+## Development philosophy
 
 opsy is developed using an AI-assisted development workflow, including GitHub Copilot.
 
@@ -421,7 +461,7 @@ AI is a development tool — not a substitute for engineering, testing or securi
 
 ---
 
-Contributing
+## Contributing
 
 Contributions, bug reports, ideas and security improvements are welcome.
 
@@ -433,26 +473,28 @@ Before opening a pull request:
 - follow the existing project architecture;
 - document significant behavior changes.
 
-For security vulnerabilities, please follow ""SECURITY.md"" (./SECURITY.md) instead of opening a public issue.
+For security vulnerabilities, please follow [`SECURITY.md`](./SECURITY.md) instead of opening a public issue.
 
 ---
 
-Support
+## Support
 
-If you find opsy useful and want to support its development, see ""SUPPORT.md"" (./SUPPORT.md).
+If you find opsy useful and want to support its development, see [`SUPPORT.md`](./SUPPORT.md).
 
 ---
 
-License
+## License
 
 opsy is licensed under **Apache-2.0**.
 
-See [LICENSE](./LICENSE) for the full license text.
+See [`LICENSE`](./LICENSE) for the full license text.
 
 ---
 
 <p align="center">
   <strong>Ops. Secure. You.</strong>
-</p><p align="center">
+</p>
+
+<p align="center">
   Remote operations. One workstation.
 </p>
