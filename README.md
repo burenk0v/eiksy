@@ -37,8 +37,6 @@ It brings remote access, file management, credentials, and AI-assisted operation
 
 Instead of switching between terminal clients, SFTP tools, RDP applications, password managers, and AI assistants, Eiksy aims to provide one secure workspace for working with infrastructure.
 
-«Ops. Secure. You.»
-
 ---
 
 ## Features
