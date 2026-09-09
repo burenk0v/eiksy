@@ -19,6 +19,7 @@ import {
     DisconnectSSH,
     EnsureMasterPassword,
     GetCloudProviderAuthSession,
+    GetReleaseVersion,
     GetSecureStorageStatus,
     GetShellState,
     OpenRDP,
@@ -163,7 +164,6 @@ const SESSION_INNER_TABS_KEY = 'opsy-session-inner-tabs';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
 const APP_METADATA = {
     name: 'Opsy',
-    version: packageJson.version,
     repositoryUrl: 'https://github.com/burenk0v/opsy',
     latestReleaseUrl: 'https://github.com/burenk0v/opsy/releases/latest',
     copyright: 'Opsy contributors',
@@ -246,6 +246,7 @@ class OpsyShell {
     private cloudAuthPending = false;
     private cloudAuthMessage = '';
     private cloudAuthPollTimer: number | null = null;
+    private appVersion = packageJson.version;
     private vaultDraftAddress = '';
     private vaultDraftMountPoint = '';
     private vaultDraftAuthMethod: VaultAuthMethod = 'token';
@@ -298,9 +299,21 @@ class OpsyShell {
         }
 
         this.registerGlobalEvents();
+        await this.refreshAppVersion();
         await this.refresh();
         void this.promptForMasterPasswordOnStartup();
         window.addEventListener('resize', () => this.fitActiveTerminal());
+    }
+
+    private async refreshAppVersion(): Promise<void> {
+        try {
+            const version = await GetReleaseVersion();
+            if (version && version.trim().length > 0) {
+                this.appVersion = version.trim();
+            }
+        } catch {
+            this.appVersion = packageJson.version;
+        }
     }
 
     private registerGlobalEvents(): void {
@@ -2105,7 +2118,7 @@ class OpsyShell {
                 <div class="about-panel">
                     <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
                     <p class="about-copy">${APP_METADATA.name}</p>
-                    <p class="about-copy">Version: ${APP_METADATA.version}</p>
+                    <p class="about-copy">Version: ${this.appVersion}</p>
                     <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
                     <p class="about-copy">License: ${APP_METADATA.license}</p>
                     <p class="about-copy">${APP_METADATA.legalNotice}</p>
