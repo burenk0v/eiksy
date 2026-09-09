@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"opsy/internal/sshauth"
+	"eiksy/internal/sshauth"
 
 	xssh "golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"

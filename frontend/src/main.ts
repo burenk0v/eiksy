@@ -157,16 +157,20 @@ type HostKeyDialogState = {
     hostname: string;
 };
 
-const THEME_KEY = 'opsy-theme';
-const SIDEBAR_COLLAPSED_KEY = 'opsy-sidebar-collapsed';
-const ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
-const SESSION_INNER_TABS_KEY = 'opsy-session-inner-tabs';
+const THEME_KEY = 'eiksy-theme';
+const LEGACY_THEME_KEY = 'opsy-theme';
+const SIDEBAR_COLLAPSED_KEY = 'eiksy-sidebar-collapsed';
+const LEGACY_SIDEBAR_COLLAPSED_KEY = 'opsy-sidebar-collapsed';
+const ASSISTANT_COLLAPSED_KEY = 'eiksy-assistant-collapsed';
+const LEGACY_ASSISTANT_COLLAPSED_KEY = 'opsy-assistant-collapsed';
+const SESSION_INNER_TABS_KEY = 'eiksy-session-inner-tabs';
+const LEGACY_SESSION_INNER_TABS_KEY = 'opsy-session-inner-tabs';
 const THEMES: Theme[] = ['dark', 'light', 'green'];
 const APP_METADATA = {
-    name: 'Opsy',
-    repositoryUrl: 'https://github.com/burenk0v/opsy',
-    latestReleaseUrl: 'https://github.com/burenk0v/opsy/releases/latest',
-    copyright: 'Opsy contributors',
+    name: 'Eiksy',
+    repositoryUrl: 'https://github.com/burenk0v/eiksy',
+    latestReleaseUrl: 'https://github.com/burenk0v/eiksy/releases/latest',
+    copyright: 'Eiksy contributors',
     license: 'Apache License 2.0',
     legalNotice: 'Distributed under the Apache License 2.0.',
 };
@@ -177,7 +181,7 @@ function isTheme(value: string | null | undefined): value is Theme {
 
 const root = document.querySelector<HTMLDivElement>('#app');
 
-class OpsyShell {
+class EiksyShell {
     private readonly sidebarActionsMenuID = 'sidebar-actions-menu';
     private readonly untaggedFilterTag = '__untagged__';
     private shellState: ShellState | null = null;
@@ -262,13 +266,27 @@ class OpsyShell {
     private showSidebarActionsMenu = false;
 
     constructor() {
-        const saved = localStorage.getItem(THEME_KEY);
+        const saved = this.readStoredValue(THEME_KEY, LEGACY_THEME_KEY);
         this.theme = isTheme(saved) ? saved : 'dark';
-        this.sidebarCollapsed = localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true';
-        this.assistantCollapsed = localStorage.getItem(ASSISTANT_COLLAPSED_KEY) === 'true';
+        this.sidebarCollapsed = this.readStoredValue(SIDEBAR_COLLAPSED_KEY, LEGACY_SIDEBAR_COLLAPSED_KEY) === 'true';
+        this.assistantCollapsed = this.readStoredValue(ASSISTANT_COLLAPSED_KEY, LEGACY_ASSISTANT_COLLAPSED_KEY) === 'true';
         this.sessionInnerTabs = this.loadStoredSessionInnerTabs();
         this.applyTheme();
         this.applyFavicon();
+    }
+
+    private readStoredValue(key: string, legacyKey?: string): string | null {
+        const currentValue = localStorage.getItem(key);
+        if (currentValue !== null || !legacyKey) {
+            return currentValue;
+        }
+
+        const legacyValue = localStorage.getItem(legacyKey);
+        if (legacyValue !== null) {
+            localStorage.setItem(key, legacyValue);
+            localStorage.removeItem(legacyKey);
+        }
+        return legacyValue;
     }
 
     private applyTheme(): void {
@@ -1563,7 +1581,7 @@ class OpsyShell {
                 <div class="panel-header">
                     <div>
                         <div class="eyebrow">Workspace</div>
-                        <h1>opsy</h1>
+                        <h1>Eiksy</h1>
                     </div>
                     <div class="panel-header-actions">
                         <div class="sidebar-actions-menu-wrap">
@@ -2116,7 +2134,7 @@ class OpsyShell {
             about: `
                 <div class="section-title">About</div>
                 <div class="about-panel">
-                    <img class="about-logo" src="${appLogo}" alt="Opsy logo" />
+                    <img class="about-logo" src="${appLogo}" alt="Eiksy logo" />
                     <p class="about-copy">${APP_METADATA.name}</p>
                     <p class="about-copy">Version: ${this.appVersion}</p>
                     <p class="about-copy">© ${currentYear} ${APP_METADATA.copyright}.</p>
@@ -2511,7 +2529,7 @@ class OpsyShell {
 
     private loadStoredSessionInnerTabs(): Map<string, SessionInnerTab> {
         try {
-            const stored = localStorage.getItem(SESSION_INNER_TABS_KEY);
+            const stored = this.readStoredValue(SESSION_INNER_TABS_KEY, LEGACY_SESSION_INNER_TABS_KEY);
             if (!stored) {
                 return new Map<string, SessionInnerTab>();
             }
@@ -3209,4 +3227,4 @@ function applyInlineMarkdown(value: string): string {
         .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
 }
 
-void new OpsyShell().bootstrap();
+void new EiksyShell().bootstrap();

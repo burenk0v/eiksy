@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	"opsy/internal/domain/ai"
-	"opsy/internal/domain/credentials"
-	"opsy/internal/domain/protocols"
-	"opsy/internal/domain/sessions"
-	"opsy/internal/domain/settings"
-	"opsy/internal/domain/workspace"
-	"opsy/internal/securestorage"
+	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/credentials"
+	"eiksy/internal/domain/protocols"
+	"eiksy/internal/domain/sessions"
+	"eiksy/internal/domain/settings"
+	"eiksy/internal/domain/workspace"
+	"eiksy/internal/securestorage"
 )
 
 const maxLaunchHistoryEntries = 100

@@ -18,7 +18,8 @@ import (
 )
 
 const (
-	defaultServiceName = "opsy"
+	defaultServiceName = "eiksy"
+	legacyServiceName  = "opsy"
 	defaultKeyringUser = "master-key"
 	masterKeySize      = 32
 	saltSize           = 16
@@ -100,7 +101,7 @@ func (m *Manager) Close() error {
 
 func (m *Manager) Status() Status {
 	status := Status{Available: true}
-	record, err := m.keyring.Get(m.serviceName, m.keyringUser)
+	record, _, err := m.loadWrappedMasterKey()
 	switch {
 	case err == nil:
 		status.Configured = record != ""
@@ -119,12 +120,15 @@ func (m *Manager) EnsureMasterPassword(password string) error {
 	if password == "" {
 		return fmt.Errorf("master password is required")
 	}
-	record, err := m.keyring.Get(m.serviceName, m.keyringUser)
+	record, legacyRecord, err := m.loadWrappedMasterKey()
 	switch {
 	case err == nil:
 		masterKey, err := unwrapMasterKey(password, record)
 		if err != nil {
 			return err
+		}
+		if legacyRecord {
+			_ = m.keyring.Set(m.serviceName, m.keyringUser, record)
 		}
 		m.setMasterKey(masterKey)
 		return nil
@@ -145,6 +149,25 @@ func (m *Manager) EnsureMasterPassword(password string) error {
 	default:
 		return fmt.Errorf("access os keychain: %w", err)
 	}
+}
+
+func (m *Manager) loadWrappedMasterKey() (record string, legacy bool, err error) {
+	record, err = m.keyring.Get(m.serviceName, m.keyringUser)
+	if err == nil {
+		return record, false, nil
+	}
+	if !errors.Is(err, keyring.ErrNotFound) {
+		return "", false, err
+	}
+
+	record, err = m.keyring.Get(legacyServiceName, m.keyringUser)
+	if err == nil {
+		return record, true, nil
+	}
+	if errors.Is(err, keyring.ErrNotFound) {
+		return "", false, keyring.ErrNotFound
+	}
+	return "", false, err
 }
 
 func (m *Manager) SecretExists(key string) bool {

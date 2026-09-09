@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="frontend/src/assets/images/logo.png" alt="opsy logo" width="180">
+  <img src="frontend/src/assets/images/logo.png" alt="Eiksy logo" width="180">
 </p>
 
 <h1 align="center">Eiksy</h1>
@@ -10,32 +10,32 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/burenk0v/opsy/releases/latest">
-    <img src="https://img.shields.io/github/v/release/burenk0v/opsy?label=latest%20release" alt="Latest Release">
+  <a href="https://github.com/burenk0v/eiksy/releases/latest">
+    <img src="https://img.shields.io/github/v/release/burenk0v/eiksy?label=latest%20release" alt="Latest Release">
   </a>
-  <a href="https://github.com/burenk0v/opsy/actions">
-    <img src="https://img.shields.io/github/actions/workflow/status/burenk0v/opsy/build-binaries.yml?label=build" alt="Build">
+  <a href="https://github.com/burenk0v/eiksy/actions">
+    <img src="https://img.shields.io/github/actions/workflow/status/burenk0v/eiksy/build-binaries.yml?label=build" alt="Build">
   </a>
-  <a href="https://github.com/burenk0v/opsy/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/burenk0v/opsy" alt="License">
+  <a href="https://github.com/burenk0v/eiksy/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/burenk0v/eiksy" alt="License">
   </a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/burenk0v/opsy/releases/latest">Download</a> ·
-  <a href="https://github.com/burenk0v/opsy/issues">Issues</a> ·
-  <a href="https://github.com/burenk0v/opsy/security">Security</a>
+  <a href="https://github.com/burenk0v/eiksy/releases/latest">Download</a> ·
+  <a href="https://github.com/burenk0v/eiksy/issues">Issues</a> ·
+  <a href="https://github.com/burenk0v/eiksy/security">Security</a>
 </p>
 
 ---
 
-## What is opsy?
+## What is Eiksy?
 
-opsy is a cross-platform remote operations workstation built with Go and Wails.
+Eiksy is a cross-platform remote operations workstation built with Go and Wails.
 
 It brings remote access, file management, credentials, and AI-assisted operations into a single desktop application.
 
-Instead of switching between terminal clients, SFTP tools, RDP applications, password managers, and AI assistants, opsy aims to provide one secure workspace for working with infrastructure.
+Instead of switching between terminal clients, SFTP tools, RDP applications, password managers, and AI assistants, Eiksy aims to provide one secure workspace for working with infrastructure.
 
 «Ops. Secure. You.»
 
@@ -69,7 +69,7 @@ RDP support is part of the remote-session architecture and is being actively dev
 
 ### Credential management
 
-opsy provides a common credential-provider abstraction for different storage backends:
+Eiksy provides a common credential-provider abstraction for different storage backends:
 
 - HashiCorp Vault
 - KeePass
@@ -85,7 +85,7 @@ Sensitive local data is protected using:
 
 ### AI
 
-opsy supports OpenAI-compatible AI providers.
+Eiksy supports OpenAI-compatible AI providers.
 
 Providers can be configured with:
 
@@ -104,7 +104,7 @@ The goal is to make AI a natural part of everyday infrastructure operations.
 
 ## Architecture
 
-opsy follows a backend-first desktop architecture.
+Eiksy follows a backend-first desktop architecture.
 
 ```mermaid
 flowchart TB
@@ -146,13 +146,13 @@ This keeps the architecture easier to test, maintain and extend.
 
 AI can be extremely useful when working with infrastructure — but unrestricted AI access to production systems creates obvious security risks.
 
-opsy is designed around a human-in-the-loop approach.
+Eiksy is designed around a human-in-the-loop approach.
 
 ```text
 User
   │
   ▼
-opsy
+eiksy
   │
   ├── Remote session
   ├── Infrastructure context
@@ -174,7 +174,7 @@ The long-term goal is to provide powerful AI assistance without turning the work
 
 ## Security
 
-Security is a core part of the opsy architecture.
+Security is a core part of the Eiksy architecture.
 
 The application can work with sensitive credentials and remote infrastructure, so security is treated as a design requirement rather than an optional feature.
 
@@ -204,7 +204,7 @@ For security vulnerabilities, please follow the instructions in [`SECURITY.md`](
 
 Download the latest release from GitHub:
 
-[Download the latest release](https://github.com/burenk0v/opsy/releases/latest)
+[Download the latest release](https://github.com/burenk0v/eiksy/releases/latest)
 
 Currently available platforms include:
 
@@ -219,26 +219,26 @@ Additional platforms may be added as the project evolves.
 
 ### Windows
 
-1. Open the [latest release](https://github.com/burenk0v/opsy/releases/latest).
+1. Open the [latest release](https://github.com/burenk0v/eiksy/releases/latest).
 2. Download the Windows x64 binary.
-3. Run `opsy.exe`.
+3. Run `eiksy.exe`.
 
 No Go or Node.js installation is required for pre-built binaries.
 
 ### Linux
 
-1. Open the [latest release](https://github.com/burenk0v/opsy/releases/latest).
+1. Open the [latest release](https://github.com/burenk0v/eiksy/releases/latest).
 2. Download the Linux x64 binary.
 3. Make it executable:
 
 ```bash
-chmod +x opsy-linux-amd64
+chmod +x eiksy-linux-amd64
 ```
 
 4. Run:
 
 ```bash
-./opsy-linux-amd64
+./eiksy-linux-amd64
 ```
 
 Depending on your Linux distribution, Wails/WebKit runtime dependencies may be required.
@@ -257,8 +257,8 @@ Depending on your Linux distribution, Wails/WebKit runtime dependencies may be r
 ### Clone
 
 ```bash
-git clone https://github.com/burenk0v/opsy.git
-cd opsy
+git clone https://github.com/burenk0v/eiksy.git
+cd eiksy
 ```
 
 ### Install frontend dependencies
@@ -318,7 +318,7 @@ wails build \
   -clean \
   -platform linux/amd64 \
   -tags webkit2_41 \
-  -o opsy-linux-amd64
+  -o eiksy-linux-amd64
 ```
 
 ### Windows
@@ -327,7 +327,7 @@ wails build \
 wails build \
   -clean \
   -platform windows/amd64 \
-  -o opsy-windows-amd64.exe
+  -o eiksy-windows-amd64.exe
 ```
 
 ---
@@ -384,7 +384,7 @@ Use the application's encrypted storage or an external credential provider for s
 
 ## Project status
 
-opsy is an actively developed open-source project.
+Eiksy is an actively developed open-source project.
 
 The project is currently focused on building a reliable foundation for:
 
@@ -441,13 +441,13 @@ Wails combines:
 - a modern web-based UI
 - desktop application capabilities
 
-This allows opsy to keep infrastructure logic in Go while maintaining a flexible and modern user interface.
+This allows Eiksy to keep infrastructure logic in Go while maintaining a flexible and modern user interface.
 
 ---
 
 ## Development philosophy
 
-opsy is developed using an AI-assisted development workflow, including GitHub Copilot.
+Eiksy is developed using an AI-assisted development workflow, including GitHub Copilot.
 
 AI tools are used to accelerate implementation, exploration and refactoring.
 
@@ -479,13 +479,13 @@ For security vulnerabilities, please follow [`SECURITY.md`](./SECURITY.md) inste
 
 ## Support
 
-If you find opsy useful and want to support its development, see [`SUPPORT.md`](./SUPPORT.md).
+If you find Eiksy useful and want to support its development, see [`SUPPORT.md`](./SUPPORT.md).
 
 ---
 
 ## License
 
-opsy is licensed under **Apache-2.0**.
+Eiksy is licensed under **Apache-2.0**.
 
 See [`LICENSE`](./LICENSE) for the full license text.
 

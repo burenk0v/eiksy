@@ -1,4 +1,4 @@
-module opsy
+module eiksy
 
 go 1.25.0
 

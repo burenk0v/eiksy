@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	sftpdomain "opsy/internal/domain/sftp"
-	"opsy/internal/sshauth"
+	sftpdomain "eiksy/internal/domain/sftp"
+	"eiksy/internal/sshauth"
 
 	pkgsftp "github.com/pkg/sftp"
 	xssh "golang.org/x/crypto/ssh"

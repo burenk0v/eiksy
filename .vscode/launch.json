@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "exec",
-            "program": "${workspaceFolder}/build/bin/opsy.exe",
+            "program": "${workspaceFolder}/build/bin/eiksy.exe",
             "preLaunchTask": "build",
             "cwd": "${workspaceFolder}",
             "env": {}
