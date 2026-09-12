@@ -90,6 +90,8 @@ type Service struct {
 	cloudAuth   *cloudAuthSession
 	localAIMu   sync.Mutex
 	localAICmd  *exec.Cmd
+	localAIDone chan error
+	localAIErr  *bytes.Buffer
 }
 
 type stateStore interface {
@@ -1377,24 +1379,28 @@ func (s *Service) StartLocalModel() error {
 		return nil
 	}
 
+	stderr := &bytes.Buffer{}
+	done := make(chan error, 1)
 	cmd := exec.CommandContext(s.resolveContext(nil), binaryPath,
 		"--model", provider.LocalPath,
 		"--host", localAIHost,
 		"--port", localAIPort,
 	)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd.Stdout = stderr
+	cmd.Stderr = stderr
 	if err := cmd.Start(); err != nil {
 		s.localAIMu.Unlock()
 		return fmt.Errorf("start llama-server: %w", err)
 	}
 	s.localAICmd = cmd
+	s.localAIDone = done
+	s.localAIErr = stderr
 	s.localAIMu.Unlock()
-	go s.watchLocalModelProcess(cmd)
+	go s.watchLocalModelProcess(cmd, done, stderr)
 
 	if err := s.waitForLocalModelReady(localAIEndpoint, provider.Model, 30*time.Second); err != nil {
 		_ = s.StopLocalModel()
-		return err
+		return s.localAIErrorWithDetails(err, stderr)
 	}
 
 	state = s.store.AIState()
@@ -1416,12 +1422,18 @@ func (s *Service) StartLocalModel() error {
 func (s *Service) StopLocalModel() error {
 	s.localAIMu.Lock()
 	cmd := s.localAICmd
+	done := s.localAIDone
 	s.localAICmd = nil
+	s.localAIDone = nil
+	s.localAIErr = nil
 	s.localAIMu.Unlock()
 
 	if cmd != nil && cmd.Process != nil {
 		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 			return fmt.Errorf("stop llama-server: %w", err)
+		}
+		if done != nil {
+			_, _ = <-done
 		}
 	}
 
@@ -1467,12 +1479,16 @@ func (s *Service) isLocalModelRunning() bool {
 	return s.localAICmd != nil && s.localAICmd.Process != nil
 }
 
-func (s *Service) watchLocalModelProcess(cmd *exec.Cmd) {
+func (s *Service) watchLocalModelProcess(cmd *exec.Cmd, done chan error, stderr *bytes.Buffer) {
 	err := cmd.Wait()
+	done <- err
+	close(done)
 	s.localAIMu.Lock()
 	wasActive := s.localAICmd == cmd
 	if wasActive {
 		s.localAICmd = nil
+		s.localAIDone = nil
+		s.localAIErr = nil
 	}
 	s.localAIMu.Unlock()
 
@@ -1489,7 +1505,7 @@ func (s *Service) watchLocalModelProcess(cmd *exec.Cmd) {
 		s.store.UpdateAIState(state)
 	}
 	if wasActive && err != nil && !errors.Is(err, os.ErrProcessDone) {
-		s.EmitLog("warn", fmt.Sprintf("Local AI model stopped: %v", err))
+		s.EmitLog("warn", s.localAIErrorWithDetails(fmt.Errorf("local AI model stopped: %w", err), stderr).Error())
 	}
 }
 
@@ -1502,7 +1518,9 @@ func (s *Service) waitForLocalModelReady(endpoint, model string, timeout time.Du
 			if len(models) == 0 || model == "" || slices.Contains(models, model) {
 				return nil
 			}
-			return nil
+			lastErr = fmt.Errorf("model %q is not reported by the local server yet", model)
+			time.Sleep(500 * time.Millisecond)
+			continue
 		}
 		lastErr = err
 		time.Sleep(500 * time.Millisecond)
@@ -1511,6 +1529,17 @@ func (s *Service) waitForLocalModelReady(endpoint, model string, timeout time.Du
 		lastErr = fmt.Errorf("timeout waiting for local model server")
 	}
 	return fmt.Errorf("local model did not become ready: %w", lastErr)
+}
+
+func (s *Service) localAIErrorWithDetails(err error, stderr *bytes.Buffer) error {
+	if stderr == nil {
+		return err
+	}
+	details := strings.TrimSpace(stderr.String())
+	if details == "" {
+		return err
+	}
+	return fmt.Errorf("%w: %s", err, details)
 }
 
 func localModelsDir() (string, error) {

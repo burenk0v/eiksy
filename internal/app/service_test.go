@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
@@ -237,7 +238,7 @@ func TestDownloadAndStartLocalModel(t *testing.T) {
 
 	binDir := t.TempDir()
 	scriptPath := filepath.Join(binDir, "llama-server")
-	script := "#!/usr/bin/env python3\nimport json\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == '/v1/models':\n            body = json.dumps({'data': [{'id': 'qwen3'}]}).encode()\n            self.send_response(200)\n            self.send_header('Content-Type', 'application/json')\n            self.send_header('Content-Length', str(len(body)))\n            self.end_headers()\n            self.wfile.write(body)\n            return\n        self.send_response(404)\n        self.end_headers()\n\n    def log_message(self, format, *args):\n        pass\n\nHTTPServer(('127.0.0.1', 8012), Handler).serve_forever()\n"
+	script := "#!/usr/bin/env python3\nimport json\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == '/v1/models':\n            body = json.dumps({'data': [{'id': 'Qwen3-4B-Q4_K_M'}]}).encode()\n            self.send_response(200)\n            self.send_header('Content-Type', 'application/json')\n            self.send_header('Content-Length', str(len(body)))\n            self.end_headers()\n            self.wfile.write(body)\n            return\n        self.send_response(404)\n        self.end_headers()\n\n    def log_message(self, format, *args):\n        pass\n\nHTTPServer(('127.0.0.1', 8012), Handler).serve_forever()\n"
 	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
 		t.Fatalf("write llama-server stub: %v", err)
 	}
@@ -277,6 +278,20 @@ func TestDownloadAndStartLocalModel(t *testing.T) {
 	localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
 	if localProvider.Running {
 		t.Fatal("expected local provider to stop")
+	}
+}
+
+func TestWaitForLocalModelReadyFailsWhenRequestedModelMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"other-model"}]}`))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	err := service.waitForLocalModelReady(server.URL, "qwen3-required", time.Second)
+	if err == nil || !strings.Contains(err.Error(), "qwen3-required") {
+		t.Fatalf("expected missing model readiness error, got %v", err)
 	}
 }
 
