@@ -1,4 +1,4 @@
-name: apply-command-policy-v2-integration
+name: integrate-command-policy-v2
 on:
   push:
     branches: [feat/command-policy-v2]
@@ -6,48 +6,41 @@ permissions:
   contents: write
 jobs:
   integrate:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/command-policy-v2
           fetch-depth: 0
-      - name: Integrate Command Policy evaluator
+      - name: Patch service
         run: |
           python3 - <<'PY'
           from pathlib import Path
           p = Path('internal/app/service.go')
-          s = p.read_text()
+          lines = p.read_text().splitlines()
+          for i, line in enumerate(lines):
+              if 'else if allowed := commandAllowedByPolicy(' in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  lines[i] = indent + 'else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
+                  lines.insert(i + 1, indent + '\treply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)')
+                  lines.insert(i + 2, indent + '} else if action == ai.CommandPermissionAllow {')
+                  break
+          else:
+              raise SystemExit('SendChatMessage hook not found')
 
-          old = 'else if allowed := commandAllowedByPolicy(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID); allowed {'
-          if old not in s:
-              raise SystemExit('SendChatMessage decision hook not found')
-          new = 'else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
-          s = s.replace(old, new, 1)
-          hook = new
-          target = '''else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {
-            reply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)
-          } else if action == ai.CommandPermissionAllow {'''
-          s = s.replace(hook, target, 1)
+          for i, line in enumerate(lines):
+              if 'if !commandToolEnabled(policy, request.ToolID)' in line:
+                  indent = line[:len(line) - len(line.lstrip())]
+                  lines.insert(i + 3, indent + 'if commandActionForRequest(policy, request.ToolID, request.SessionID, request.Command) == ai.CommandPermissionDeny {')
+                  lines.insert(i + 4, indent + '\treturn fmt.Errorf("command is denied by Command Policy")')
+                  lines.insert(i + 5, indent + '}')
+                  break
+          else:
+              raise SystemExit('Resolve guard not found')
 
-          old2 = '''\tif !commandToolEnabled(policy, request.ToolID) {
-\t\treturn fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
-\t}
-\tpolicy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)'''
-          new2 = '''\tif !commandToolEnabled(policy, request.ToolID) {
-\t\treturn fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
-\t}
-\tif commandActionForRequest(policy, request.ToolID, request.SessionID, request.Command) == ai.CommandPermissionDeny {
-\t\treturn fmt.Errorf("command is denied by Command Policy")
-\t}
-\tpolicy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)'''
-          if old2 not in s:
-              raise SystemExit('Resolve policy guard not found')
-          s = s.replace(old2, new2, 1)
-
-          needle = '\nfunc commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {'
-          if needle not in s:
+          marker = 'func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {'
+          text = '\n'.join(lines) + '\n'
+          if marker not in text:
               raise SystemExit('commandAllowedByPolicy marker not found')
           evaluator = r'''
 func commandActionForRequest(policy ai.CommandPolicy, toolID, sessionID, command string) ai.CommandPermissionAction {
@@ -143,8 +136,8 @@ func defaultCommandRules() []ai.CommandRule {
 \t}
 }
 '''
-          s = s.replace(needle, evaluator + needle, 1)
-          p.write_text(s)
+          text = text.replace(marker, evaluator + '\n' + marker, 1)
+          p.write_text(text)
           PY
           gofmt -w internal/app/service.go
           git diff --check
@@ -154,8 +147,8 @@ func defaultCommandRules() []ai.CommandRule {
           git add internal/app/service.go
           git commit -m 'feat: enforce command-level policy during AI execution'
           git push origin HEAD:feat/command-policy-v2
-      - name: Remove integration workflow
+      - name: Remove temporary workflow
         run: |
           git rm .github/workflows/apply-command-policy-v2-integration.yml
-          git commit -m 'chore: remove temporary policy integration workflow'
+          git commit -m 'chore: remove temporary integration workflow'
           git push origin HEAD:feat/command-policy-v2
