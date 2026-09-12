@@ -37,11 +37,25 @@ const (
 	CommandPermissionModeDeny    CommandPermissionMode = "deny"
 )
 
+type CommandPermissionAction string
+
+const (
+	CommandPermissionAllow CommandPermissionAction = "allow"
+	CommandPermissionAsk   CommandPermissionAction = "ask"
+	CommandPermissionDeny  CommandPermissionAction = "deny"
+)
+
 type CommandTool struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Enabled     bool   `json:"enabled"`
+}
+
+type CommandRule struct {
+	Pattern     string                 `json:"pattern"`
+	Action      CommandPermissionAction `json:"action"`
+	Description string                 `json:"description,omitempty"`
 }
 
 type CommandRequest struct {
@@ -57,6 +71,7 @@ type CommandPolicy struct {
 	Tools               []CommandTool       `json:"tools"`
 	AllowedTools        []string            `json:"allowedTools"`
 	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
+	CommandRules        []CommandRule       `json:"commandRules,omitempty"`
 	PendingRequests     []CommandRequest    `json:"pendingRequests"`
 	LocalDocsPath       string              `json:"localDocsPath,omitempty"`
 }
