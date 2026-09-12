@@ -19,8 +19,8 @@ const (
 )
 
 // defaultCommandRules is intentionally conservative. Command rules are
-// authoritative for shell execution: an AllowedTools entry must never bypass
-// a deny/ask rule for a specific command.
+authoritative for shell execution: an AllowedTools entry must never bypass
+a deny/ask rule for a specific command.
 func defaultCommandRules() []ai.CommandRule {
 	return []ai.CommandRule{
 		{Pattern: "pwd", Action: ai.CommandPermissionAllow, Description: "Print current directory"},
@@ -110,12 +110,28 @@ func matchCommandPattern(pattern, command string) bool {
 }
 
 func containsUnsafeShellSyntax(command string) bool {
-	for _, token := range []string{";", "&&", "||", "|", ">", "<", "`", "$(", "\n", "\r"} {
+	for _, token := range []string{";", "&&", "||", "|", ">", "<", "`", "$", "\\", "\n", "\r"} {
 		if strings.Contains(command, token) {
 			return true
 		}
 	}
 	return false
+}
+
+func commandRuleSpecificity(rule ai.CommandRule) int {
+	score := 0
+	if rule.SessionID != "" {
+		score += 4
+	}
+	if rule.ToolID != "" {
+		score += 1
+	}
+	if !strings.HasSuffix(strings.TrimSpace(rule.Pattern), "*") {
+		score += 4
+	} else {
+		score += 1
+	}
+	return score
 }
 
 func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command string) (commandPolicyDecision, string) {
@@ -129,7 +145,7 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 		return commandPolicyDecisionDeny, fmt.Sprintf("tool %q is disabled", toolID)
 	}
 	if toolID == "shell" && containsUnsafeShellSyntax(command) {
-		return commandPolicyDecisionDeny, "shell operators and command substitution are not permitted by Command Policy"
+		return commandPolicyDecisionDeny, "shell operators, expansion and command substitution are not permitted by Command Policy"
 	}
 
 	rules := normalizeCommandRules(policy.CommandRules)
@@ -140,8 +156,9 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 		return commandPolicyDecisionAsk, "no command rule matched"
 	}
 
-	var askReason string
-	var allowReason string
+	bestSpecificity := -1
+	bestDecision := commandPolicyDecisionAsk
+	bestReason := "no command rule matched"
 	for _, rule := range rules {
 		if rule.ToolID != "" && rule.ToolID != toolID {
 			continue
@@ -153,25 +170,22 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 			continue
 		}
 
-		switch rule.Action {
-		case ai.CommandPermissionDeny:
-			// Deny always wins, regardless of rule order or broader allow rules.
+		if rule.Action == ai.CommandPermissionDeny {
+			// Deny always wins, regardless of rule order or specificity.
 			return commandPolicyDecisionDeny, rule.Description
-		case ai.CommandPermissionAsk:
-			if askReason == "" {
-				askReason = rule.Description
-			}
-		case ai.CommandPermissionAllow:
-			if allowReason == "" {
-				allowReason = rule.Description
-			}
 		}
+
+		specificity := commandRuleSpecificity(rule)
+		if specificity < bestSpecificity {
+			continue
+		}
+		if specificity == bestSpecificity && bestSpecificity >= 0 && bestDecision == commandPolicyDecisionAsk && rule.Action == ai.CommandPermissionAllow {
+			// For equal specificity, ASK remains the safer result.
+			continue
+		}
+		bestSpecificity = specificity
+		bestDecision = commandPolicyDecision(rule.Action)
+		bestReason = rule.Description
 	}
-	if askReason != "" {
-		return commandPolicyDecisionAsk, askReason
-	}
-	if allowReason != "" {
-		return commandPolicyDecisionAllow, allowReason
-	}
-	return commandPolicyDecisionAsk, "no command rule matched"
+	return bestDecision, bestReason
 }
