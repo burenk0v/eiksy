@@ -10,9 +10,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +73,10 @@ const (
 	vaultAuthMethodOIDC    = "oidc"
 	vaultAuthMethodOIDCSec = "oidc-sec"
 	vaultAuthMethodDomain  = "domain"
+	localAIProviderID      = "local-qwen3-4b"
+	localAIEndpoint        = "http://127.0.0.1:8012/v1"
+	localAIHost            = "127.0.0.1"
+	localAIPort            = "8012"
 )
 
 type Service struct {
@@ -82,6 +88,8 @@ type Service struct {
 	emitFn      func(eventName string, data ...interface{})
 	authMu      sync.Mutex
 	cloudAuth   *cloudAuthSession
+	localAIMu   sync.Mutex
+	localAICmd  *exec.Cmd
 }
 
 type stateStore interface {
@@ -792,6 +800,116 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 	return nil
 }
 
+func (s *Service) SaveLocalProvider(downloadURL string) error {
+	downloadURL = strings.TrimSpace(downloadURL)
+	if downloadURL == "" {
+		return fmt.Errorf("model url is required")
+	}
+
+	parsed, err := url.Parse(downloadURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("model url must be a valid http or https url")
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+	state.Providers[index].DownloadURL = downloadURL
+	state.Providers[index].Endpoint = localAIEndpoint
+	state.Providers[index].Model = localModelNameFromURL(downloadURL)
+	if state.Providers[index].LocalPath != "" && fileExists(state.Providers[index].LocalPath) {
+		state.Providers[index].Configured = true
+		state.Providers[index].Status = "stopped"
+	} else {
+		state.Providers[index].Configured = false
+		state.Providers[index].LocalPath = ""
+		state.Providers[index].Status = "download required"
+	}
+	s.store.UpdateAIState(state)
+	s.EmitLog("info", "Saved local AI model URL.")
+	return nil
+}
+
+func (s *Service) DownloadLocalModel(downloadURL string) error {
+	if err := s.SaveLocalProvider(downloadURL); err != nil {
+		return err
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+	provider := state.Providers[index]
+
+	modelsDir, err := localModelsDir()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		return fmt.Errorf("create local models directory: %w", err)
+	}
+
+	filename := localModelFilenameFromURL(provider.DownloadURL)
+	targetPath := filepath.Join(modelsDir, filename)
+	tempPath := targetPath + ".part"
+
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, provider.DownloadURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("model download returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+
+	file, err := os.Create(tempPath)
+	if err != nil {
+		return fmt.Errorf("create model file: %w", err)
+	}
+	if _, err := io.Copy(file, resp.Body); err != nil {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("write model file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("close model file: %w", err)
+	}
+	if err := os.Rename(tempPath, targetPath); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("finalize model file: %w", err)
+	}
+
+	state = s.store.AIState()
+	index = providerIndexByID(state.Providers, localAIProviderID)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+	state.Providers[index].LocalPath = targetPath
+	state.Providers[index].Endpoint = localAIEndpoint
+	state.Providers[index].Model = localModelNameFromURL(provider.DownloadURL)
+	state.Providers[index].Configured = true
+	state.Providers[index].Status = "stopped"
+	s.store.UpdateAIState(state)
+	s.EmitLog("info", fmt.Sprintf("Downloaded local AI model to %s.", targetPath))
+	return nil
+}
+
 func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 	endpoint = strings.TrimSpace(endpoint)
 	token = strings.TrimSpace(token)
@@ -1234,6 +1352,95 @@ func (s *Service) resolveContext(ctx context.Context) context.Context {
 	return context.Background()
 }
 
+func (s *Service) StartLocalModel() error {
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+	provider := state.Providers[index]
+	if strings.TrimSpace(provider.LocalPath) == "" {
+		return fmt.Errorf("download the local model first")
+	}
+	if !fileExists(provider.LocalPath) {
+		return fmt.Errorf("local model file not found: %s", provider.LocalPath)
+	}
+
+	binaryPath, err := exec.LookPath("llama-server")
+	if err != nil {
+		return fmt.Errorf("llama-server is not installed or not in PATH")
+	}
+
+	s.localAIMu.Lock()
+	if s.localAICmd != nil && s.localAICmd.Process != nil {
+		s.localAIMu.Unlock()
+		return nil
+	}
+
+	cmd := exec.CommandContext(s.resolveContext(nil), binaryPath,
+		"--model", provider.LocalPath,
+		"--host", localAIHost,
+		"--port", localAIPort,
+	)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		s.localAIMu.Unlock()
+		return fmt.Errorf("start llama-server: %w", err)
+	}
+	s.localAICmd = cmd
+	s.localAIMu.Unlock()
+	go s.watchLocalModelProcess(cmd)
+
+	if err := s.waitForLocalModelReady(localAIEndpoint, provider.Model, 30*time.Second); err != nil {
+		_ = s.StopLocalModel()
+		return err
+	}
+
+	state = s.store.AIState()
+	index = providerIndexByID(state.Providers, localAIProviderID)
+	if index < 0 {
+		return fmt.Errorf("local ai provider is not available")
+	}
+	for i := range state.Providers {
+		state.Providers[i].Selected = i == index
+	}
+	state.Providers[index].Configured = true
+	state.Providers[index].Status = "running"
+	state.Providers[index].Endpoint = localAIEndpoint
+	s.store.UpdateAIState(state)
+	s.EmitLog("info", "Local AI model started.")
+	return nil
+}
+
+func (s *Service) StopLocalModel() error {
+	s.localAIMu.Lock()
+	cmd := s.localAICmd
+	s.localAICmd = nil
+	s.localAIMu.Unlock()
+
+	if cmd != nil && cmd.Process != nil {
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			return fmt.Errorf("stop llama-server: %w", err)
+		}
+	}
+
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	if index >= 0 {
+		if state.Providers[index].LocalPath != "" && fileExists(state.Providers[index].LocalPath) {
+			state.Providers[index].Configured = true
+			state.Providers[index].Status = "stopped"
+		} else {
+			state.Providers[index].Configured = false
+			state.Providers[index].Status = "download required"
+		}
+		s.store.UpdateAIState(state)
+	}
+	s.EmitLog("info", "Local AI model stopped.")
+	return nil
+}
+
 func providerIndexByID(providers []ai.ProviderDescriptor, providerID string) int {
 	for index, provider := range providers {
 		if provider.ID == providerID {
@@ -1252,6 +1459,86 @@ func providerIndexByClass(providers []ai.ProviderDescriptor, class ai.ProviderCl
 	}
 
 	return -1
+}
+
+func (s *Service) isLocalModelRunning() bool {
+	s.localAIMu.Lock()
+	defer s.localAIMu.Unlock()
+	return s.localAICmd != nil && s.localAICmd.Process != nil
+}
+
+func (s *Service) watchLocalModelProcess(cmd *exec.Cmd) {
+	err := cmd.Wait()
+	s.localAIMu.Lock()
+	wasActive := s.localAICmd == cmd
+	if wasActive {
+		s.localAICmd = nil
+	}
+	s.localAIMu.Unlock()
+
+	state := s.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	if index >= 0 {
+		if state.Providers[index].LocalPath != "" && fileExists(state.Providers[index].LocalPath) {
+			state.Providers[index].Configured = true
+			state.Providers[index].Status = "stopped"
+		} else {
+			state.Providers[index].Configured = false
+			state.Providers[index].Status = "download required"
+		}
+		s.store.UpdateAIState(state)
+	}
+	if wasActive && err != nil && !errors.Is(err, os.ErrProcessDone) {
+		s.EmitLog("warn", fmt.Sprintf("Local AI model stopped: %v", err))
+	}
+}
+
+func (s *Service) waitForLocalModelReady(endpoint, model string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		models, err := s.ListCloudModels(endpoint, "")
+		if err == nil {
+			if len(models) == 0 || model == "" || slices.Contains(models, model) {
+				return nil
+			}
+			return nil
+		}
+		lastErr = err
+		time.Sleep(500 * time.Millisecond)
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("timeout waiting for local model server")
+	}
+	return fmt.Errorf("local model did not become ready: %w", lastErr)
+}
+
+func localModelsDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+	return filepath.Join(homeDir, ".eiksy", "models"), nil
+}
+
+func localModelFilenameFromURL(rawURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err == nil {
+		if name := path.Base(strings.TrimSpace(parsed.Path)); name != "." && name != "/" && name != "" {
+			return name
+		}
+	}
+	return "Qwen3-4B-Q4_K_M.gguf"
+}
+
+func localModelNameFromURL(rawURL string) string {
+	filename := localModelFilenameFromURL(rawURL)
+	return strings.TrimSuffix(filename, filepath.Ext(filename))
+}
+
+func fileExists(target string) bool {
+	info, err := os.Stat(target)
+	return err == nil && !info.IsDir()
 }
 
 // SendChatMessage adds the user message to the conversation, calls the
@@ -1320,6 +1607,17 @@ func (s *Service) activeConfiguredProvider(state ai.WorkspaceState) (*ai.Provide
 				}
 				provider.HasToken = provider.Token != ""
 			}
+			if provider.Class == ai.ProviderClassLocalOpenAI {
+				if strings.TrimSpace(provider.Endpoint) == "" {
+					provider.Endpoint = localAIEndpoint
+				}
+				if strings.TrimSpace(provider.LocalPath) == "" || !fileExists(provider.LocalPath) {
+					return nil, fmt.Errorf("local AI model is not downloaded; download it in Settings first")
+				}
+				if !s.isLocalModelRunning() {
+					return nil, fmt.Errorf("local AI model is stopped; start it in Settings first")
+				}
+			}
 			return &provider, nil
 		}
 	}
@@ -1378,6 +1676,22 @@ func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceStat
 	for i := range scrubbed.Providers {
 		scrubbed.Providers[i].Token = ""
 		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID))
+		if scrubbed.Providers[i].Class == ai.ProviderClassLocalOpenAI {
+			hasModel := scrubbed.Providers[i].LocalPath != "" && fileExists(scrubbed.Providers[i].LocalPath)
+			scrubbed.Providers[i].Running = hasModel && s.isLocalModelRunning()
+			scrubbed.Providers[i].Configured = hasModel
+			if strings.TrimSpace(scrubbed.Providers[i].Endpoint) == "" {
+				scrubbed.Providers[i].Endpoint = localAIEndpoint
+			}
+			switch {
+			case scrubbed.Providers[i].Running:
+				scrubbed.Providers[i].Status = "running"
+			case hasModel:
+				scrubbed.Providers[i].Status = "stopped"
+			default:
+				scrubbed.Providers[i].Status = "download required"
+			}
+		}
 	}
 	scrubbed.Messages = append([]ai.ChatMessage{}, state.Messages...)
 	return scrubbed

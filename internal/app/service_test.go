@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -30,8 +32,8 @@ func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	if len(state.CredentialProviders) != 0 {
 		t.Fatalf("expected 0 credential providers, got %d", len(state.CredentialProviders))
 	}
-	if len(state.AI.Providers) != 1 {
-		t.Fatalf("expected 1 ai provider, got %d", len(state.AI.Providers))
+	if len(state.AI.Providers) != 2 {
+		t.Fatalf("expected 2 ai providers, got %d", len(state.AI.Providers))
 	}
 }
 
@@ -201,6 +203,80 @@ func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
 	}
 	if cloudProvider.Endpoint != "https://models.example.com/v2" {
 		t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint)
+	}
+}
+
+func TestSaveLocalProviderStoresCustomURLAndSelectsLocalProvider(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+
+	if err := service.SaveLocalProvider("https://models.example.com/qwen3.gguf"); err != nil {
+		t.Fatalf("save local provider: %v", err)
+	}
+
+	state := service.GetShellState()
+	localProvider := mustFindProviderByID(t, state, "local-qwen3-4b")
+	if !localProvider.Selected {
+		t.Fatal("expected local provider to be selected")
+	}
+	if localProvider.DownloadURL != "https://models.example.com/qwen3.gguf" {
+		t.Fatalf("expected local provider url to be saved, got %q", localProvider.DownloadURL)
+	}
+	if localProvider.Status != "download required" {
+		t.Fatalf("expected local provider to require download, got %q", localProvider.Status)
+	}
+}
+
+func TestDownloadAndStartLocalModel(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("gguf"))
+	}))
+	defer server.Close()
+
+	binDir := t.TempDir()
+	scriptPath := filepath.Join(binDir, "llama-server")
+	script := "#!/usr/bin/env python3\nimport json\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == '/v1/models':\n            body = json.dumps({'data': [{'id': 'qwen3'}]}).encode()\n            self.send_response(200)\n            self.send_header('Content-Type', 'application/json')\n            self.send_header('Content-Length', str(len(body)))\n            self.end_headers()\n            self.wfile.write(body)\n            return\n        self.send_response(404)\n        self.end_headers()\n\n    def log_message(self, format, *args):\n        pass\n\nHTTPServer(('127.0.0.1', 8012), Handler).serve_forever()\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write llama-server stub: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.DownloadLocalModel(server.URL + "/Qwen3-4B-Q4_K_M.gguf"); err != nil {
+		t.Fatalf("download local model: %v", err)
+	}
+
+	state := service.GetShellState()
+	localProvider := mustFindProviderByID(t, state, "local-qwen3-4b")
+	if !fileExists(localProvider.LocalPath) {
+		t.Fatalf("expected local model file to exist at %q", localProvider.LocalPath)
+	}
+	if localProvider.Status != "stopped" {
+		t.Fatalf("expected downloaded local model to be stopped, got %q", localProvider.Status)
+	}
+
+	if err := service.StartLocalModel(); err != nil {
+		t.Fatalf("start local model: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = service.StopLocalModel()
+	})
+
+	state = service.GetShellState()
+	localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
+	if !localProvider.Running {
+		t.Fatal("expected local provider to be running")
+	}
+
+	if err := service.StopLocalModel(); err != nil {
+		t.Fatalf("stop local model: %v", err)
+	}
+	state = service.GetShellState()
+	localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
+	if localProvider.Running {
+		t.Fatal("expected local provider to stop")
 	}
 }
 

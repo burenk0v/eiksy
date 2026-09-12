@@ -26,6 +26,10 @@ export function DownloadSFTPFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['DownloadSFTPFiles'](arg1, arg2, arg3);
 }
 
+export function DownloadLocalModel(arg1) {
+  return window['go']['main']['App']['DownloadLocalModel'](arg1);
+}
+
 export function GetCloudProviderAuthSession(arg1) {
   return window['go']['main']['App']['GetCloudProviderAuthSession'](arg1);
 }
@@ -90,6 +94,10 @@ export function SaveCloudProvider(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveCloudProvider'](arg1, arg2, arg3);
 }
 
+export function SaveLocalProvider(arg1) {
+  return window['go']['main']['App']['SaveLocalProvider'](arg1);
+}
+
 export function SaveSFTPFile(arg1, arg2, arg3) {
   return window['go']['main']['App']['SaveSFTPFile'](arg1, arg2, arg3);
 }
@@ -112,6 +120,14 @@ export function SelectUploadFiles() {
 
 export function StartCloudProviderAuth(arg1) {
   return window['go']['main']['App']['StartCloudProviderAuth'](arg1);
+}
+
+export function StartLocalModel() {
+  return window['go']['main']['App']['StartLocalModel']();
+}
+
+export function StopLocalModel() {
+  return window['go']['main']['App']['StopLocalModel']();
 }
 
 export function UploadSFTPFiles(arg1, arg2, arg3) {

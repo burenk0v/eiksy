@@ -4,6 +4,7 @@ type ProviderClass string
 
 const (
 	ProviderClassOpenAICompatible ProviderClass = "openai_compatible"
+	ProviderClassLocalOpenAI      ProviderClass = "local_openai"
 )
 
 type ProviderDescriptor struct {
@@ -12,7 +13,10 @@ type ProviderDescriptor struct {
 	Class      ProviderClass `json:"class"`
 	Model      string        `json:"model"`
 	Endpoint   string        `json:"endpoint,omitempty"`
+	DownloadURL string       `json:"downloadUrl,omitempty"`
+	LocalPath  string        `json:"localPath,omitempty"`
 	Status     string        `json:"status"`
+	Running    bool          `json:"running"`
 	Selected   bool          `json:"selected"`
 	Token      string        `json:"-"`
 	HasToken   bool          `json:"hasToken"`

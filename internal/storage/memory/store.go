@@ -372,6 +372,7 @@ func defaultAIState() ai.WorkspaceState {
 	return ai.WorkspaceState{
 		Providers: []ai.ProviderDescriptor{
 			{ID: "openai-compatible-cloud", Name: "OpenAI-compatible Cloud", Class: ai.ProviderClassOpenAICompatible, Model: "Remote model", Status: "configuration required", Selected: true, Configured: false},
+			{ID: "local-qwen3-4b", Name: "Local Qwen3 4B", Class: ai.ProviderClassLocalOpenAI, Model: "Qwen3-4B-Q4_K_M", Endpoint: "http://127.0.0.1:8012/v1", DownloadURL: "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true", Status: "download required", Selected: false, Configured: false},
 		},
 		ContextPolicy: ai.ContextPolicy{
 			SendTerminalSelection: true,
