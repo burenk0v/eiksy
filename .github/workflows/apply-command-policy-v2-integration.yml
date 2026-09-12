@@ -6,58 +6,23 @@ permissions:
   contents: write
 jobs:
   integrate:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: feat/command-policy-v2
           fetch-depth: 0
-      - name: Patch service
-        env:
-          EVALUATOR_B64: ZnVuYyBjb21tYW5kQWN0aW9uRm9yUmVxdWVzdChwb2xpY3kgYWkuQ29tbWFuZFBvbGljeSwgdG9vbElELCBzZXNzaW9uSUQsIGNvbW1hbmQgc3RyaW5nKSBhaS5Db21tYW5kUGVybWlzc2lvbkFjdGlvbiB7Cgl0b29sSUQgPSBzdHJpbmdzLlRvTG93ZXIoc3RyaW5ncy5UcmltU3BhY2UodG9vbElEKSkKCXNlc3Npb25JRCA9IHN0cmluZ3MuVHJpbVNwYWNlKHNlc3Npb25JRCkKCWNvbW1hbmQgPSBzdHJpbmdzLlRyaW1TcGFjZShjb21tYW5kKQoJaWYgdG9vbElEID09ICIiIHx8IGNvbW1hbmQgPT0gIiIgfHwgIWNvbW1hbmRUb29sRW5hYmxlZChwb2xpY3ksIHRvb2xJRCkgewoJCXJldHVybiBhaS5Db21tYW5kUGVybWlzc2lvbkRlbnkKCX0KCWlmIGNvbnRhaW5zVW5zYWZlU2hlbGxTeW50YXgoY29tbWFuZCkgewoJCXJldHVybiBhaS5Db21tYW5kUGVybWlzc2lvbkRlbnkKCX0KCXJ1bGVzIDo9IHBvbGljeS5Db21tYW5kUnVsZXMKCWlmIGxlbihydWxlcykgPT0gMCB7CgkJcnVsZXMgPSBkZWZhdWx0Q29tbWFuZFJ1bGVzKCkKCX0KCWZvciBfLCBydWxlIDo9IHJhbmdlIHJ1bGVzIHsKCQlpZiBydWxlLlRvb2xJRCAhPSAiIiAmJiBzdHJpbmdzLlRvTG93ZXIoc3RyaW5ncy5UcmltU3BhY2UocnVsZS5Ub29sSUQpKSAhPSB0b29sSUQgewoJCQljb250aW51ZQoJCX0KCQlpZiBydWxlLlNlc3Npb25JRCAhPSAiIiAmJiBzdHJpbmdzLlRyaW1TcGFjZShydWxlLlNlc3Npb25JRCkgIT0gc2Vzc2lvbklEIHsKCQkJY29udGludWUKCQl9CgkJaWYgIW1hdGNoQ29tbWFuZFBhdHRlcm4oY29tbWFuZCwgcnVsZS5QYXR0ZXJuKSB7CgkJCWNvbnRpbnVlCgkJfQoJCXN3aXRjaCBydWxlLkFjdGlvbiB7CgkJY2FzZSBhaS5Db21tYW5kUGVybWlzc2lvbkFsbG93LCBhaS5Db21tYW5kUGVybWlzc2lvbkFzaywgYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55OgoJCQlyZXR1cm4gcnVsZS5BY3Rpb24KCQlkZWZhdWx0OgoJCQlyZXR1cm4gYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2sKCQl9Cgl9CglyZXR1cm4gYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2sKfQoKZnVuYyBjb250YWluc1Vuc2FmZVNoZWxsU3ludGF4KGNvbW1hbmQgc3RyaW5nKSBib29sIHsKCWZvciBfLCB0b2tlbiA6PSByYW5nZSBbXXN0cmluZ3siOyIsICImJiIsICJ8fCIsICJ8IiwgIj4iLCAiPCIsICJgIiwgIiQiLCAiXFwiLCAiXG4iLCAiXHIifSB7CgkJaWYgc3RyaW5ncy5Db250YWlucyhjb21tYW5kLCB0b2tlbikgewoJCQlyZXR1cm4gdHJ1ZQoJCX0KCX0KCXJldHVybiBmYWxzZQp9CgpmdW5jIG1hdGNoQ29tbWFuZFBhdHRlcm4oY29tbWFuZCwgcGF0dGVybiBzdHJpbmcpIGJvb2wgewoJY29tbWFuZCA9IHN0cmluZ3MuVHJpbVNwYWNlKGNvbW1hbmQpCglwYXR0ZXJuID0gc3RyaW5ncy5UcmltU3BhY2UocGF0dGVybikKCWlmIGNvbW1hbmQgPT0gIiIgfHwgcGF0dGVybiA9PSAiIiB7CgkJcmV0dXJuIGZhbHNlCgl9CglpZiBzdHJpbmdzLkhhc1N1ZmZpeChwYXR0ZXJuLCAiKiIpIHsKCQlwcmVmaXggOj0gc3RyaW5ncy5UcmltU3BhY2Uoc3RyaW5ncy5UcmltU3VmZml4KHBhdHRlcm4sICIqIikpCgkJaWYgcHJlZml4ID09ICIiIHsKCQkJcmV0dXJuIHRydWUKCQl9CgkJcmV0dXJuIGNvbW1hbmQgPT0gcHJlZml4IHx8IHN0cmluZ3MuSGFzUHJlZml4KGNvbW1hbmQsIHByZWZpeCsiICIpCgl9CglyZXR1cm4gY29tbWFuZCA9PSBwYXR0ZXJuCn0KCmZ1bmMgZGVmYXVsdENvbW1hbmRSdWxlcygpIFtdYWkuQ29tbWFuZFJ1bGUgewoJcmV0dXJuIFtdYWkuQ29tbWFuZFJ1bGUgewoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJwd2QiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uQWxsb3csIERlc2NyaXB0aW9uOiAiUHJpbnQgY3VycmVudCBkaXJlY3RvcnkifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAid2hvYW1pIiwgQWN0aW9uOiBhaS5Db21tYW5kUGVybWlzc2lvbkFsbG93LCBEZXNjcmlwdGlvbjogIlByaW50IGN1cnJlbnQgdXNlciJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJpZCIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25BbGxvdywgRGVzY3JpcHRpb246ICJQcmludCB1c2VyIGlkZW50aXR5In0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogInVuYW1lICoiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uQWxsb3csIERlc2NyaXB0aW9uOiAiUmVhZCBzeXN0ZW0gaW5mb3JtYXRpb24ifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAibHMgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25BbGxvdywgRGVzY3JpcHRpb246ICJMaXN0IGRpcmVjdG9yeSBjb250ZW50cyJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJkZiAtaCIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25BbGxvdywgRGVzY3JpcHRpb246ICJSZWFkIGZpbGVzeXN0ZW0gdXNhZ2UifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAiZnJlZSAtaiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25BbGxvdywgRGVzY3JpcHRpb246ICJSZWFkIG1lbW9yeSB1c2FnZSJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJ1cHRpbWUiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uQWxsb3csIERlc2NyaXB0aW9uOiAiUmVhZCBzeXN0ZW0gdXB0aW1lIn0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogInBzICoiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uQWxsb3csIERlc2NyaXB0aW9uOiAiUmVhZCBwcm9jZXNzIGxpc3QifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAic3lzdGVtY3RsIHN0YXR1cyAqIiwgQWN0aW9uOiBhaS5Db21tYW5kUGVybWlzc2lvbkFsbG93LCBEZXNjcmlwdGlvbjogIlJlYWQgc2VydmljZSBzdGF0dXMifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAic3lzdGVtY3RsIHJlc3RhcnQgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiUmVzdGFydCBhIHNlcnZpY2UifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAic3lzdGVtY3RsIHN0YXJ0ICoiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uQXNrLCBEZXNjcmlwdGlvbjogIlN0YXJ0IGEgc2VydmljZSJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJzeXN0ZW1jdGwgc3RvcCAqIiwgQWN0aW9uOiBhaS5Db21tYW5kUGVybWlzc2lvbkFzaywgRGVzY3JpcHRpb246ICJTdG9wIGEgc2VydmljZSJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJjYXQgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiUmVhZCBhIHJlbW90ZSBmaWxlIn0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogImdyZXAgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiU2VhcmNoIHJlbW90ZSBmaWxlIGNvbnRlbnRzIn0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogImZpbmQgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiU2VhcmNoIHJlbW90ZSBmaWxlc3lzdGVtIn0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogImVudiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiUmVhZCBlbnZpcm9ubWVudCB2YXJpYWJsZXMifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAicHJpbnRlbnYgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiUmVhZCBlbnZpcm9ubWVudCB2YXJpYWJsZXMifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAiaGlzdG9yeSIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25Bc2ssIERlc2NyaXB0aW9uOiAiUmVhZCBzaGVsbCBoaXN0b3J5In0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogInJtICoiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uRGVueSwgRGVzY3JpcHRpb246ICJEZXN0cnVjdGl2ZSBmaWxlIHJlbW92YWwifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAic2h1dGRvd24gKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIlN5c3RlbSBzaHV0ZG93biJ9LAoJCXtUb29sSUQ6ICJzaGVsbCIsIFBhdHRlcm46ICJyZWJvb3QgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIlN5c3RlbSByZWJvb3QifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAicG93ZXJvZmYgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIlN5c3RlbSBwb3dlciBvZmYifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAia2lsbCAqIiwgQWN0aW9uOiBhaS5Db21tYW5kUGVybWlzc2lvbkRlbnksIERlc2NyaXB0aW9uOiAiVGVybWluYXRlIHByb2Nlc3MifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAicGtpbGwgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIlRlcm1pbmF0ZSBwcm9jZXNzZXMifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAiY2htb2QgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIkNoYW5nZSBmaWxlIHBlcm1pc3Npb25zIn0sCgkJe1Rvb2xJRDogInNoZWxsIiwgUGF0dGVybjogImNob3duICoiLCBBY3Rpb246IGFpLkNvbW1hbmRQZXJtaXNzaW9uRGVueSwgRGVzY3JpcHRpb246ICJDaGFuZ2UgZmlsZSBvd25lcnNoaXAifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAibWt mcyAqIiwgQWN0aW9uOiBhaS5Db21tYW5kUGVybWlzc2lvbkRlbnksIERlc2NyaXB0aW9uOiAiRm9ybWF0IGZpbGVzeXN0ZW0ifSwKCQl7VG9vbElEOiAic2hlbGwiLCBQYXR0ZXJuOiAiZGQgKiIsIEFjdGlvbjogYWkuQ29tbWFuZFBlcm1pc3Npb25EZW55LCBEZXNjcmlwdGlvbjogIlJhdyBkaXNrIG9wZXJhdGlvbiJ9LAoJfQp9Cg==
+      - name: Integrate policy
+        run: python3 scripts/integrate_command_policy.py
+      - name: Format and test
         run: |
-          python3 - <<'PY'
-          import base64
-          from pathlib import Path
-          p = Path('internal/app/service.go')
-          lines = p.read_text().splitlines()
-          for i, line in enumerate(lines):
-              if 'else if allowed := commandAllowedByPolicy(' in line:
-                  indent = line[:len(line) - len(line.lstrip())]
-                  lines[i] = indent + 'else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
-                  lines.insert(i + 1, indent + chr(9) + 'reply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)')
-                  lines.insert(i + 2, indent + '} else if action == ai.CommandPermissionAllow {')
-                  break
-          else:
-              raise SystemExit('SendChatMessage hook not found')
-          for i, line in enumerate(lines):
-              if 'if !commandToolEnabled(policy, request.ToolID)' in line:
-                  indent = line[:len(line) - len(line.lstrip())]
-                  lines.insert(i + 3, indent + 'if commandActionForRequest(policy, request.ToolID, request.SessionID, request.Command) == ai.CommandPermissionDeny {')
-                  lines.insert(i + 4, indent + chr(9) + 'return fmt.Errorf("command is denied by Command Policy")')
-                  lines.insert(i + 5, indent + '}')
-                  break
-          else:
-              raise SystemExit('Resolve guard not found')
-          marker = 'func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {'
-          text = '\n'.join(lines) + '\n'
-          if marker not in text:
-              raise SystemExit('commandAllowedByPolicy marker not found')
-          evaluator = base64.b64decode(__import__('os').environ['EVALUATOR_B64']).decode()
-          text = text.replace(marker, evaluator + '\n' + marker, 1)
-          p.write_text(text)
-          PY
           gofmt -w internal/app/service.go
           git diff --check
           go test ./...
+      - name: Commit integration
+        run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/app/service.go
+          git add internal/app/service.go scripts/integrate_command_policy.py .github/workflows/apply-command-policy-v2-integration.yml
           git commit -m 'feat: enforce command-level policy during AI execution'
-          git push origin HEAD:feat/command-policy-v2
-      - name: Remove temporary workflow
-        run: |
-          git rm .github/workflows/apply-command-policy-v2-integration.yml
-          git commit -m 'chore: remove temporary integration workflow'
           git push origin HEAD:feat/command-policy-v2
