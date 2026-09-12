@@ -57,16 +57,16 @@ type persistedAIWorkspaceState struct {
 }
 
 type persistedAIProviderDescriptor struct {
-	ID         string           `json:"id"`
-	Name       string           `json:"name"`
-	Class      ai.ProviderClass `json:"class"`
-	Model      string           `json:"model"`
-	Endpoint   string           `json:"endpoint,omitempty"`
-	DownloadURL string          `json:"downloadUrl,omitempty"`
-	LocalPath  string           `json:"localPath,omitempty"`
-	Status     string           `json:"status"`
-	Selected   bool             `json:"selected"`
-	Configured bool             `json:"configured"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Class       ai.ProviderClass `json:"class"`
+	Model       string           `json:"model"`
+	Endpoint    string           `json:"endpoint,omitempty"`
+	DownloadURL string           `json:"downloadUrl,omitempty"`
+	LocalPath   string           `json:"localPath,omitempty"`
+	Status      string           `json:"status"`
+	Selected    bool             `json:"selected"`
+	Configured  bool             `json:"configured"`
 }
 
 func NewStore() (*Store, error) {
@@ -690,16 +690,16 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 	}
 	for _, provider := range state.Providers {
 		persisted.Providers = append(persisted.Providers, persistedAIProviderDescriptor{
-			ID:         provider.ID,
-			Name:       provider.Name,
-			Class:      provider.Class,
-			Model:      provider.Model,
-			Endpoint:   provider.Endpoint,
+			ID:          provider.ID,
+			Name:        provider.Name,
+			Class:       provider.Class,
+			Model:       provider.Model,
+			Endpoint:    provider.Endpoint,
 			DownloadURL: provider.DownloadURL,
-			LocalPath:  provider.LocalPath,
-			Status:     provider.Status,
-			Selected:   provider.Selected,
-			Configured: provider.Configured,
+			LocalPath:   provider.LocalPath,
+			Status:      provider.Status,
+			Selected:    provider.Selected,
+			Configured:  provider.Configured,
 		})
 	}
 	return persisted
@@ -714,16 +714,16 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 	}
 	for _, provider := range persisted.Providers {
 		state.Providers = append(state.Providers, ai.ProviderDescriptor{
-			ID:         provider.ID,
-			Name:       provider.Name,
-			Class:      provider.Class,
-			Model:      provider.Model,
-			Endpoint:   provider.Endpoint,
+			ID:          provider.ID,
+			Name:        provider.Name,
+			Class:       provider.Class,
+			Model:       provider.Model,
+			Endpoint:    provider.Endpoint,
 			DownloadURL: provider.DownloadURL,
-			LocalPath:  provider.LocalPath,
-			Status:     provider.Status,
-			Selected:   provider.Selected,
-			Configured: provider.Configured,
+			LocalPath:   provider.LocalPath,
+			Status:      provider.Status,
+			Selected:    provider.Selected,
+			Configured:  provider.Configured,
 		})
 	}
 	defaultProviders := defaultAIState().Providers

@@ -8,19 +8,19 @@ const (
 )
 
 type ProviderDescriptor struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	Class      ProviderClass `json:"class"`
-	Model      string        `json:"model"`
-	Endpoint   string        `json:"endpoint,omitempty"`
-	DownloadURL string       `json:"downloadUrl,omitempty"`
-	LocalPath  string        `json:"localPath,omitempty"`
-	Status     string        `json:"status"`
-	Running    bool          `json:"running"`
-	Selected   bool          `json:"selected"`
-	Token      string        `json:"-"`
-	HasToken   bool          `json:"hasToken"`
-	Configured bool          `json:"configured"`
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Class       ProviderClass `json:"class"`
+	Model       string        `json:"model"`
+	Endpoint    string        `json:"endpoint,omitempty"`
+	DownloadURL string        `json:"downloadUrl,omitempty"`
+	LocalPath   string        `json:"localPath,omitempty"`
+	Status      string        `json:"status"`
+	Running     bool          `json:"running"`
+	Selected    bool          `json:"selected"`
+	Token       string        `json:"-"`
+	HasToken    bool          `json:"hasToken"`
+	Configured  bool          `json:"configured"`
 }
 
 type ContextPolicy struct {
