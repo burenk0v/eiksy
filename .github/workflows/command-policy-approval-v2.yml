@@ -1,0 +1,36 @@
+name: command-policy-approval-v2
+
+on:
+  push:
+    branches: [feat/command-policy-v2]
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Migrate approval persistence
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/app/service.go')
+          s = p.read_text()
+          old = '''\tswitch mode {\n\tcase ai.CommandPermissionModeAlways:\n\t\tpolicy.AllowedTools = append(policy.AllowedTools, request.ToolID)\n\t\tpolicy.AllowedTools = uniqueStrings(policy.AllowedTools)\n\tcase ai.CommandPermissionModeSession:\n\t\ttools := append([]string(nil), policy.SessionAllowedTools[request.SessionID]...)\n\t\ttools = append(tools, request.ToolID)\n\t\tpolicy.SessionAllowedTools[request.SessionID] = uniqueStrings(tools)\n\t}\n'''
+          new = '''\tswitch mode {\n\tcase ai.CommandPermissionModeAlways:\n\t\tpolicy.CommandRules = append(policy.CommandRules, ai.CommandRule{\n\t\t\tToolID: request.ToolID,\n\t\t\tPattern: request.Command,\n\t\t\tAction: ai.CommandPermissionAllow,\n\t\t\tDescription: "Approved by user: always allow this command",\n\t\t})\n\tcase ai.CommandPermissionModeSession:\n\t\tpolicy.CommandRules = append(policy.CommandRules, ai.CommandRule{\n\t\t\tToolID: request.ToolID,\n\t\t\tSessionID: request.SessionID,\n\t\t\tPattern: request.Command,\n\t\t\tAction: ai.CommandPermissionAllow,\n\t\t\tDescription: "Approved by user for this session",\n\t\t})\n\t}\n'''
+          if old not in s:
+              raise SystemExit('expected approval persistence block not found')
+          p.write_text(s.replace(old, new, 1))
+          PY
+          gofmt -w internal/app/service.go internal/app/command_policy.go
+          go test ./...
+      - name: Commit migration and remove workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/command-policy-approval-v2.yml
+          git add internal/app/service.go internal/app/command_policy.go
+          git commit -m "feat: persist command-level approvals"
+          git push
