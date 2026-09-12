@@ -53,6 +53,8 @@ type CommandTool struct {
 }
 
 type CommandRule struct {
+	ToolID      string                 `json:"toolId,omitempty"`
+	SessionID   string                 `json:"sessionId,omitempty"`
 	Pattern     string                 `json:"pattern"`
 	Action      CommandPermissionAction `json:"action"`
 	Description string                 `json:"description,omitempty"`
@@ -73,7 +75,7 @@ type CommandPolicy struct {
 	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
 	CommandRules        []CommandRule       `json:"commandRules,omitempty"`
 	PendingRequests     []CommandRequest    `json:"pendingRequests"`
-	LocalDocsPath       string              `json:"localDocsPath,omitempty"`
+	LocalDocsPath        string             `json:"localDocsPath,omitempty"`
 }
 
 type ChatMessage struct {
