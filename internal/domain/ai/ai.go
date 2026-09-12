@@ -16,7 +16,6 @@ type ProviderDescriptor struct {
 	DownloadURL string        `json:"downloadUrl,omitempty"`
 	LocalPath   string        `json:"localPath,omitempty"`
 	Status      string        `json:"status"`
-	Running     bool          `json:"running"`
 	Selected    bool          `json:"selected"`
 	Token       string        `json:"-"`
 	HasToken    bool          `json:"hasToken"`

@@ -832,10 +832,10 @@ class EiksyShell {
             await this.startCloudProviderAuth();
         });
         root?.querySelector<HTMLButtonElement>('[data-save-local-provider]')?.addEventListener('click', async () => {
-            await this.runAction(async () => SaveLocalProvider(this.localDraftDownloadURL), 'Unable to save local model settings');
+            await this.runAction(async () => SaveLocalProvider(this.currentLocalDownloadURL()), 'Unable to save local model settings');
         });
         root?.querySelector<HTMLButtonElement>('[data-download-local-model]')?.addEventListener('click', async () => {
-            await this.runAction(async () => DownloadLocalModel(this.localDraftDownloadURL), 'Unable to download local model');
+            await this.runAction(async () => DownloadLocalModel(this.currentLocalDownloadURL()), 'Unable to download local model');
         });
         root?.querySelector<HTMLButtonElement>('[data-start-local-model]')?.addEventListener('click', async () => {
             await this.runAction(async () => StartLocalModel(), 'Unable to start local model');
@@ -2110,8 +2110,8 @@ class EiksyShell {
                     <button class="action-button secondary" type="button" data-download-local-model>Download model</button>
                 </div>
                 <div class="provider-form-actions">
-                    <button class="action-button ${provider.running ? 'secondary' : ''}" type="button" data-start-local-model ${provider.running ? 'disabled' : ''}>${provider.running ? 'Local model is running' : 'Start local model'}</button>
-                    <button class="action-button secondary" type="button" data-stop-local-model ${provider.running ? '' : 'disabled'}>Stop model</button>
+                    <button class="action-button ${provider.status === 'running' ? 'secondary' : ''}" type="button" data-start-local-model ${provider.status === 'running' ? 'disabled' : ''}>${provider.status === 'running' ? 'Local model is running' : 'Start local model'}</button>
+                    <button class="action-button secondary" type="button" data-stop-local-model ${provider.status === 'running' ? '' : 'disabled'}>Stop model</button>
                 </div>
                 <div class="section-copy">Status: ${escapeHtml(provider.status || 'unknown')}</div>
                 ${provider.localPath ? `<div class="section-copy">File: ${escapeHtml(provider.localPath)}</div>` : ''}
@@ -2706,6 +2706,11 @@ class EiksyShell {
 
     private localProvider(): AIProvider | null {
         return this.shellState?.ai.providers.find((provider) => provider.id === 'local-qwen3-4b') ?? null;
+    }
+
+    private currentLocalDownloadURL(): string {
+        const fromInput = root?.querySelector<HTMLInputElement>('[data-local-model-url]')?.value ?? '';
+        return fromInput || this.localDraftDownloadURL || this.localProvider()?.downloadUrl || '';
     }
 
     private hasConfiguredProvider(): boolean {

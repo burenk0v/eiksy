@@ -39,7 +39,6 @@ export namespace ai {
 	    downloadUrl?: string;
 	    localPath?: string;
 	    status: string;
-	    running: boolean;
 	    selected: boolean;
 	    hasToken: boolean;
 	    configured: boolean;
@@ -58,7 +57,6 @@ export namespace ai {
 	        this.downloadUrl = source["downloadUrl"];
 	        this.localPath = source["localPath"];
 	        this.status = source["status"];
-	        this.running = source["running"];
 	        this.selected = source["selected"];
 	        this.hasToken = source["hasToken"];
 	        this.configured = source["configured"];

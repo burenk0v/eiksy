@@ -80,18 +80,19 @@ const (
 )
 
 type Service struct {
-	ctx         context.Context
-	store       stateStore
-	sshManager  sshManager
-	sftpManager sftpManager
-	httpClient  *http.Client
-	emitFn      func(eventName string, data ...interface{})
-	authMu      sync.Mutex
-	cloudAuth   *cloudAuthSession
-	localAIMu   sync.Mutex
-	localAICmd  *exec.Cmd
-	localAIDone chan error
-	localAIErr  *bytes.Buffer
+	ctx             context.Context
+	store           stateStore
+	sshManager      sshManager
+	sftpManager     sftpManager
+	httpClient      *http.Client
+	emitFn          func(eventName string, data ...interface{})
+	authMu          sync.Mutex
+	cloudAuth       *cloudAuthSession
+	localAIMu       sync.Mutex
+	localAICmd      *exec.Cmd
+	localAIDone     chan error
+	localAIErr      *bytes.Buffer
+	localAIStopping bool
 }
 
 type stateStore interface {
@@ -1374,10 +1375,11 @@ func (s *Service) StartLocalModel() error {
 	}
 
 	s.localAIMu.Lock()
-	if s.localAICmd != nil && s.localAICmd.Process != nil {
+	if s.hasLiveLocalModelProcessLocked() {
 		s.localAIMu.Unlock()
 		return nil
 	}
+	s.localAIStopping = false
 
 	stderr := &bytes.Buffer{}
 	done := make(chan error, 1)
@@ -1426,6 +1428,7 @@ func (s *Service) StopLocalModel() error {
 	s.localAICmd = nil
 	s.localAIDone = nil
 	s.localAIErr = nil
+	s.localAIStopping = true
 	s.localAIMu.Unlock()
 
 	if cmd != nil && cmd.Process != nil {
@@ -1436,6 +1439,10 @@ func (s *Service) StopLocalModel() error {
 			_, _ = <-done
 		}
 	}
+
+	s.localAIMu.Lock()
+	s.localAIStopping = false
+	s.localAIMu.Unlock()
 
 	state := s.store.AIState()
 	index := providerIndexByID(state.Providers, localAIProviderID)
@@ -1476,7 +1483,7 @@ func providerIndexByClass(providers []ai.ProviderDescriptor, class ai.ProviderCl
 func (s *Service) isLocalModelRunning() bool {
 	s.localAIMu.Lock()
 	defer s.localAIMu.Unlock()
-	return s.localAICmd != nil && s.localAICmd.Process != nil
+	return s.hasLiveLocalModelProcessLocked()
 }
 
 func (s *Service) watchLocalModelProcess(cmd *exec.Cmd, done chan error, stderr *bytes.Buffer) {
@@ -1485,6 +1492,7 @@ func (s *Service) watchLocalModelProcess(cmd *exec.Cmd, done chan error, stderr 
 	close(done)
 	s.localAIMu.Lock()
 	wasActive := s.localAICmd == cmd
+	stopping := s.localAIStopping
 	if wasActive {
 		s.localAICmd = nil
 		s.localAIDone = nil
@@ -1504,7 +1512,7 @@ func (s *Service) watchLocalModelProcess(cmd *exec.Cmd, done chan error, stderr 
 		}
 		s.store.UpdateAIState(state)
 	}
-	if wasActive && err != nil && !errors.Is(err, os.ErrProcessDone) {
+	if wasActive && !stopping && err != nil && !errors.Is(err, os.ErrProcessDone) {
 		s.EmitLog("warn", s.localAIErrorWithDetails(fmt.Errorf("local AI model stopped: %w", err), stderr).Error())
 	}
 }
@@ -1540,6 +1548,23 @@ func (s *Service) localAIErrorWithDetails(err error, stderr *bytes.Buffer) error
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, details)
+}
+
+func (s *Service) hasLiveLocalModelProcessLocked() bool {
+	if s.localAICmd == nil || s.localAICmd.Process == nil {
+		return false
+	}
+	if s.localAIDone != nil {
+		select {
+		case <-s.localAIDone:
+			s.localAICmd = nil
+			s.localAIDone = nil
+			s.localAIErr = nil
+			return false
+		default:
+		}
+	}
+	return true
 }
 
 func localModelsDir() (string, error) {
@@ -1707,13 +1732,12 @@ func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceStat
 		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID))
 		if scrubbed.Providers[i].Class == ai.ProviderClassLocalOpenAI {
 			hasModel := scrubbed.Providers[i].LocalPath != "" && fileExists(scrubbed.Providers[i].LocalPath)
-			scrubbed.Providers[i].Running = hasModel && s.isLocalModelRunning()
 			scrubbed.Providers[i].Configured = hasModel
 			if strings.TrimSpace(scrubbed.Providers[i].Endpoint) == "" {
 				scrubbed.Providers[i].Endpoint = localAIEndpoint
 			}
 			switch {
-			case scrubbed.Providers[i].Running:
+			case hasModel && s.isLocalModelRunning():
 				scrubbed.Providers[i].Status = "running"
 			case hasModel:
 				scrubbed.Providers[i].Status = "stopped"

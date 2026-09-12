@@ -267,7 +267,7 @@ func TestDownloadAndStartLocalModel(t *testing.T) {
 
 	state = service.GetShellState()
 	localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
-	if !localProvider.Running {
+	if localProvider.Status != "running" {
 		t.Fatal("expected local provider to be running")
 	}
 
@@ -276,7 +276,7 @@ func TestDownloadAndStartLocalModel(t *testing.T) {
 	}
 	state = service.GetShellState()
 	localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
-	if localProvider.Running {
+	if localProvider.Status == "running" {
 		t.Fatal("expected local provider to stop")
 	}
 }
