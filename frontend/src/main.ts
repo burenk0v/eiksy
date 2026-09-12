@@ -56,7 +56,13 @@ type CloudProviderAuthSession = appModels.CloudProviderAuthSession;
 type RuntimeSession = appModels.RuntimeSessionView;
 type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
-type CommandPolicy = aiModels.CommandPolicy;
+type CommandPolicyState = {
+    tools: aiModels.CommandTool[];
+    allowedTools: string[];
+    sessionAllowedTools?: Record<string, string[]>;
+    pendingRequests: aiModels.CommandRequest[];
+    localDocsPath?: string;
+};
 type FileEntry = sftpModels.FileEntry;
 type VaultSecretNode = vaultModels.SecretNode;
 type SecureStorageStatus = securestorageModels.Status;
@@ -2871,8 +2877,8 @@ class EiksyShell {
         return this.shellState?.ai.providers.find((provider) => provider.id === 'local-qwen3-4b') ?? null;
     }
 
-    private commandPolicy(): CommandPolicy {
-        const raw = this.shellState?.ai.commandPolicy as CommandPolicy | undefined;
+    private commandPolicy(): CommandPolicyState {
+        const raw = this.shellState?.ai.commandPolicy as aiModels.CommandPolicy | undefined;
         const tools = Array.isArray(raw?.tools) ? raw.tools : [];
         const allowedTools = Array.isArray(raw?.allowedTools) ? raw.allowedTools : [];
         const pendingRequests = Array.isArray(raw?.pendingRequests) ? raw.pendingRequests : [];
@@ -2900,16 +2906,11 @@ class EiksyShell {
         };
     }
 
-    private sessionToolAllowed(policy: CommandPolicy, sessionID: string, toolID: string): boolean {
-        const allowed = policy.sessionAllowedTools?.[sessionID] ?? [];
-        return allowed.includes(toolID);
-    }
-
-    private async persistCommandPolicy(update: (policy: CommandPolicy) => void): Promise<void> {
+    private async persistCommandPolicy(update: (policy: CommandPolicyState) => void): Promise<void> {
         await this.runAction(async () => {
             const policy = this.commandPolicy();
             update(policy);
-            await UpdateCommandPolicy(policy);
+            await UpdateCommandPolicy(policy as unknown as aiModels.CommandPolicy);
         }, 'Unable to update command policy');
     }
 
