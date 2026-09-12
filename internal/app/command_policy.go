@@ -7,9 +7,6 @@ import (
 	"eiksy/internal/domain/ai"
 )
 
-// commandPolicyDecision is deliberately separate from CommandPermissionMode:
-// the former describes what the policy says about a command, while the latter
-// describes what a user does with a pending request.
 type commandPolicyDecision string
 
 const (
@@ -73,20 +70,11 @@ func normalizeCommandRules(rules []ai.CommandRule) []ai.CommandRule {
 		if action != ai.CommandPermissionAllow && action != ai.CommandPermissionAsk && action != ai.CommandPermissionDeny {
 			continue
 		}
-		result = append(result, ai.CommandRule{
-			ToolID:      strings.ToLower(strings.TrimSpace(rule.ToolID)),
-			SessionID:   strings.TrimSpace(rule.SessionID),
-			Pattern:     pattern,
-			Action:      action,
-			Description: strings.TrimSpace(rule.Description),
-		})
+		result = append(result, ai.CommandRule{ToolID: strings.ToLower(strings.TrimSpace(rule.ToolID)), SessionID: strings.TrimSpace(rule.SessionID), Pattern: pattern, Action: action, Description: strings.TrimSpace(rule.Description)})
 	}
 	return result
 }
 
-// matchCommandPattern supports an intentionally small glob syntax: '*' means
-// any suffix. A pattern ending in " *" matches the base command itself and
-// commands whose next token is separated by whitespace.
 func matchCommandPattern(pattern, command string) bool {
 	pattern = strings.TrimSpace(pattern)
 	command = strings.TrimSpace(command)
@@ -99,7 +87,6 @@ func matchCommandPattern(pattern, command string) bool {
 	if !strings.HasSuffix(pattern, "*") {
 		return false
 	}
-
 	prefix := strings.TrimSuffix(pattern, "*")
 	if strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, "\t") {
 		base := strings.TrimSpace(prefix)
@@ -124,12 +111,12 @@ func commandRuleSpecificity(rule ai.CommandRule) int {
 		score += 4
 	}
 	if rule.ToolID != "" {
-		score += 1
+		score++
 	}
 	if !strings.HasSuffix(strings.TrimSpace(rule.Pattern), "*") {
 		score += 4
 	} else {
-		score += 1
+		score++
 	}
 	return score
 }
@@ -169,18 +156,14 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 		if !matchCommandPattern(rule.Pattern, command) {
 			continue
 		}
-
 		if rule.Action == ai.CommandPermissionDeny {
-			// Deny always wins, regardless of rule order or specificity.
 			return commandPolicyDecisionDeny, rule.Description
 		}
-
 		specificity := commandRuleSpecificity(rule)
 		if specificity < bestSpecificity {
 			continue
 		}
 		if specificity == bestSpecificity && bestSpecificity >= 0 && bestDecision == commandPolicyDecisionAsk && rule.Action == ai.CommandPermissionAllow {
-			// For equal specificity, ASK remains the safer result.
 			continue
 		}
 		bestSpecificity = specificity
