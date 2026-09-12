@@ -15,9 +15,6 @@ const (
 	commandPolicyDecisionDeny  commandPolicyDecision = "deny"
 )
 
-// defaultCommandRules is intentionally conservative. Command rules are
-authoritative for shell execution: an AllowedTools entry must never bypass
-a deny/ask rule for a specific command.
 func defaultCommandRules() []ai.CommandRule {
 	return []ai.CommandRule{
 		{Pattern: "pwd", Action: ai.CommandPermissionAllow, Description: "Print current directory"},
@@ -70,7 +67,10 @@ func normalizeCommandRules(rules []ai.CommandRule) []ai.CommandRule {
 		if action != ai.CommandPermissionAllow && action != ai.CommandPermissionAsk && action != ai.CommandPermissionDeny {
 			continue
 		}
-		result = append(result, ai.CommandRule{ToolID: strings.ToLower(strings.TrimSpace(rule.ToolID)), SessionID: strings.TrimSpace(rule.SessionID), Pattern: pattern, Action: action, Description: strings.TrimSpace(rule.Description)})
+		result = append(result, ai.CommandRule{
+			ToolID: strings.ToLower(strings.TrimSpace(rule.ToolID)), SessionID: strings.TrimSpace(rule.SessionID),
+			Pattern: pattern, Action: action, Description: strings.TrimSpace(rule.Description),
+		})
 	}
 	return result
 }
