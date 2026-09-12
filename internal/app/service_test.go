@@ -2,6 +2,8 @@ package app
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -606,7 +608,7 @@ func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 
-	if err := service.SendChatMessage(nil, "hello"); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") {
+	if err := service.SendChatMessage(nil, "hello", ""); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") {
 		t.Fatalf("expected provider configuration error, got %v", err)
 	}
 
@@ -621,6 +623,134 @@ func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	}
 	if state.AI.ChatSessionID == "" {
 		t.Fatal("expected chat session id to be regenerated")
+	}
+}
+
+func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-host", Name: "ssh-host", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	tab, err := service.LaunchSession(profile.ID)
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{
+		{
+			ID:        "request-1",
+			ToolID:    "shell",
+			SessionID: tab.ID,
+			Command:   "uname -a",
+		},
+	}
+	store.UpdateAIState(state)
+
+	if err := service.ResolveCommandPolicyRequest("request-1", ai.CommandPermissionModeSession); err != nil {
+		t.Fatalf("resolve request: %v", err)
+	}
+
+	updated := store.AIState()
+	if len(updated.CommandPolicy.PendingRequests) != 0 {
+		t.Fatalf("expected pending requests to be cleared, got %d", len(updated.CommandPolicy.PendingRequests))
+	}
+	if !slices.Contains(updated.CommandPolicy.SessionAllowedTools[tab.ID], "shell") {
+		t.Fatalf("expected shell to be granted for session %s", tab.ID)
+	}
+	if len(ssh.inputs) != 1 {
+		t.Fatalf("expected exactly one command dispatch, got %d", len(ssh.inputs))
+	}
+	if ssh.inputs[0].tabID != tab.ID {
+		t.Fatalf("expected command to run in tab %s, got %s", tab.ID, ssh.inputs[0].tabID)
+	}
+	if ssh.inputs[0].payload != "uname -a\n" {
+		t.Fatalf("unexpected command payload %q", ssh.inputs[0].payload)
+	}
+}
+
+func TestUpdateCommandPolicyNormalizesState(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+
+	policy := ai.CommandPolicy{
+		Tools: []ai.CommandTool{
+			{ID: " shell ", Name: "Shell", Enabled: true},
+			{ID: "custom-tool", Name: "Custom", Enabled: true},
+		},
+		AllowedTools: []string{"SHELL", " ", "custom-tool", "shell"},
+		SessionAllowedTools: map[string][]string{
+			" tab-1 ": []string{"SHELL", "custom-tool", "shell"},
+		},
+		PendingRequests: []ai.CommandRequest{
+			{ID: " req-1 ", ToolID: " SHELL ", SessionID: " tab-1 ", Command: "  ls -la  "},
+			{ID: "req-empty-command", ToolID: "shell", SessionID: "tab-1", Command: "   "},
+		},
+		LocalDocsPath: " /tmp/docs ",
+	}
+	if err := service.UpdateCommandPolicy(policy); err != nil {
+		t.Fatalf("update command policy: %v", err)
+	}
+
+	state := service.GetShellState()
+	if state.AI.CommandPolicy.LocalDocsPath != "/tmp/docs" {
+		t.Fatalf("expected docs path to be trimmed, got %q", state.AI.CommandPolicy.LocalDocsPath)
+	}
+	if !slices.Contains(state.AI.CommandPolicy.AllowedTools, "shell") {
+		t.Fatal("expected shell in normalized allowed tools")
+	}
+	if len(state.AI.CommandPolicy.SessionAllowedTools["tab-1"]) == 0 {
+		t.Fatal("expected normalized per-session tools for tab-1")
+	}
+	if _, exists := state.AI.CommandPolicy.SessionAllowedTools[" tab-1 "]; exists {
+		t.Fatal("expected spaced session key to be normalized")
+	}
+	if len(state.AI.CommandPolicy.PendingRequests) != 1 {
+		t.Fatalf("expected only valid pending requests after normalization, got %d", len(state.AI.CommandPolicy.PendingRequests))
+	}
+	if state.AI.CommandPolicy.PendingRequests[0].Command != "ls -la" {
+		t.Fatalf("expected pending command to be trimmed, got %q", state.AI.CommandPolicy.PendingRequests[0].Command)
+	}
+}
+
+func TestResolveCommandPolicyRequestPersistsAlwaysGrantOnExecutionFailure(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-host-fail", Name: "ssh-host-fail", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{sendInputErr: fmt.Errorf("write failed")}
+	service := NewService(store, ssh, nil)
+
+	tab, err := service.LaunchSession(profile.ID)
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{
+		{
+			ID:        "request-fail",
+			ToolID:    "shell",
+			SessionID: tab.ID,
+			Command:   "hostname",
+		},
+	}
+	store.UpdateAIState(state)
+
+	if err := service.ResolveCommandPolicyRequest("request-fail", ai.CommandPermissionModeAlways); err != nil {
+		t.Fatalf("resolve request: %v", err)
+	}
+
+	updated := store.AIState()
+	if len(updated.CommandPolicy.PendingRequests) != 0 {
+		t.Fatalf("expected pending request to be removed, got %d", len(updated.CommandPolicy.PendingRequests))
+	}
+	if !slices.Contains(updated.CommandPolicy.AllowedTools, "shell") {
+		t.Fatalf("expected global shell grant to persist, got %v", updated.CommandPolicy.AllowedTools)
 	}
 }
 
@@ -775,4 +905,41 @@ func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.
 
 	t.Fatalf("expected provider %q to exist", providerID)
 	return ai.ProviderDescriptor{}
+}
+
+type sshInputCall struct {
+	tabID   string
+	payload string
+}
+
+type recordingSSHManager struct {
+	inputs       []sshInputCall
+	sendInputErr error
+}
+
+func (m *recordingSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error {
+	return nil
+}
+
+func (m *recordingSSHManager) SendInput(tabID, data string) error {
+	m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: data})
+	return m.sendInputErr
+}
+
+func (m *recordingSSHManager) ResizeTerminal(string, int, int) error {
+	return nil
+}
+
+func (m *recordingSSHManager) Disconnect(string) error {
+	return nil
+}
+
+func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
+
+func (m *recordingSSHManager) GetCurrentDir(string) (string, error) {
+	return "", nil
+}
+
+func (m *recordingSSHManager) AcceptHostKey(string) error {
+	return nil
 }

@@ -28,6 +28,39 @@ type ContextPolicy struct {
 	RequireConfirmation   bool `json:"requireConfirmation"`
 }
 
+type CommandPermissionMode string
+
+const (
+	CommandPermissionModeNow     CommandPermissionMode = "now"
+	CommandPermissionModeAlways  CommandPermissionMode = "always"
+	CommandPermissionModeSession CommandPermissionMode = "session"
+	CommandPermissionModeDeny    CommandPermissionMode = "deny"
+)
+
+type CommandTool struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Enabled     bool   `json:"enabled"`
+}
+
+type CommandRequest struct {
+	ID          string `json:"id"`
+	ToolID      string `json:"toolId"`
+	SessionID   string `json:"sessionId"`
+	Command     string `json:"command"`
+	Reason      string `json:"reason,omitempty"`
+	RequestedAt string `json:"requestedAt"`
+}
+
+type CommandPolicy struct {
+	Tools               []CommandTool       `json:"tools"`
+	AllowedTools        []string            `json:"allowedTools"`
+	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
+	PendingRequests     []CommandRequest    `json:"pendingRequests"`
+	LocalDocsPath       string              `json:"localDocsPath,omitempty"`
+}
+
 type ChatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -36,6 +69,7 @@ type ChatMessage struct {
 type WorkspaceState struct {
 	Providers     []ProviderDescriptor `json:"providers"`
 	ContextPolicy ContextPolicy        `json:"contextPolicy"`
+	CommandPolicy CommandPolicy        `json:"commandPolicy"`
 	Messages      []ChatMessage        `json:"messages"`
 	ChatSessionID string               `json:"chatSessionId"`
 }

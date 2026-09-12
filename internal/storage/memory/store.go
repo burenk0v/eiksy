@@ -379,8 +379,22 @@ func defaultAIState() ai.WorkspaceState {
 			SendRecentOutput:      false,
 			RequireConfirmation:   true,
 		},
+		CommandPolicy: defaultCommandPolicy(),
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
 		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
+	}
+}
+
+func defaultCommandPolicy() ai.CommandPolicy {
+	return ai.CommandPolicy{
+		Tools: []ai.CommandTool{
+			{ID: "shell", Name: "Shell command", Description: "Run command in active SSH session", Enabled: true},
+			{ID: "sftp", Name: "SFTP operations", Description: "Browse and edit files over SFTP", Enabled: true},
+			{ID: "search", Name: "Search", Description: "Run grep/find-like queries on host", Enabled: true},
+		},
+		AllowedTools:        []string{},
+		SessionAllowedTools: map[string][]string{},
+		PendingRequests:     []ai.CommandRequest{},
 	}
 }
 
@@ -414,7 +428,24 @@ func defaultWorkspaceLayout() workspace.Layout {
 func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 	cloned := state
 	cloned.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
+	cloned.CommandPolicy = cloneCommandPolicy(state.CommandPolicy)
 	cloned.Messages = append([]ai.ChatMessage{}, state.Messages...)
+	return cloned
+}
+
+func cloneCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
+	cloned := policy
+	cloned.Tools = append([]ai.CommandTool(nil), policy.Tools...)
+	cloned.AllowedTools = append([]string(nil), policy.AllowedTools...)
+	cloned.PendingRequests = append([]ai.CommandRequest(nil), policy.PendingRequests...)
+	if policy.SessionAllowedTools != nil {
+		cloned.SessionAllowedTools = make(map[string][]string, len(policy.SessionAllowedTools))
+		for sessionID, tools := range policy.SessionAllowedTools {
+			cloned.SessionAllowedTools[sessionID] = append([]string(nil), tools...)
+		}
+	} else {
+		cloned.SessionAllowedTools = map[string][]string{}
+	}
 	return cloned
 }
 

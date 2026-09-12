@@ -134,12 +134,20 @@ export function UploadSFTPFiles(arg1, arg2, arg3) {
   return window['go']['main']['App']['UploadSFTPFiles'](arg1, arg2, arg3);
 }
 
-export function SendChatMessage(arg1) {
-  return window['go']['main']['App']['SendChatMessage'](arg1);
+export function SendChatMessage(arg1, arg2) {
+  return window['go']['main']['App']['SendChatMessage'](arg1, arg2);
 }
 
 export function ClearChat() {
   return window['go']['main']['App']['ClearChat']();
+}
+
+export function UpdateCommandPolicy(arg1) {
+  return window['go']['main']['App']['UpdateCommandPolicy'](arg1);
+}
+
+export function ResolveCommandPolicyRequest(arg1, arg2) {
+  return window['go']['main']['App']['ResolveCommandPolicyRequest'](arg1, arg2);
 }
 
 export function AcceptSSHHostKey(arg1) {

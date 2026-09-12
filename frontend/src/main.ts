@@ -32,6 +32,7 @@ import {
     ReadSFTPFile,
     ListCloudModels,
     SaveCloudProvider,
+    ResolveCommandPolicyRequest,
     SaveLocalProvider,
     SaveSFTPFile,
     SelectDownloadDirectory,
@@ -44,6 +45,7 @@ import {
     StartCloudProviderAuth,
     StopLocalModel,
     UploadSFTPFiles,
+    UpdateCommandPolicy,
     UpdateSettings,
 } from '../wailsjs/go/main/App';
 import { BrowserOpenURL, EventsOn } from '../wailsjs/runtime/runtime';
@@ -54,6 +56,13 @@ type CloudProviderAuthSession = appModels.CloudProviderAuthSession;
 type RuntimeSession = appModels.RuntimeSessionView;
 type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
+type CommandPolicyState = {
+    tools: aiModels.CommandTool[];
+    allowedTools: string[];
+    sessionAllowedTools?: Record<string, string[]>;
+    pendingRequests: aiModels.CommandRequest[];
+    localDocsPath?: string;
+};
 type FileEntry = sftpModels.FileEntry;
 type VaultSecretNode = vaultModels.SecretNode;
 type SecureStorageStatus = securestorageModels.Status;
@@ -110,11 +119,12 @@ type TerminalState = {
 };
 
 type Theme = 'dark' | 'light' | 'green';
-type SettingsTab = 'ai' | 'sshconfig' | 'portforward' | 'theme' | 'about';
+type SettingsTab = 'ai' | 'commandpolicy' | 'sshconfig' | 'portforward' | 'theme' | 'about';
 type SessionModalTab = 'host' | 'auth' | 'network' | 'other';
 type SecretsModalTab = 'browser' | 'settings';
 type SessionInnerTab = 'console' | 'sftp' | 'screen';
 type VaultAuthMethod = 'token' | 'oidc' | 'oidc-sec' | 'domain';
+type CommandPolicyTab = 'access' | 'tools' | 'settings';
 
 type PortForwardRule = {
     ports?: string;
@@ -200,6 +210,8 @@ class EiksyShell {
     private showVaultModal = false;
     private showKeePassModal = false;
     private settingsTab: SettingsTab = 'ai';
+    private commandPolicyTab: CommandPolicyTab = 'access';
+    private commandPolicySessionId = '';
     private vaultModalTab: SecretsModalTab = 'browser';
     private keepassModalTab: SecretsModalTab = 'browser';
     private sessionInnerTab: SessionInnerTab = 'console';
@@ -497,6 +509,10 @@ class EiksyShell {
             button.addEventListener('click', () => {
                 this.closeSidebarActionsMenu();
                 this.settingsTab = (button.dataset.openSettingsTab as SettingsTab) ?? 'ai';
+                if (this.settingsTab === 'commandpolicy') {
+                    this.commandPolicyTab = 'access';
+                    this.commandPolicySessionId = this.activeTab()?.id ?? '';
+                }
                 this.showSettingsModal = true;
                 this.initializeSettingsDrafts();
                 this.render();
@@ -851,10 +867,11 @@ class EiksyShell {
             const message = this.chatDraftMessage;
             if (!message.trim()) return;
             const payload = this.includeLastCommandOutput ? this.withLatestTerminalOutput(message) : message;
+            const activeSessionID = this.activeTab()?.id ?? '';
             this.aiStatus = 'thinking';
             this.render();
             try {
-                const sent = await this.withMasterPasswordRetry(() => SendChatMessage(payload), 'Master password setup was cancelled, so the saved AI provider token remains locked.');
+                const sent = await this.withMasterPasswordRetry(() => SendChatMessage(payload, activeSessionID), 'Master password setup was cancelled, so the saved AI provider token remains locked.');
                 if (typeof sent === 'undefined') {
                     this.aiStatus = 'idle';
                     this.render();
@@ -891,6 +908,74 @@ class EiksyShell {
                 this.setErrorMessage(formatError('Unable to clear chat', error));
                 this.render();
             }
+        });
+
+        root?.querySelectorAll<HTMLButtonElement>('[data-command-policy-tab]').forEach((button) => {
+            button.addEventListener('click', () => {
+                this.commandPolicyTab = (button.dataset.commandPolicyTab as CommandPolicyTab) ?? 'access';
+                this.render();
+            });
+        });
+        root?.querySelector<HTMLSelectElement>('[data-command-policy-session]')?.addEventListener('change', (event) => {
+            this.commandPolicySessionId = (event.currentTarget as HTMLSelectElement).value;
+            this.render();
+        });
+        root?.querySelectorAll<HTMLInputElement>('[data-command-tool-enabled]').forEach((input) => {
+            input.addEventListener('change', async () => {
+                const toolID = input.dataset.commandToolEnabled;
+                if (!toolID) return;
+                await this.persistCommandPolicy((policy) => {
+                    policy.tools = policy.tools.map((tool) => tool.id === toolID ? { ...tool, enabled: input.checked } : tool);
+                });
+            });
+        });
+        root?.querySelectorAll<HTMLInputElement>('[data-command-tool-global]').forEach((input) => {
+            input.addEventListener('change', async () => {
+                const toolID = input.dataset.commandToolGlobal;
+                if (!toolID) return;
+                await this.persistCommandPolicy((policy) => {
+                    const allowed = new Set(policy.allowedTools ?? []);
+                    if (input.checked) {
+                        allowed.add(toolID);
+                    } else {
+                        allowed.delete(toolID);
+                    }
+                    policy.allowedTools = Array.from(allowed);
+                });
+            });
+        });
+        root?.querySelectorAll<HTMLInputElement>('[data-command-tool-session]').forEach((input) => {
+            input.addEventListener('change', async () => {
+                const toolID = input.dataset.commandToolSession;
+                const sessionID = this.commandPolicySessionId || this.activeTab()?.id || '';
+                if (!toolID || !sessionID) return;
+                await this.persistCommandPolicy((policy) => {
+                    const existing = new Set(policy.sessionAllowedTools?.[sessionID] ?? []);
+                    if (input.checked) {
+                        existing.add(toolID);
+                    } else {
+                        existing.delete(toolID);
+                    }
+                    policy.sessionAllowedTools = policy.sessionAllowedTools ?? {};
+                    policy.sessionAllowedTools[sessionID] = Array.from(existing);
+                });
+            });
+        });
+        root?.querySelectorAll<HTMLButtonElement>('[data-command-request-action]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const requestID = button.dataset.commandRequestId;
+                const mode = button.dataset.commandRequestAction;
+                if (!requestID || !mode) return;
+                await this.runAction(async () => ResolveCommandPolicyRequest(requestID, mode), 'Unable to resolve command request');
+                await this.refresh('');
+            });
+        });
+        root?.querySelector<HTMLFormElement>('[data-command-docs-form]')?.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            const path = (event.currentTarget as HTMLFormElement).querySelector<HTMLInputElement>('input[name="localDocsPath"]')?.value ?? '';
+            await this.persistCommandPolicy((policy) => {
+                policy.localDocsPath = path.trim();
+            });
         });
 
         root?.querySelectorAll<HTMLElement>('[data-close-modal]').forEach((button) => {
@@ -1623,6 +1708,7 @@ class EiksyShell {
                                     <button class="sidebar-actions-menu-item" data-open-vault-modal role="menuitem"><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-keepass-modal role="menuitem"><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="ai" role="menuitem"><span class="sidebar-actions-menu-icon">🤖</span><span>AI settings</span></button>
+                                    <button class="sidebar-actions-menu-item" data-open-settings-tab="commandpolicy" role="menuitem"><span class="sidebar-actions-menu-icon">🛡️</span><span>Command Policy</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="sshconfig" role="menuitem"><span class="sidebar-actions-menu-icon">📥</span><span>SSH Config import</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="portforward" role="menuitem"><span class="sidebar-actions-menu-icon">🔀</span><span>Port forwarding</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="theme" role="menuitem"><span class="sidebar-actions-menu-icon">🎨</span><span>Theme</span></button>
@@ -2159,9 +2245,92 @@ class EiksyShell {
         `).join('');
     }
 
+    private renderCommandPolicyPanel(): string {
+        const policy = this.commandPolicy();
+        const activeSessionID = this.activeTab()?.id ?? '';
+        const selectedSessionID = this.commandPolicySessionId || activeSessionID || this.shellState?.activeSessions[0]?.id || '';
+        const selectedSessionName = (this.shellState?.activeSessions ?? []).find((session) => session.id === selectedSessionID)?.title ?? selectedSessionID;
+        const sessionTools = selectedSessionID ? (policy.sessionAllowedTools?.[selectedSessionID] ?? []) : [];
+        const pendingRows = policy.pendingRequests.length === 0
+            ? '<div class="empty-state" style="padding:0.75rem 0;">No pending permission requests.</div>'
+            : policy.pendingRequests.map((request) => `
+                <div class="command-policy-row">
+                    <div>
+                        <div><strong>${escapeHtml(request.toolId)}</strong> → <code>${escapeHtml(request.command)}</code></div>
+                        <div class="section-copy">Session: ${escapeHtml(request.sessionId || 'not specified')}${request.reason ? ` · Reason: ${escapeHtml(request.reason)}` : ''}</div>
+                    </div>
+                    <div class="provider-form-actions">
+                        <button class="action-button secondary" type="button" data-command-request-action="now" data-command-request-id="${escapeHtml(request.id)}">Run now</button>
+                        <button class="action-button secondary" type="button" data-command-request-action="session" data-command-request-id="${escapeHtml(request.id)}">Allow for session</button>
+                        <button class="action-button secondary" type="button" data-command-request-action="always" data-command-request-id="${escapeHtml(request.id)}">Always allow</button>
+                        <button class="action-button secondary" type="button" data-command-request-action="deny" data-command-request-id="${escapeHtml(request.id)}">Deny</button>
+                    </div>
+                </div>
+            `).join('');
+        const toolRows = policy.tools.map((tool) => `
+            <div class="command-policy-row">
+                <div>
+                    <strong>${escapeHtml(tool.name || tool.id)}</strong>
+                    <div class="section-copy">${escapeHtml(tool.description || '')}</div>
+                </div>
+                <div class="provider-form-actions">
+                    <label class="inline-check"><span>Enabled</span><input type="checkbox" data-command-tool-enabled="${escapeHtml(tool.id)}" ${tool.enabled ? 'checked' : ''} /></label>
+                    <label class="inline-check"><span>Always allow</span><input type="checkbox" data-command-tool-global="${escapeHtml(tool.id)}" ${policy.allowedTools.includes(tool.id) ? 'checked' : ''} /></label>
+                    ${selectedSessionID ? `<label class="inline-check"><span>Allow in session</span><input type="checkbox" data-command-tool-session="${escapeHtml(tool.id)}" ${sessionTools.includes(tool.id) ? 'checked' : ''} /></label>` : ''}
+                </div>
+            </div>
+        `).join('');
+        const panelByTab: Record<CommandPolicyTab, string> = {
+            access: `
+                <div class="section-title">Access control</div>
+                <div class="section-copy">Pending model requests and manual permissions.</div>
+                ${pendingRows}
+                <div class="section-title">Session scope</div>
+                <label>
+                    <span>Session</span>
+                    <select data-command-policy-session>
+                        <option value="">Select active session</option>
+                        ${(this.shellState?.activeSessions ?? []).map((session) => `<option value="${escapeHtml(session.id)}" ${session.id === selectedSessionID ? 'selected' : ''}>${escapeHtml(session.title)}</option>`).join('')}
+                    </select>
+                </label>
+                <div class="section-copy">${selectedSessionID ? `Selected session: ${escapeHtml(selectedSessionName)}` : 'Open an SSH session to use per-session permissions.'}</div>
+                <div>${toolRows || '<div class="empty-state" style="padding:0.75rem 0;">No tools configured.</div>'}</div>
+            `,
+            tools: `
+                <div class="section-title">Tools</div>
+                <div class="section-copy">Enable or disable tools available to the model.</div>
+                <div>${toolRows || '<div class="empty-state" style="padding:0.75rem 0;">No tools configured.</div>'}</div>
+            `,
+            settings: `
+                <div class="section-title">Tool settings</div>
+                <form class="provider-form" data-command-docs-form>
+                    <label>
+                        <span>Local documentation path</span>
+                        <input name="localDocsPath" value="${escapeHtml(policy.localDocsPath || '')}" placeholder="/path/to/docs" />
+                    </label>
+                    <div class="section-copy">This path is provided to the model to guide tool usage.</div>
+                    <div class="provider-form-actions">
+                        <button class="action-button" type="submit">Save path</button>
+                    </div>
+                </form>
+            `,
+        };
+        return `
+            <nav class="modal-tabs">
+                <button class="modal-tab ${this.commandPolicyTab === 'access' ? 'active' : ''}" data-command-policy-tab="access">Access</button>
+                <button class="modal-tab ${this.commandPolicyTab === 'tools' ? 'active' : ''}" data-command-policy-tab="tools">Tools</button>
+                <button class="modal-tab ${this.commandPolicyTab === 'settings' ? 'active' : ''}" data-command-policy-tab="settings">Settings</button>
+            </nav>
+            <div class="modal-tab-panel active">
+                ${panelByTab[this.commandPolicyTab]}
+            </div>
+        `;
+    }
+
     private renderSettingsModal(): string {
         const titleByTab: Record<SettingsTab, string> = {
             ai: 'AI settings',
+            commandpolicy: 'Command Policy',
             sshconfig: 'SSH Config import',
             portforward: 'Port forwarding',
             theme: 'Theme',
@@ -2174,6 +2343,7 @@ class EiksyShell {
                 <div class="section-title">AI Provider</div>
                 ${this.renderProviderSetup()}
             `,
+            commandpolicy: this.renderCommandPolicyPanel(),
             sshconfig: `
                 <div class="section-title">Import SSH Config</div>
                 <div class="import-box">
@@ -2706,6 +2876,44 @@ class EiksyShell {
 
     private localProvider(): AIProvider | null {
         return this.shellState?.ai.providers.find((provider) => provider.id === 'local-qwen3-4b') ?? null;
+    }
+
+    private commandPolicy(): CommandPolicyState {
+        const raw = this.shellState?.ai.commandPolicy as aiModels.CommandPolicy | undefined;
+        const tools = Array.isArray(raw?.tools) ? raw.tools : [];
+        const allowedTools = Array.isArray(raw?.allowedTools) ? raw.allowedTools : [];
+        const pendingRequests = Array.isArray(raw?.pendingRequests) ? raw.pendingRequests : [];
+        const sessionAllowedTools = raw?.sessionAllowedTools ?? {};
+        return {
+            tools: tools.map((tool) => ({
+                id: tool.id ?? '',
+                name: tool.name ?? tool.id ?? '',
+                description: tool.description ?? '',
+                enabled: Boolean(tool.enabled),
+            })),
+            allowedTools: [...allowedTools],
+            sessionAllowedTools: Object.fromEntries(
+                Object.entries(sessionAllowedTools).map(([key, value]) => [key, Array.isArray(value) ? [...value] : []]),
+            ),
+            pendingRequests: pendingRequests.map((request) => ({
+                id: request.id ?? '',
+                toolId: request.toolId ?? '',
+                sessionId: request.sessionId ?? '',
+                command: request.command ?? '',
+                reason: request.reason ?? '',
+                requestedAt: request.requestedAt ?? '',
+            })),
+            localDocsPath: raw?.localDocsPath ?? '',
+        };
+    }
+
+    private async persistCommandPolicy(update: (policy: CommandPolicyState) => void): Promise<void> {
+        await this.runAction(async () => {
+            const policy = this.commandPolicy();
+            update(policy);
+            await UpdateCommandPolicy(policy as unknown as aiModels.CommandPolicy);
+        }, 'Unable to update command policy');
+        await this.refresh('');
     }
 
     private currentLocalDownloadURL(): string {
