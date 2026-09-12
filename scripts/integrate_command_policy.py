@@ -1,0 +1,132 @@
+from pathlib import Path
+
+SERVICE = Path('internal/app/service.go')
+WORKFLOW = Path('.github/workflows/apply-command-policy-v2-integration.yml')
+
+EVALUATOR = r'''func commandActionForRequest(policy ai.CommandPolicy, toolID, sessionID, command string) ai.CommandPermissionAction {
+\ttoolID = strings.ToLower(strings.TrimSpace(toolID))
+\tsessionID = strings.TrimSpace(sessionID)
+\tcommand = strings.TrimSpace(command)
+\tif toolID == "" || command == "" || !commandToolEnabled(policy, toolID) {
+\t\treturn ai.CommandPermissionDeny
+\t}
+\tif containsUnsafeShellSyntax(command) {
+\t\treturn ai.CommandPermissionDeny
+\t}
+\trules := policy.CommandRules
+\tif len(rules) == 0 {
+\t\trules = defaultCommandRules()
+\t}
+\tfor _, rule := range rules {
+\t\tif rule.ToolID != "" && strings.ToLower(strings.TrimSpace(rule.ToolID)) != toolID {
+\t\t\tcontinue
+\t\t}
+\t\tif rule.SessionID != "" && strings.TrimSpace(rule.SessionID) != sessionID {
+\t\t\tcontinue
+\t\t}
+\t\tif !matchCommandPattern(command, rule.Pattern) {
+\t\t\tcontinue
+\t\t}
+\t\tswitch rule.Action {
+\t\tcase ai.CommandPermissionAllow, ai.CommandPermissionAsk, ai.CommandPermissionDeny:
+\t\t\treturn rule.Action
+\t\tdefault:
+\t\t\treturn ai.CommandPermissionAsk
+\t\t}
+\t}
+\treturn ai.CommandPermissionAsk
+}
+
+func containsUnsafeShellSyntax(command string) bool {
+\tfor _, token := range []string{";", "&&", "||", "|", ">", "<", "`", "$", "\\", "\n", "\r"} {
+\t\tif strings.Contains(command, token) {
+\t\t\treturn true
+\t\t}
+\t}
+\treturn false
+}
+
+func matchCommandPattern(command, pattern string) bool {
+\tcommand = strings.TrimSpace(command)
+\tpattern = strings.TrimSpace(pattern)
+\tif command == "" || pattern == "" {
+\t\treturn false
+\t}
+\tif strings.HasSuffix(pattern, "*") {
+\t\tprefix := strings.TrimSpace(strings.TrimSuffix(pattern, "*"))
+\t\tif prefix == "" {
+\t\t\treturn true
+\t\t}
+\t\treturn command == prefix || strings.HasPrefix(command, prefix+" ")
+\t}
+\treturn command == pattern
+}
+
+func defaultCommandRules() []ai.CommandRule {
+\treturn []ai.CommandRule{
+\t\t{ToolID: "shell", Pattern: "pwd", Action: ai.CommandPermissionAllow, Description: "Print current directory"},
+\t\t{ToolID: "shell", Pattern: "whoami", Action: ai.CommandPermissionAllow, Description: "Print current user"},
+\t\t{ToolID: "shell", Pattern: "id", Action: ai.CommandPermissionAllow, Description: "Print user identity"},
+\t\t{ToolID: "shell", Pattern: "uname *", Action: ai.CommandPermissionAllow, Description: "Read system information"},
+\t\t{ToolID: "shell", Pattern: "ls *", Action: ai.CommandPermissionAllow, Description: "List directory contents"},
+\t\t{ToolID: "shell", Pattern: "df -h", Action: ai.CommandPermissionAllow, Description: "Read filesystem usage"},
+\t\t{ToolID: "shell", Pattern: "free -h", Action: ai.CommandPermissionAllow, Description: "Read memory usage"},
+\t\t{ToolID: "shell", Pattern: "uptime", Action: ai.CommandPermissionAllow, Description: "Read system uptime"},
+\t\t{ToolID: "shell", Pattern: "ps *", Action: ai.CommandPermissionAllow, Description: "Read process list"},
+\t\t{ToolID: "shell", Pattern: "systemctl status *", Action: ai.CommandPermissionAllow, Description: "Read service status"},
+\t\t{ToolID: "shell", Pattern: "systemctl restart *", Action: ai.CommandPermissionAsk, Description: "Restart a service"},
+\t\t{ToolID: "shell", Pattern: "systemctl start *", Action: ai.CommandPermissionAsk, Description: "Start a service"},
+\t\t{ToolID: "shell", Pattern: "systemctl stop *", Action: ai.CommandPermissionAsk, Description: "Stop a service"},
+\t\t{ToolID: "shell", Pattern: "cat *", Action: ai.CommandPermissionAsk, Description: "Read a remote file"},
+\t\t{ToolID: "shell", Pattern: "grep *", Action: ai.CommandPermissionAsk, Description: "Search remote file contents"},
+\t\t{ToolID: "shell", Pattern: "find *", Action: ai.CommandPermissionAsk, Description: "Search remote filesystem"},
+\t\t{ToolID: "shell", Pattern: "env", Action: ai.CommandPermissionAsk, Description: "Read environment variables"},
+\t\t{ToolID: "shell", Pattern: "printenv *", Action: ai.CommandPermissionAsk, Description: "Read environment variables"},
+\t\t{ToolID: "shell", Pattern: "history", Action: ai.CommandPermissionAsk, Description: "Read shell history"},
+\t\t{ToolID: "shell", Pattern: "rm *", Action: ai.CommandPermissionDeny, Description: "Destructive file removal"},
+\t\t{ToolID: "shell", Pattern: "shutdown *", Action: ai.CommandPermissionDeny, Description: "System shutdown"},
+\t\t{ToolID: "shell", Pattern: "reboot *", Action: ai.CommandPermissionDeny, Description: "System reboot"},
+\t\t{ToolID: "shell", Pattern: "poweroff *", Action: ai.CommandPermissionDeny, Description: "System power off"},
+\t\t{ToolID: "shell", Pattern: "kill *", Action: ai.CommandPermissionDeny, Description: "Terminate process"},
+\t\t{ToolID: "shell", Pattern: "pkill *", Action: ai.CommandPermissionDeny, Description: "Terminate processes"},
+\t\t{ToolID: "shell", Pattern: "chmod *", Action: ai.CommandPermissionDeny, Description: "Change file permissions"},
+\t\t{ToolID: "shell", Pattern: "chown *", Action: ai.CommandPermissionDeny, Description: "Change file ownership"},
+\t\t{ToolID: "shell", Pattern: "mkfs *", Action: ai.CommandPermissionDeny, Description: "Format filesystem"},
+\t\t{ToolID: "shell", Pattern: "dd *", Action: ai.CommandPermissionDeny, Description: "Raw disk operation"},
+\t}
+}
+'''.replace('\\t', '\t')
+
+def main():
+    text = SERVICE.read_text()
+    if 'func commandActionForRequest(' not in text:
+        lines = text.splitlines()
+        for i, line in enumerate(lines):
+            if 'else if allowed := commandAllowedByPolicy(' in line:
+                indent = line[:len(line) - len(line.lstrip())]
+                lines[i] = indent + 'else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
+                lines.insert(i + 1, indent + '\t' + 'reply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)')
+                lines.insert(i + 2, indent + '} else if action == ai.CommandPermissionAllow {')
+                break
+        else:
+            raise SystemExit('SendChatMessage hook not found')
+        for i, line in enumerate(lines):
+            if 'if !commandToolEnabled(policy, request.ToolID)' in line:
+                indent = line[:len(line) - len(line.lstrip())]
+                lines.insert(i + 3, indent + 'if commandActionForRequest(policy, request.ToolID, request.SessionID, request.Command) == ai.CommandPermissionDeny {')
+                lines.insert(i + 4, indent + '\treturn fmt.Errorf("command is denied by Command Policy")')
+                lines.insert(i + 5, indent + '}')
+                break
+        else:
+            raise SystemExit('Resolve guard not found')
+        text = '\n'.join(lines) + '\n'
+        marker = 'func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {'
+        if marker not in text:
+            raise SystemExit('commandAllowedByPolicy marker not found')
+        text = text.replace(marker, EVALUATOR + '\n' + marker, 1)
+        SERVICE.write_text(text)
+    if WORKFLOW.exists():
+        WORKFLOW.unlink()
+
+if __name__ == '__main__':
+    main()
