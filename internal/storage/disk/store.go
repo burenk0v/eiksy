@@ -52,6 +52,7 @@ type persistedSettings struct {
 type persistedAIWorkspaceState struct {
 	Providers     []persistedAIProviderDescriptor `json:"providers"`
 	ContextPolicy ai.ContextPolicy                `json:"contextPolicy"`
+	CommandPolicy ai.CommandPolicy                `json:"commandPolicy"`
 	Messages      []ai.ChatMessage                `json:"messages"`
 	ChatSessionID string                          `json:"chatSessionId"`
 }
@@ -606,8 +607,22 @@ func defaultAIState() ai.WorkspaceState {
 			{ID: "local-qwen3-4b", Name: "Local Qwen3 4B", Class: ai.ProviderClassLocalOpenAI, Model: "Qwen3-4B-Q4_K_M", Endpoint: "http://127.0.0.1:8012/v1", DownloadURL: "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true", Status: "download required", Selected: false, Configured: false},
 		},
 		ContextPolicy: ai.ContextPolicy{SendTerminalSelection: true, SendRecentOutput: false, RequireConfirmation: true},
+		CommandPolicy: defaultCommandPolicy(),
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
 		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
+	}
+}
+
+func defaultCommandPolicy() ai.CommandPolicy {
+	return ai.CommandPolicy{
+		Tools: []ai.CommandTool{
+			{ID: "shell", Name: "Shell command", Description: "Run command in active SSH session", Enabled: true},
+			{ID: "sftp", Name: "SFTP operations", Description: "Browse and edit files over SFTP", Enabled: true},
+			{ID: "search", Name: "Search", Description: "Run grep/find-like queries on host", Enabled: true},
+		},
+		AllowedTools:        []string{},
+		SessionAllowedTools: map[string][]string{},
+		PendingRequests:     []ai.CommandRequest{},
 	}
 }
 
@@ -633,7 +648,24 @@ func defaultWorkspaceLayout() workspace.Layout {
 func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 	cloned := state
 	cloned.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
+	cloned.CommandPolicy = cloneCommandPolicy(state.CommandPolicy)
 	cloned.Messages = append([]ai.ChatMessage{}, state.Messages...)
+	return cloned
+}
+
+func cloneCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
+	cloned := policy
+	cloned.Tools = append([]ai.CommandTool(nil), policy.Tools...)
+	cloned.AllowedTools = append([]string(nil), policy.AllowedTools...)
+	cloned.PendingRequests = append([]ai.CommandRequest(nil), policy.PendingRequests...)
+	if policy.SessionAllowedTools != nil {
+		cloned.SessionAllowedTools = make(map[string][]string, len(policy.SessionAllowedTools))
+		for sessionID, tools := range policy.SessionAllowedTools {
+			cloned.SessionAllowedTools[sessionID] = append([]string(nil), tools...)
+		}
+	} else {
+		cloned.SessionAllowedTools = map[string][]string{}
+	}
 	return cloned
 }
 
@@ -684,6 +716,7 @@ func normalizePortForwardRules(rules []settings.PortForwardRule) []settings.Port
 func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 	persisted := &persistedAIWorkspaceState{
 		ContextPolicy: state.ContextPolicy,
+		CommandPolicy: cloneCommandPolicy(state.CommandPolicy),
 		Messages:      append([]ai.ChatMessage(nil), state.Messages...),
 		ChatSessionID: state.ChatSessionID,
 		Providers:     make([]persistedAIProviderDescriptor, 0, len(state.Providers)),
@@ -708,6 +741,7 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState {
 	state := ai.WorkspaceState{
 		ContextPolicy: persisted.ContextPolicy,
+		CommandPolicy: cloneCommandPolicy(persisted.CommandPolicy),
 		Messages:      append([]ai.ChatMessage(nil), persisted.Messages...),
 		ChatSessionID: persisted.ChatSessionID,
 		Providers:     make([]ai.ProviderDescriptor, 0, len(persisted.Providers)),
@@ -732,6 +766,19 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 			continue
 		}
 		state.Providers = append(state.Providers, defaultProvider)
+	}
+	defaultPolicy := defaultCommandPolicy()
+	if len(state.CommandPolicy.Tools) == 0 {
+		state.CommandPolicy.Tools = append([]ai.CommandTool(nil), defaultPolicy.Tools...)
+	}
+	if state.CommandPolicy.AllowedTools == nil {
+		state.CommandPolicy.AllowedTools = []string{}
+	}
+	if state.CommandPolicy.SessionAllowedTools == nil {
+		state.CommandPolicy.SessionAllowedTools = map[string][]string{}
+	}
+	if state.CommandPolicy.PendingRequests == nil {
+		state.CommandPolicy.PendingRequests = []ai.CommandRequest{}
 	}
 	return state
 }

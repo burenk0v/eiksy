@@ -80,6 +80,14 @@ const (
 	localAIPort            = "8012"
 )
 
+type parsedCommandRequest struct {
+	Type      string `json:"type"`
+	ToolID    string `json:"tool"`
+	SessionID string `json:"sessionId"`
+	Command   string `json:"command"`
+	Reason    string `json:"reason"`
+}
+
 type Service struct {
 	ctx             context.Context
 	store           stateStore
@@ -1605,11 +1613,12 @@ func fileExists(target string) bool {
 
 // SendChatMessage adds the user message to the conversation, calls the
 // configured AI provider, and appends the assistant reply.
-func (s *Service) SendChatMessage(ctx context.Context, message string) error {
+func (s *Service) SendChatMessage(ctx context.Context, message string, activeSessionID string) error {
 	message = strings.TrimSpace(message)
 	if message == "" {
 		return fmt.Errorf("message cannot be empty")
 	}
+	activeSessionID = strings.TrimSpace(activeSessionID)
 
 	state := s.store.AIState()
 	provider, err := s.activeConfiguredProvider(state)
@@ -1625,12 +1634,46 @@ func (s *Service) SendChatMessage(ctx context.Context, message string) error {
 
 	s.emitFn("ai:status", map[string]string{"status": "thinking"})
 	defer s.emitFn("ai:status", map[string]string{"status": "idle"})
-	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages, state.ChatSessionID)
+	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages, state.ChatSessionID, state.CommandPolicy, activeSessionID)
 	if err != nil {
 		return fmt.Errorf("AI request failed: %w", err)
 	}
 
 	state = s.store.AIState()
+	if commandRequest, ok := extractCommandRequest(reply); ok {
+		if commandRequest.SessionID == "" {
+			commandRequest.SessionID = activeSessionID
+		}
+		commandRequest.ToolID = strings.ToLower(strings.TrimSpace(commandRequest.ToolID))
+		if commandRequest.ToolID == "" {
+			commandRequest.ToolID = "shell"
+		}
+		commandRequest.Command = strings.TrimSpace(commandRequest.Command)
+		commandRequest.Reason = strings.TrimSpace(commandRequest.Reason)
+		if commandRequest.Command == "" {
+			reply = "I could not run a command because the request did not include a command string."
+		} else if allowed := commandAllowedByPolicy(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID); allowed {
+			if err := s.executeSessionCommand(commandRequest.SessionID, commandRequest.Command); err != nil {
+				reply = fmt.Sprintf("Command execution failed: %v", err)
+			} else {
+				reply = fmt.Sprintf("Executed command in session %s via tool %s:\n`%s`", commandRequest.SessionID, commandRequest.ToolID, commandRequest.Command)
+			}
+		} else {
+			request := ai.CommandRequest{
+				ID:          fmt.Sprintf("cmdreq-%d", time.Now().UTC().UnixNano()),
+				ToolID:      commandRequest.ToolID,
+				SessionID:   commandRequest.SessionID,
+				Command:     commandRequest.Command,
+				Reason:      commandRequest.Reason,
+				RequestedAt: time.Now().UTC().Format(time.RFC3339),
+			}
+			state.CommandPolicy.PendingRequests = append(state.CommandPolicy.PendingRequests, request)
+			reply = fmt.Sprintf("Command permission required for tool %s in session %s.\nCommand: `%s`", request.ToolID, request.SessionID, request.Command)
+			if request.Reason != "" {
+				reply += fmt.Sprintf("\nReason: %s", request.Reason)
+			}
+		}
+	}
 	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: reply})
 	s.store.UpdateAIState(state)
 
@@ -1644,6 +1687,63 @@ func (s *Service) ClearChat() {
 	state.Messages = []ai.ChatMessage{}
 	state.ChatSessionID = fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano())
 	s.store.UpdateAIState(state)
+}
+
+func (s *Service) UpdateCommandPolicy(policy ai.CommandPolicy) error {
+	state := s.store.AIState()
+	state.CommandPolicy = normalizeCommandPolicy(policy)
+	s.store.UpdateAIState(state)
+	return nil
+}
+
+func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandPermissionMode) error {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" {
+		return fmt.Errorf("request id is required")
+	}
+	state := s.store.AIState()
+	policy := normalizeCommandPolicy(state.CommandPolicy)
+	index := -1
+	var request ai.CommandRequest
+	for i, entry := range policy.PendingRequests {
+		if entry.ID == requestID {
+			index = i
+			request = entry
+			break
+		}
+	}
+	if index < 0 {
+		return fmt.Errorf("command request %q not found", requestID)
+	}
+	policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+	switch mode {
+	case ai.CommandPermissionModeAlways:
+		policy.AllowedTools = append(policy.AllowedTools, request.ToolID)
+		policy.AllowedTools = uniqueStrings(policy.AllowedTools)
+	case ai.CommandPermissionModeSession:
+		tools := append([]string(nil), policy.SessionAllowedTools[request.SessionID]...)
+		tools = append(tools, request.ToolID)
+		policy.SessionAllowedTools[request.SessionID] = uniqueStrings(tools)
+	case ai.CommandPermissionModeNow:
+		// one-time approval only
+	case ai.CommandPermissionModeDeny:
+		state.CommandPolicy = policy
+		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: fmt.Sprintf("Denied command request for `%s`.", request.Command)})
+		s.store.UpdateAIState(state)
+		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": fmt.Sprintf("Denied command request for `%s`.", request.Command)})
+		return nil
+	default:
+		return fmt.Errorf("unsupported permission mode %q", mode)
+	}
+	if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+		return err
+	}
+	state.CommandPolicy = policy
+	message := fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
+	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
+	s.store.UpdateAIState(state)
+	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+	return nil
 }
 
 // AcceptSSHHostKey trusts the pending unknown host key for the given tab and
@@ -1735,6 +1835,7 @@ func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.
 func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceState {
 	scrubbed := state
 	scrubbed.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
+	scrubbed.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
 	for i := range scrubbed.Providers {
 		scrubbed.Providers[i].Token = ""
 		scrubbed.Providers[i].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(scrubbed.Providers[i].ID))
@@ -1781,14 +1882,18 @@ func (s *Service) scrubSettingsForShell(appSettings settings.AppSettings) settin
 	return scrubbed
 }
 
-func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage, chatSessionID string) (string, error) {
+func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderDescriptor, messages []ai.ChatMessage, chatSessionID string, policy ai.CommandPolicy, activeSessionID string) (string, error) {
 	type reqMessage struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
-	reqMessages := make([]reqMessage, len(messages))
-	for i, m := range messages {
-		reqMessages[i] = reqMessage{Role: m.Role, Content: m.Content}
+	reqMessages := make([]reqMessage, 0, len(messages)+1)
+	reqMessages = append(reqMessages, reqMessage{
+		Role:    "system",
+		Content: s.commandPolicyPrompt(policy, activeSessionID),
+	})
+	for _, m := range messages {
+		reqMessages = append(reqMessages, reqMessage{Role: m.Role, Content: m.Content})
 	}
 	body, err := json.Marshal(map[string]interface{}{
 		"model":    provider.Model,
@@ -1837,6 +1942,192 @@ func (s *Service) callChatCompletion(ctx context.Context, provider *ai.ProviderD
 		return "", fmt.Errorf("AI returned an empty response")
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+func (s *Service) commandPolicyPrompt(policy ai.CommandPolicy, activeSessionID string) string {
+	normalized := normalizeCommandPolicy(policy)
+	enabledTools := make([]string, 0, len(normalized.Tools))
+	for _, tool := range normalized.Tools {
+		if tool.Enabled {
+			enabledTools = append(enabledTools, tool.ID)
+		}
+	}
+	return strings.TrimSpace(fmt.Sprintf(
+		"You are connected to Eiksy. Default behavior: do not execute commands automatically. "+
+			"If you need to execute a command, respond with JSON only: {\"type\":\"command_request\",\"tool\":\"shell\",\"sessionId\":\"%s\",\"command\":\"...\",\"reason\":\"...\"}. "+
+			"Use only enabled tools: [%s]. If no command execution is needed, reply normally. Local documentation path for tools: %q.",
+		activeSessionID,
+		strings.Join(enabledTools, ", "),
+		normalized.LocalDocsPath,
+	))
+}
+
+func normalizeCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
+	defaults := []ai.CommandTool{
+		{ID: "shell", Name: "Shell command", Description: "Run command in active SSH session", Enabled: true},
+		{ID: "sftp", Name: "SFTP operations", Description: "Browse and edit files over SFTP", Enabled: true},
+		{ID: "search", Name: "Search", Description: "Run grep/find-like queries on host", Enabled: true},
+	}
+	toolByID := make(map[string]ai.CommandTool, len(defaults))
+	order := make([]string, 0, len(defaults))
+	for _, tool := range defaults {
+		toolByID[tool.ID] = tool
+		order = append(order, tool.ID)
+	}
+	for _, tool := range policy.Tools {
+		id := strings.ToLower(strings.TrimSpace(tool.ID))
+		if id == "" {
+			continue
+		}
+		clean := ai.CommandTool{
+			ID:          id,
+			Name:        strings.TrimSpace(tool.Name),
+			Description: strings.TrimSpace(tool.Description),
+			Enabled:     tool.Enabled,
+		}
+		if clean.Name == "" {
+			clean.Name = id
+		}
+		if _, exists := toolByID[id]; !exists {
+			order = append(order, id)
+		}
+		toolByID[id] = clean
+	}
+	normalizedTools := make([]ai.CommandTool, 0, len(order))
+	for _, id := range order {
+		normalizedTools = append(normalizedTools, toolByID[id])
+	}
+	policy.Tools = normalizedTools
+	policy.LocalDocsPath = strings.TrimSpace(policy.LocalDocsPath)
+	policy.AllowedTools = uniqueStrings(policy.AllowedTools)
+	if policy.SessionAllowedTools == nil {
+		policy.SessionAllowedTools = map[string][]string{}
+	}
+	for sessionID, tools := range policy.SessionAllowedTools {
+		trimmedSession := strings.TrimSpace(sessionID)
+		if trimmedSession == "" {
+			delete(policy.SessionAllowedTools, sessionID)
+			continue
+		}
+		policy.SessionAllowedTools[trimmedSession] = uniqueStrings(tools)
+		if trimmedSession != sessionID {
+			delete(policy.SessionAllowedTools, sessionID)
+		}
+	}
+	if policy.PendingRequests == nil {
+		policy.PendingRequests = []ai.CommandRequest{}
+	}
+	filteredRequests := make([]ai.CommandRequest, 0, len(policy.PendingRequests))
+	for _, request := range policy.PendingRequests {
+		command := strings.TrimSpace(request.Command)
+		toolID := strings.ToLower(strings.TrimSpace(request.ToolID))
+		if command == "" || toolID == "" {
+			continue
+		}
+		filteredRequests = append(filteredRequests, ai.CommandRequest{
+			ID:          strings.TrimSpace(request.ID),
+			ToolID:      toolID,
+			SessionID:   strings.TrimSpace(request.SessionID),
+			Command:     command,
+			Reason:      strings.TrimSpace(request.Reason),
+			RequestedAt: strings.TrimSpace(request.RequestedAt),
+		})
+	}
+	policy.PendingRequests = filteredRequests
+	return policy
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		result = append(result, normalized)
+	}
+	return result
+}
+
+func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {
+	normalized := normalizeCommandPolicy(policy)
+	toolID = strings.ToLower(strings.TrimSpace(toolID))
+	sessionID = strings.TrimSpace(sessionID)
+	if toolID == "" {
+		return false
+	}
+	enabled := false
+	for _, tool := range normalized.Tools {
+		if tool.ID == toolID {
+			enabled = tool.Enabled
+			break
+		}
+	}
+	if !enabled {
+		return false
+	}
+	for _, allowed := range normalized.AllowedTools {
+		if allowed == toolID {
+			return true
+		}
+	}
+	for _, allowed := range normalized.SessionAllowedTools[sessionID] {
+		if allowed == toolID {
+			return true
+		}
+	}
+	return false
+}
+
+func extractCommandRequest(reply string) (parsedCommandRequest, bool) {
+	payload := strings.TrimSpace(reply)
+	if strings.HasPrefix(payload, "```") {
+		payload = strings.TrimPrefix(payload, "```")
+		payload = strings.TrimSpace(payload)
+		if strings.HasPrefix(payload, "json") {
+			payload = strings.TrimSpace(strings.TrimPrefix(payload, "json"))
+		}
+		payload = strings.TrimSuffix(payload, "```")
+		payload = strings.TrimSpace(payload)
+	}
+	if !strings.HasPrefix(payload, "{") || !strings.HasSuffix(payload, "}") {
+		return parsedCommandRequest{}, false
+	}
+	var request parsedCommandRequest
+	if err := json.Unmarshal([]byte(payload), &request); err != nil {
+		return parsedCommandRequest{}, false
+	}
+	if strings.ToLower(strings.TrimSpace(request.Type)) != "command_request" {
+		return parsedCommandRequest{}, false
+	}
+	return request, true
+}
+
+func (s *Service) executeSessionCommand(sessionID, command string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	command = strings.TrimSpace(command)
+	if sessionID == "" {
+		return fmt.Errorf("command request session id is required")
+	}
+	if command == "" {
+		return fmt.Errorf("command cannot be empty")
+	}
+	tab, ok := s.runtimeTab(sessionID)
+	if !ok {
+		return fmt.Errorf("active session %q not found", sessionID)
+	}
+	if tab.ProtocolID != "ssh" {
+		return fmt.Errorf("commands can only run in ssh sessions")
+	}
+	if s.sshManager == nil {
+		return fmt.Errorf("ssh manager is not configured")
+	}
+	return s.sshManager.SendInput(sessionID, command+"\n")
 }
 
 func vaultPathJoin(parts ...string) string {

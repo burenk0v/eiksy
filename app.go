@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"eiksy/internal/app"
+	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
 	sftpdomain "eiksy/internal/domain/sftp"
@@ -207,12 +208,20 @@ func (a *App) GetCloudProviderAuthSession(sessionID string) (app.CloudProviderAu
 	return a.currentService().GetCloudProviderAuthSession(sessionID)
 }
 
-func (a *App) SendChatMessage(message string) error {
-	return a.currentService().SendChatMessage(a.ctx, message)
+func (a *App) SendChatMessage(message string, activeSessionID string) error {
+	return a.currentService().SendChatMessage(a.ctx, message, activeSessionID)
 }
 
 func (a *App) ClearChat() {
 	a.currentService().ClearChat()
+}
+
+func (a *App) UpdateCommandPolicy(policy ai.CommandPolicy) error {
+	return a.currentService().UpdateCommandPolicy(policy)
+}
+
+func (a *App) ResolveCommandPolicyRequest(requestID string, mode string) error {
+	return a.currentService().ResolveCommandPolicyRequest(requestID, ai.CommandPermissionMode(mode))
 }
 
 func (a *App) AcceptSSHHostKey(tabID string) error {

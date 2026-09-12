@@ -30,6 +30,84 @@ export namespace ai {
 	        this.requireConfirmation = source["requireConfirmation"];
 	    }
 	}
+	export class CommandRequest {
+	    id: string;
+	    toolId: string;
+	    sessionId: string;
+	    command: string;
+	    reason?: string;
+	    requestedAt: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.toolId = source["toolId"];
+	        this.sessionId = source["sessionId"];
+	        this.command = source["command"];
+	        this.reason = source["reason"];
+	        this.requestedAt = source["requestedAt"];
+	    }
+	}
+	export class CommandTool {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    enabled: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandTool(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	    }
+	}
+	export class CommandPolicy {
+	    tools: CommandTool[];
+	    allowedTools: string[];
+	    sessionAllowedTools?: {[key: string]: string[]};
+	    pendingRequests: CommandRequest[];
+	    localDocsPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandPolicy(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tools = this.convertValues(source["tools"], CommandTool);
+	        this.allowedTools = source["allowedTools"];
+	        this.sessionAllowedTools = source["sessionAllowedTools"];
+	        this.pendingRequests = this.convertValues(source["pendingRequests"], CommandRequest);
+	        this.localDocsPath = source["localDocsPath"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ProviderDescriptor {
 	    id: string;
 	    name: string;
@@ -65,6 +143,7 @@ export namespace ai {
 	export class WorkspaceState {
 	    providers: ProviderDescriptor[];
 	    contextPolicy: ContextPolicy;
+	    commandPolicy: CommandPolicy;
 	    messages: ChatMessage[];
 	    chatSessionId: string;
 	
@@ -76,6 +155,7 @@ export namespace ai {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.providers = this.convertValues(source["providers"], ProviderDescriptor);
 	        this.contextPolicy = this.convertValues(source["contextPolicy"], ContextPolicy);
+	        this.commandPolicy = this.convertValues(source["commandPolicy"], CommandPolicy);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.chatSessionId = source["chatSessionId"];
 	    }

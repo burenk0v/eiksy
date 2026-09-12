@@ -6,6 +6,7 @@ import {sftp} from '../models';
 import {settings} from '../models';
 import {vault} from '../models';
 import {securestorage} from '../models';
+import {ai} from '../models';
 
 export function CloseSession(arg1:string):Promise<void>;
 
@@ -73,9 +74,13 @@ export function StopLocalModel():Promise<void>;
 
 export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
-export function SendChatMessage(arg1:string):Promise<void>;
+export function SendChatMessage(arg1:string,arg2:string):Promise<void>;
 
 export function ClearChat():Promise<void>;
+
+export function UpdateCommandPolicy(arg1:ai.CommandPolicy):Promise<void>;
+
+export function ResolveCommandPolicyRequest(arg1:string,arg2:string):Promise<void>;
 
 export function AcceptSSHHostKey(arg1:string):Promise<void>;
 
