@@ -1,0 +1,86 @@
+package app
+
+import (
+	"testing"
+
+	"eiksy/internal/domain/ai"
+)
+
+func TestMatchCommandPattern(t *testing.T) {
+	tests := []struct {
+		pattern string
+		command string
+		want    bool
+	}{
+		{"pwd", "pwd", true},
+		{"pwd", "pwd /tmp", false},
+		{"ls *", "ls -la /tmp", true},
+		{"ls *", "lsof /tmp", false},
+	}
+	for _, tt := range tests {
+		if got := matchCommandPattern(tt.pattern, tt.command); got != tt.want {
+			t.Fatalf("matchCommandPattern(%q, %q) = %v, want %v", tt.pattern, tt.command, got, tt.want)
+		}
+	}
+}
+
+func TestEvaluateCommandPolicyDefaultRules(t *testing.T) {
+	policy := ai.CommandPolicy{
+		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		CommandRules: defaultCommandRules(),
+		AllowedTools: []string{"shell"},
+	}
+
+	tests := []struct {
+		command string
+		want    commandPolicyDecision
+	}{
+		{"pwd", commandPolicyDecisionAllow},
+		{"ls -la /tmp", commandPolicyDecisionAllow},
+		{"df -h", commandPolicyDecisionAllow},
+		{"systemctl status ssh", commandPolicyDecisionAllow},
+		{"systemctl restart ssh", commandPolicyDecisionAsk},
+		{"cat /etc/hosts", commandPolicyDecisionAsk},
+		{"rm -rf /tmp/test", commandPolicyDecisionDeny},
+		{"shutdown -h now", commandPolicyDecisionDeny},
+	}
+
+	for _, tt := range tests {
+		got, _ := evaluateCommandPolicy(policy, "shell", "session-1", tt.command)
+		if got != tt.want {
+			t.Errorf("evaluateCommandPolicy(%q) = %q, want %q", tt.command, got, tt.want)
+		}
+	}
+}
+
+func TestEvaluateCommandPolicyRejectsShellComposition(t *testing.T) {
+	policy := ai.CommandPolicy{
+		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		CommandRules: []ai.CommandRule{{Pattern: "ls *", Action: ai.CommandPermissionAllow}},
+		AllowedTools: []string{"shell"},
+	}
+
+	for _, command := range []string{
+		"ls /tmp; rm -rf /",
+		"ls /tmp && shutdown -h now",
+		"ls /tmp | cat",
+		"ls $(whoami)",
+	} {
+		got, _ := evaluateCommandPolicy(policy, "shell", "session-1", command)
+		if got != commandPolicyDecisionDeny {
+			t.Errorf("evaluateCommandPolicy(%q) = %q, want deny", command, got)
+		}
+	}
+}
+
+func TestEvaluateCommandPolicyUnknownCommandAsks(t *testing.T) {
+	policy := ai.CommandPolicy{
+		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		CommandRules: defaultCommandRules(),
+	}
+
+	got, _ := evaluateCommandPolicy(policy, "shell", "session-1", "journalctl -u ssh")
+	if got != commandPolicyDecisionAsk {
+		t.Fatalf("unknown command decision = %q, want ask", got)
+	}
+}
