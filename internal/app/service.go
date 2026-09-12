@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1380,6 +1381,12 @@ func (s *Service) StartLocalModel() error {
 		return nil
 	}
 	s.localAIStopping = false
+	probe, err := net.Listen("tcp", net.JoinHostPort(localAIHost, localAIPort))
+	if err != nil {
+		s.localAIMu.Unlock()
+		return fmt.Errorf("local AI port %s is already in use", localAIPort)
+	}
+	_ = probe.Close()
 
 	stderr := &bytes.Buffer{}
 	done := make(chan error, 1)
@@ -1430,6 +1437,11 @@ func (s *Service) StopLocalModel() error {
 	s.localAIErr = nil
 	s.localAIStopping = true
 	s.localAIMu.Unlock()
+	defer func() {
+		s.localAIMu.Lock()
+		s.localAIStopping = false
+		s.localAIMu.Unlock()
+	}()
 
 	if cmd != nil && cmd.Process != nil {
 		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
@@ -1439,10 +1451,6 @@ func (s *Service) StopLocalModel() error {
 			_, _ = <-done
 		}
 	}
-
-	s.localAIMu.Lock()
-	s.localAIStopping = false
-	s.localAIMu.Unlock()
 
 	state := s.store.AIState()
 	index := providerIndexByID(state.Providers, localAIProviderID)
