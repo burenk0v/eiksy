@@ -57,14 +57,16 @@ type persistedAIWorkspaceState struct {
 }
 
 type persistedAIProviderDescriptor struct {
-	ID         string           `json:"id"`
-	Name       string           `json:"name"`
-	Class      ai.ProviderClass `json:"class"`
-	Model      string           `json:"model"`
-	Endpoint   string           `json:"endpoint,omitempty"`
-	Status     string           `json:"status"`
-	Selected   bool             `json:"selected"`
-	Configured bool             `json:"configured"`
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Class       ai.ProviderClass `json:"class"`
+	Model       string           `json:"model"`
+	Endpoint    string           `json:"endpoint,omitempty"`
+	DownloadURL string           `json:"downloadUrl,omitempty"`
+	LocalPath   string           `json:"localPath,omitempty"`
+	Status      string           `json:"status"`
+	Selected    bool             `json:"selected"`
+	Configured  bool             `json:"configured"`
 }
 
 func NewStore() (*Store, error) {
@@ -601,6 +603,7 @@ func defaultAIState() ai.WorkspaceState {
 	return ai.WorkspaceState{
 		Providers: []ai.ProviderDescriptor{
 			{ID: "openai-compatible-cloud", Name: "OpenAI-compatible Cloud", Class: ai.ProviderClassOpenAICompatible, Model: "Remote model", Status: "configuration required", Selected: true, Configured: false},
+			{ID: "local-qwen3-4b", Name: "Local Qwen3 4B", Class: ai.ProviderClassLocalOpenAI, Model: "Qwen3-4B-Q4_K_M", Endpoint: "http://127.0.0.1:8012/v1", DownloadURL: "https://huggingface.co/unsloth/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf?download=true", Status: "download required", Selected: false, Configured: false},
 		},
 		ContextPolicy: ai.ContextPolicy{SendTerminalSelection: true, SendRecentOutput: false, RequireConfirmation: true},
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
@@ -687,14 +690,16 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 	}
 	for _, provider := range state.Providers {
 		persisted.Providers = append(persisted.Providers, persistedAIProviderDescriptor{
-			ID:         provider.ID,
-			Name:       provider.Name,
-			Class:      provider.Class,
-			Model:      provider.Model,
-			Endpoint:   provider.Endpoint,
-			Status:     provider.Status,
-			Selected:   provider.Selected,
-			Configured: provider.Configured,
+			ID:          provider.ID,
+			Name:        provider.Name,
+			Class:       provider.Class,
+			Model:       provider.Model,
+			Endpoint:    provider.Endpoint,
+			DownloadURL: provider.DownloadURL,
+			LocalPath:   provider.LocalPath,
+			Status:      provider.Status,
+			Selected:    provider.Selected,
+			Configured:  provider.Configured,
 		})
 	}
 	return persisted
@@ -709,15 +714,33 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 	}
 	for _, provider := range persisted.Providers {
 		state.Providers = append(state.Providers, ai.ProviderDescriptor{
-			ID:         provider.ID,
-			Name:       provider.Name,
-			Class:      provider.Class,
-			Model:      provider.Model,
-			Endpoint:   provider.Endpoint,
-			Status:     provider.Status,
-			Selected:   provider.Selected,
-			Configured: provider.Configured,
+			ID:          provider.ID,
+			Name:        provider.Name,
+			Class:       provider.Class,
+			Model:       provider.Model,
+			Endpoint:    provider.Endpoint,
+			DownloadURL: provider.DownloadURL,
+			LocalPath:   provider.LocalPath,
+			Status:      provider.Status,
+			Selected:    provider.Selected,
+			Configured:  provider.Configured,
 		})
 	}
+	defaultProviders := defaultAIState().Providers
+	for _, defaultProvider := range defaultProviders {
+		if providerIndexByID(state.Providers, defaultProvider.ID) >= 0 {
+			continue
+		}
+		state.Providers = append(state.Providers, defaultProvider)
+	}
 	return state
+}
+
+func providerIndexByID(providers []ai.ProviderDescriptor, providerID string) int {
+	for index, provider := range providers {
+		if provider.ID == providerID {
+			return index
+		}
+	}
+	return -1
 }

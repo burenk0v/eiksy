@@ -91,6 +91,7 @@ Providers can be configured with:
 - authentication token
 - model selection
 - provider-specific settings
+- local Qwen3 4B (Q4_K_M) download and launch controls, with an override for a custom model URL
 
 This makes it possible to use both cloud-based and self-hosted AI services.
 

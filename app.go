@@ -179,6 +179,22 @@ func (a *App) SaveCloudProvider(model string, endpoint string, token string) err
 	return a.currentService().SaveCloudProvider(model, endpoint, token)
 }
 
+func (a *App) SaveLocalProvider(downloadURL string) error {
+	return a.currentService().SaveLocalProvider(downloadURL)
+}
+
+func (a *App) DownloadLocalModel(downloadURL string) error {
+	return a.currentService().DownloadLocalModel(downloadURL)
+}
+
+func (a *App) StartLocalModel() error {
+	return a.currentService().StartLocalModel()
+}
+
+func (a *App) StopLocalModel() error {
+	return a.currentService().StopLocalModel()
+}
+
 func (a *App) ListCloudModels(endpoint string, token string) ([]string, error) {
 	return a.currentService().ListCloudModels(endpoint, token)
 }

@@ -15,6 +15,7 @@ import {
     ConnectSSH,
     CreateSessionProfile,
     DownloadSFTPFiles,
+    DownloadLocalModel,
     DeleteSessionProfile,
     DisconnectSSH,
     EnsureMasterPassword,
@@ -31,13 +32,17 @@ import {
     ReadSFTPFile,
     ListCloudModels,
     SaveCloudProvider,
+    SaveLocalProvider,
     SaveSFTPFile,
     SelectDownloadDirectory,
+    SelectAIProvider,
     SelectUploadFiles,
     SendChatMessage,
     SendSSHInput,
     ResizeTerminal,
+    StartLocalModel,
     StartCloudProviderAuth,
+    StopLocalModel,
     UploadSFTPFiles,
     UpdateSettings,
 } from '../wailsjs/go/main/App';
@@ -246,6 +251,7 @@ class EiksyShell {
     private cloudDraftModel = '';
     private cloudDraftEndpoint = '';
     private cloudDraftToken = '';
+    private localDraftDownloadURL = '';
     private cloudAuthSessionId = '';
     private cloudAuthPending = false;
     private cloudAuthMessage = '';
@@ -798,6 +804,15 @@ class EiksyShell {
             const token = this.cloudDraftToken;
             await this.runAction(async () => SaveCloudProvider(model, endpoint, token), 'Unable to save cloud provider');
         });
+        root?.querySelectorAll<HTMLButtonElement>('[data-select-ai-provider]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const providerID = button.dataset.selectAiProvider;
+                if (!providerID) {
+                    return;
+                }
+                await this.runAction(async () => SelectAIProvider(providerID), 'Unable to switch AI provider');
+            });
+        });
         root?.querySelector<HTMLInputElement>('[data-cloud-model]')?.addEventListener('input', (event) => {
             this.cloudDraftModel = (event.currentTarget as HTMLInputElement).value;
         });
@@ -807,11 +822,26 @@ class EiksyShell {
         root?.querySelector<HTMLInputElement>('[data-cloud-token]')?.addEventListener('input', (event) => {
             this.cloudDraftToken = (event.currentTarget as HTMLInputElement).value;
         });
+        root?.querySelector<HTMLInputElement>('[data-local-model-url]')?.addEventListener('input', (event) => {
+            this.localDraftDownloadURL = (event.currentTarget as HTMLInputElement).value;
+        });
         root?.querySelector<HTMLButtonElement>('[data-load-cloud-models]')?.addEventListener('click', async () => {
             await this.loadCloudModels(true);
         });
         root?.querySelector<HTMLButtonElement>('[data-start-cloud-auth]')?.addEventListener('click', async () => {
             await this.startCloudProviderAuth();
+        });
+        root?.querySelector<HTMLButtonElement>('[data-save-local-provider]')?.addEventListener('click', async () => {
+            await this.runAction(async () => SaveLocalProvider(this.currentLocalDownloadURL()), 'Unable to save local model settings');
+        });
+        root?.querySelector<HTMLButtonElement>('[data-download-local-model]')?.addEventListener('click', async () => {
+            await this.runAction(async () => DownloadLocalModel(this.currentLocalDownloadURL()), 'Unable to download local model');
+        });
+        root?.querySelector<HTMLButtonElement>('[data-start-local-model]')?.addEventListener('click', async () => {
+            await this.runAction(async () => StartLocalModel(), 'Unable to start local model');
+        });
+        root?.querySelector<HTMLButtonElement>('[data-stop-local-model]')?.addEventListener('click', async () => {
+            await this.runAction(async () => StopLocalModel(), 'Unable to stop local model');
         });
 
         const chatForm = root?.querySelector<HTMLFormElement>('[data-chat-form]');
@@ -1854,7 +1884,7 @@ class EiksyShell {
     }
 
     private async loadCloudModels(force: boolean): Promise<void> {
-        const provider = this.selectedProvider();
+        const provider = this.cloudProvider();
         if (!provider) {
             return;
         }
@@ -1896,7 +1926,7 @@ class EiksyShell {
     }
 
     private async startCloudProviderAuth(): Promise<void> {
-        const provider = this.selectedProvider();
+        const provider = this.cloudProvider();
         const endpoint = (this.cloudDraftEndpoint || provider?.endpoint || '').trim();
         if (!endpoint) {
             this.setErrorMessage('Enter endpoint first.');
@@ -2003,10 +2033,30 @@ class EiksyShell {
         if (!provider) {
             return '<div class="empty-state">No AI provider configured yet.</div>';
         }
+        return `
+            <div class="provider-form ai-provider-mode-card">
+                <div class="section-title">Model source</div>
+                <div class="provider-form-actions ai-provider-mode-actions">
+                    ${(this.shellState?.ai.providers ?? []).map((entry) => `
+                        <button
+                            class="action-button ${entry.selected ? '' : 'secondary'}"
+                            type="button"
+                            data-select-ai-provider="${escapeHtml(entry.id)}"
+                        >${escapeHtml(entry.name)}</button>
+                    `).join('')}
+                </div>
+                <div class="section-copy">Choose either a local model or a cloud endpoint.</div>
+            </div>
+            ${provider.class === 'local_openai' ? this.renderLocalProviderSetup(provider) : this.renderCloudProviderSetup(provider)}
+        `;
+    }
+
+    private renderCloudProviderSetup(provider: AIProvider): string {
         const selectedModel = this.cloudDraftModel || provider.model || '';
         const browserAuthSupported = this.supportsCloudProviderBrowserAuth(this.cloudDraftEndpoint || provider.endpoint || '');
         return `
             <form class="provider-form" data-cloud-form>
+                <div class="section-title">Cloud model</div>
                 <label>
                     <span>Model</span>
                     <input name="model" data-cloud-model type="text" value="${escapeHtml(selectedModel)}" list="cloud-model-suggestions" placeholder="gpt-5.6" required />
@@ -2038,6 +2088,36 @@ class EiksyShell {
                     <button class="action-button" type="submit">Save cloud provider</button>
                 </div>
             </form>
+        `;
+    }
+
+    private renderLocalProviderSetup(provider: AIProvider): string {
+        const downloadURL = this.localDraftDownloadURL || provider.downloadUrl || '';
+        return `
+            <div class="provider-form">
+                <div class="section-title">Local Qwen3 4B</div>
+                <label>
+                    <span>Model build</span>
+                    <input type="text" value="Qwen3 4B · Q4_K_M" readonly />
+                </label>
+                <label>
+                    <span>Model URL</span>
+                    <input type="url" data-local-model-url value="${escapeHtml(downloadURL)}" placeholder="https://…" required />
+                </label>
+                <div class="section-copy">You can keep the default Qwen3 GGUF link or provide your own model URL.</div>
+                <div class="provider-form-actions">
+                    <button class="action-button secondary" type="button" data-save-local-provider>Save link</button>
+                    <button class="action-button secondary" type="button" data-download-local-model>Download model</button>
+                </div>
+                <div class="provider-form-actions">
+                    <button class="action-button ${provider.status === 'running' ? 'secondary' : ''}" type="button" data-start-local-model ${provider.status === 'running' ? 'disabled' : ''}>${provider.status === 'running' ? 'Local model is running' : 'Start local model'}</button>
+                    <button class="action-button secondary" type="button" data-stop-local-model ${provider.status === 'running' ? '' : 'disabled'}>Stop model</button>
+                </div>
+                <div class="section-copy">Status: ${escapeHtml(provider.status || 'unknown')}</div>
+                ${provider.localPath ? `<div class="section-copy">File: ${escapeHtml(provider.localPath)}</div>` : ''}
+                <div class="section-copy">Endpoint: ${escapeHtml(provider.endpoint || 'http://127.0.0.1:8012/v1')}</div>
+                <div class="section-copy">Requires <code>llama-server</code> in PATH for local launch.</div>
+            </div>
         `;
     }
 
@@ -2620,6 +2700,19 @@ class EiksyShell {
         return this.shellState?.ai.providers.find((provider) => provider.selected) ?? null;
     }
 
+    private cloudProvider(): AIProvider | null {
+        return this.shellState?.ai.providers.find((provider) => provider.id === 'openai-compatible-cloud') ?? null;
+    }
+
+    private localProvider(): AIProvider | null {
+        return this.shellState?.ai.providers.find((provider) => provider.id === 'local-qwen3-4b') ?? null;
+    }
+
+    private currentLocalDownloadURL(): string {
+        const fromInput = root?.querySelector<HTMLInputElement>('[data-local-model-url]')?.value ?? '';
+        return fromInput || this.localDraftDownloadURL || this.localProvider()?.downloadUrl || '';
+    }
+
     private hasConfiguredProvider(): boolean {
         return (this.shellState?.ai.providers ?? []).some((provider) => provider.configured);
     }
@@ -2727,11 +2820,13 @@ class EiksyShell {
 
     private initializeSettingsDrafts(): void {
         this.clearCloudAuthPolling();
-        const provider = this.selectedProvider();
+        const provider = this.cloudProvider();
+        const localProvider = this.localProvider();
         const shellSettings = this.shellState?.settings;
         this.cloudDraftModel = provider?.model ?? '';
         this.cloudDraftEndpoint = provider?.endpoint ?? '';
         this.cloudDraftToken = '';
+        this.localDraftDownloadURL = localProvider?.downloadUrl ?? '';
         this.cloudAuthSessionId = '';
         this.cloudAuthPending = false;
         this.cloudAuthMessage = '';

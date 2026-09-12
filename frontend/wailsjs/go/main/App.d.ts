@@ -19,6 +19,8 @@ export function DisconnectSSH(arg1:string):Promise<void>;
 
 export function DownloadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 
+export function DownloadLocalModel(arg1:string):Promise<void>;
+
 export function GetCloudProviderAuthSession(arg1:string):Promise<app.CloudProviderAuthSession>;
 
 export function GetReleaseVersion():Promise<string>;
@@ -51,6 +53,8 @@ export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void
 
 export function SaveCloudProvider(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function SaveLocalProvider(arg1:string):Promise<void>;
+
 export function SaveSFTPFile(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SelectAIProvider(arg1:string):Promise<void>;
@@ -62,6 +66,10 @@ export function SelectDownloadDirectory():Promise<string>;
 export function SelectUploadFiles():Promise<Array<string>>;
 
 export function StartCloudProviderAuth(arg1:string):Promise<app.CloudProviderAuthSession>;
+
+export function StartLocalModel():Promise<void>;
+
+export function StopLocalModel():Promise<void>;
 
 export function UploadSFTPFiles(arg1:string,arg2:string,arg3:Array<string>):Promise<void>;
 

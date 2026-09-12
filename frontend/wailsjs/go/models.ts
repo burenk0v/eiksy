@@ -36,6 +36,8 @@ export namespace ai {
 	    class: string;
 	    model: string;
 	    endpoint?: string;
+	    downloadUrl?: string;
+	    localPath?: string;
 	    status: string;
 	    selected: boolean;
 	    hasToken: boolean;
@@ -52,6 +54,8 @@ export namespace ai {
 	        this.class = source["class"];
 	        this.model = source["model"];
 	        this.endpoint = source["endpoint"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.localPath = source["localPath"];
 	        this.status = source["status"];
 	        this.selected = source["selected"];
 	        this.hasToken = source["hasToken"];
