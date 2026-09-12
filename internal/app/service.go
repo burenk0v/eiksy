@@ -1640,6 +1640,7 @@ func (s *Service) SendChatMessage(ctx context.Context, message string, activeSes
 	}
 
 	state = s.store.AIState()
+	state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
 	if commandRequest, ok := extractCommandRequest(reply); ok {
 		if commandRequest.SessionID == "" {
 			commandRequest.SessionID = activeSessionID
@@ -1652,6 +1653,10 @@ func (s *Service) SendChatMessage(ctx context.Context, message string, activeSes
 		commandRequest.Reason = strings.TrimSpace(commandRequest.Reason)
 		if commandRequest.Command == "" {
 			reply = "I could not run a command because the request did not include a command string."
+		} else if !commandToolEnabled(state.CommandPolicy, commandRequest.ToolID) {
+			reply = fmt.Sprintf("Tool %s is disabled in Command Policy. Enable it first to use command execution.", commandRequest.ToolID)
+		} else if commandRequest.ToolID != "shell" {
+			reply = fmt.Sprintf("Tool %s does not support command dispatch yet. Use shell for command execution.", commandRequest.ToolID)
 		} else if allowed := commandAllowedByPolicy(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID); allowed {
 			if err := s.executeSessionCommand(commandRequest.SessionID, commandRequest.Command); err != nil {
 				reply = fmt.Sprintf("Command execution failed: %v", err)
@@ -1715,6 +1720,24 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	if index < 0 {
 		return fmt.Errorf("command request %q not found", requestID)
 	}
+	switch mode {
+	case ai.CommandPermissionModeDeny:
+		policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+		state.CommandPolicy = policy
+		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: fmt.Sprintf("Denied command request for `%s`.", request.Command)})
+		s.store.UpdateAIState(state)
+		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": fmt.Sprintf("Denied command request for `%s`.", request.Command)})
+		return nil
+	case ai.CommandPermissionModeAlways:
+	case ai.CommandPermissionModeSession:
+	case ai.CommandPermissionModeNow:
+		// one-time approval only
+	default:
+		return fmt.Errorf("unsupported permission mode %q", mode)
+	}
+	if !commandToolEnabled(policy, request.ToolID) {
+		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
+	}
 	policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
 	switch mode {
 	case ai.CommandPermissionModeAlways:
@@ -1724,22 +1747,19 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		tools := append([]string(nil), policy.SessionAllowedTools[request.SessionID]...)
 		tools = append(tools, request.ToolID)
 		policy.SessionAllowedTools[request.SessionID] = uniqueStrings(tools)
-	case ai.CommandPermissionModeNow:
-		// one-time approval only
-	case ai.CommandPermissionModeDeny:
-		state.CommandPolicy = policy
-		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: fmt.Sprintf("Denied command request for `%s`.", request.Command)})
-		s.store.UpdateAIState(state)
-		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": fmt.Sprintf("Denied command request for `%s`.", request.Command)})
-		return nil
-	default:
-		return fmt.Errorf("unsupported permission mode %q", mode)
-	}
-	if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
-		return err
 	}
 	state.CommandPolicy = policy
-	message := fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
+	message := ""
+	switch {
+	case request.ToolID != "shell":
+		message = fmt.Sprintf("Approved tool %s request. Command dispatch is currently supported only for shell, so `%s` was not executed.", request.ToolID, request.Command)
+	default:
+		if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+			message = fmt.Sprintf("Saved command permission, but command execution failed: %v", err)
+		} else {
+			message = fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
+		}
+	}
 	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
 	s.store.UpdateAIState(state)
 	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
@@ -2061,14 +2081,7 @@ func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) b
 	if toolID == "" {
 		return false
 	}
-	enabled := false
-	for _, tool := range normalized.Tools {
-		if tool.ID == toolID {
-			enabled = tool.Enabled
-			break
-		}
-	}
-	if !enabled {
+	if !commandToolEnabled(normalized, toolID) {
 		return false
 	}
 	for _, allowed := range normalized.AllowedTools {
@@ -2079,6 +2092,20 @@ func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) b
 	for _, allowed := range normalized.SessionAllowedTools[sessionID] {
 		if allowed == toolID {
 			return true
+		}
+	}
+	return false
+}
+
+func commandToolEnabled(policy ai.CommandPolicy, toolID string) bool {
+	toolID = strings.ToLower(strings.TrimSpace(toolID))
+	if toolID == "" {
+		return false
+	}
+	normalized := normalizeCommandPolicy(policy)
+	for _, tool := range normalized.Tools {
+		if tool.ID == toolID {
+			return tool.Enabled
 		}
 	}
 	return false

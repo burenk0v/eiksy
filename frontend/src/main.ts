@@ -967,6 +967,7 @@ class EiksyShell {
                 const mode = button.dataset.commandRequestAction;
                 if (!requestID || !mode) return;
                 await this.runAction(async () => ResolveCommandPolicyRequest(requestID, mode), 'Unable to resolve command request');
+                await this.refresh('');
             });
         });
         root?.querySelector<HTMLFormElement>('[data-command-docs-form]')?.addEventListener('submit', async (event) => {
@@ -2912,6 +2913,7 @@ class EiksyShell {
             update(policy);
             await UpdateCommandPolicy(policy as unknown as aiModels.CommandPolicy);
         }, 'Unable to update command policy');
+        await this.refresh('');
     }
 
     private currentLocalDownloadURL(): string {
