@@ -104,7 +104,7 @@ def main():
         for i, line in enumerate(lines):
             if 'else if allowed := commandAllowedByPolicy(' in line:
                 indent = line[:len(line) - len(line.lstrip())]
-                lines[i] = indent + 'else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
+                lines[i] = indent + '} else if action := commandActionForRequest(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); action == ai.CommandPermissionDeny {'
                 lines.insert(i + 1, indent + '\t' + 'reply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)')
                 lines.insert(i + 2, indent + '} else if action == ai.CommandPermissionAllow {')
                 break
