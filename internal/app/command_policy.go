@@ -74,8 +74,10 @@ func normalizeCommandRules(rules []ai.CommandRule) []ai.CommandRule {
 			continue
 		}
 		result = append(result, ai.CommandRule{
-			Pattern: pattern,
-			Action: action,
+			ToolID:      strings.ToLower(strings.TrimSpace(rule.ToolID)),
+			SessionID:   strings.TrimSpace(rule.SessionID),
+			Pattern:     pattern,
+			Action:      action,
 			Description: strings.TrimSpace(rule.Description),
 		})
 	}
@@ -83,8 +85,8 @@ func normalizeCommandRules(rules []ai.CommandRule) []ai.CommandRule {
 }
 
 // matchCommandPattern supports an intentionally small glob syntax: '*' means
-// any suffix. It does not interpret shell syntax and therefore cannot turn a
-// policy pattern into a second shell language.
+// any suffix. A pattern ending in " *" matches the base command itself and
+// commands whose next token is separated by whitespace.
 func matchCommandPattern(pattern, command string) bool {
 	pattern = strings.TrimSpace(pattern)
 	command = strings.TrimSpace(command)
@@ -97,10 +99,13 @@ func matchCommandPattern(pattern, command string) bool {
 	if !strings.HasSuffix(pattern, "*") {
 		return false
 	}
-	prefix := strings.TrimSpace(strings.TrimSuffix(pattern, "*"))
-	if prefix == "" {
-		return true
+
+	prefix := strings.TrimSuffix(pattern, "*")
+	if strings.HasSuffix(prefix, " ") || strings.HasSuffix(prefix, "\t") {
+		base := strings.TrimSpace(prefix)
+		return command == base || strings.HasPrefix(command, prefix)
 	}
+	prefix = strings.TrimSpace(prefix)
 	return strings.HasPrefix(command, prefix)
 }
 
@@ -123,36 +128,50 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 	if !commandToolEnabled(policy, toolID) {
 		return commandPolicyDecisionDeny, fmt.Sprintf("tool %q is disabled", toolID)
 	}
-
-	// Eiksy sends the command to an interactive shell. Until a real shell AST
-	// parser is used, shell composition is denied rather than matched against a
-	// simple prefix rule that could be bypassed with `;`, pipes or substitution.
 	if toolID == "shell" && containsUnsafeShellSyntax(command) {
 		return commandPolicyDecisionDeny, "shell operators and command substitution are not permitted by Command Policy"
 	}
 
 	rules := normalizeCommandRules(policy.CommandRules)
 	if len(rules) == 0 {
-		// Backward-compatible mode for old persisted policies. New normalized
-		// policies populate default rules before evaluation.
 		if commandAllowedByPolicy(policy, toolID, sessionID) {
 			return commandPolicyDecisionAllow, "legacy tool permission"
 		}
 		return commandPolicyDecisionAsk, "no command rule matched"
 	}
 
+	var askReason string
+	var allowReason string
 	for _, rule := range rules {
-		if matchCommandPattern(rule.Pattern, command) {
-			switch rule.Action {
-			case ai.CommandPermissionDeny:
-				return commandPolicyDecisionDeny, rule.Description
-			case ai.CommandPermissionAsk:
-				return commandPolicyDecisionAsk, rule.Description
-			case ai.CommandPermissionAllow:
-				return commandPolicyDecisionAllow, rule.Description
+		if rule.ToolID != "" && rule.ToolID != toolID {
+			continue
+		}
+		if rule.SessionID != "" && rule.SessionID != sessionID {
+			continue
+		}
+		if !matchCommandPattern(rule.Pattern, command) {
+			continue
+		}
+
+		switch rule.Action {
+		case ai.CommandPermissionDeny:
+			// Deny always wins, regardless of rule order or broader allow rules.
+			return commandPolicyDecisionDeny, rule.Description
+		case ai.CommandPermissionAsk:
+			if askReason == "" {
+				askReason = rule.Description
+			}
+		case ai.CommandPermissionAllow:
+			if allowReason == "" {
+				allowReason = rule.Description
 			}
 		}
 	}
-
+	if askReason != "" {
+		return commandPolicyDecisionAsk, askReason
+	}
+	if allowReason != "" {
+		return commandPolicyDecisionAllow, allowReason
+	}
 	return commandPolicyDecisionAsk, "no command rule matched"
 }
