@@ -70,13 +70,14 @@ type CommandRequest struct {
 }
 
 type PendingNativeToolCall struct {
-	RequestID       string `json:"requestId"`
-	ProviderID      string `json:"providerId"`
-	ToolCallID      string `json:"toolCallId"`
-	ToolName        string `json:"toolName"`
-	ToolArguments   string `json:"toolArguments"`
-	UserMessage     string `json:"userMessage"`
-	SessionID       string `json:"sessionId"`
+	RequestID     string `json:"requestId"`
+	ProviderID    string `json:"providerId"`
+	ToolCallID    string `json:"toolCallId"`
+	ToolName      string `json:"toolName"`
+	ToolArguments string `json:"toolArguments"`
+	UserMessage   string `json:"userMessage"`
+	SessionID     string `json:"sessionId"`
+	MessagesJSON  string `json:"messagesJson"`
 }
 
 type CommandPolicy struct {
