@@ -2,7 +2,9 @@ from pathlib import Path
 
 SERVICE = Path('internal/app/service.go')
 TEST = Path('internal/app/command_policy_test.go')
+SERVICE_TEST = Path('internal/app/service_test.go')
 SCRIPT = Path('scripts/command_policy_v2_finalize.py')
+WORKFLOW = Path('.github/workflows/command-policy-v2-finalize.yml')
 
 NEW_RESOLVE = r'''func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandPermissionMode) error {
 	requestID = strings.TrimSpace(requestID)
@@ -123,7 +125,7 @@ def patch_service():
     SERVICE.write_text(text)
 
 
-def patch_tests():
+def patch_policy_tests():
     text = TEST.read_text()
     additions = r'''
 
@@ -168,11 +170,60 @@ func TestEvaluateCommandPolicyRejectsSecretExpansion(t *testing.T) {
         TEST.write_text(text + additions)
 
 
+def patch_service_tests():
+    text = SERVICE_TEST.read_text()
+    old1 = '''	if !slices.Contains(updated.CommandPolicy.SessionAllowedTools[tab.ID], "shell") {
+		t.Fatalf("expected shell to be granted for session %s", tab.ID)
+	}
+'''
+    new1 = '''	if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "uname -a", ai.CommandPermissionAllow) {
+		t.Fatalf("expected exact shell command rule for session %s", tab.ID)
+	}
+'''
+    if old1 not in text:
+        raise SystemExit('session approval expectation not found')
+    text = text.replace(old1, new1, 1)
+
+    old2 = '''	if !slices.Contains(updated.CommandPolicy.AllowedTools, "shell") {
+		t.Fatalf("expected global shell grant to persist, got %v", updated.CommandPolicy.AllowedTools)
+	}
+'''
+    new2 = '''	if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", "", "hostname", ai.CommandPermissionAllow) {
+		t.Fatalf("expected exact global shell command rule to persist, got %v", updated.CommandPolicy.CommandRules)
+	}
+'''
+    if old2 not in text:
+        raise SystemExit('always approval expectation not found')
+    text = text.replace(old2, new2, 1)
+
+    helper = r'''
+
+func hasCommandRule(rules []ai.CommandRule, toolID, sessionID, pattern string, action ai.CommandPermissionAction) bool {
+	for _, rule := range rules {
+		if rule.ToolID == toolID && rule.SessionID == sessionID && rule.Pattern == pattern && rule.Action == action {
+			return true
+		}
+	}
+	return false
+}
+'''
+    marker = '\nfunc TestBuildPortForwardSpecsWithRemoteTarget'
+    if 'func hasCommandRule(' not in text:
+        pos = text.find(marker)
+        if pos < 0:
+            raise SystemExit('service test insertion marker not found')
+        text = text[:pos] + helper + text[pos:]
+    SERVICE_TEST.write_text(text)
+
+
 def main():
     patch_service()
-    patch_tests()
+    patch_policy_tests()
+    patch_service_tests()
     if SCRIPT.exists():
         SCRIPT.unlink()
+    if WORKFLOW.exists():
+        WORKFLOW.unlink()
 
 
 if __name__ == '__main__':
