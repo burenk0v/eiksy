@@ -1402,6 +1402,7 @@ func (s *Service) StartLocalModel() error {
 		"--model", provider.LocalPath,
 		"--host", localAIHost,
 		"--port", localAIPort,
+		"--jinja",
 	)
 	cmd.Stdout = stderr
 	cmd.Stderr = stderr
