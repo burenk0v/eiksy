@@ -26,7 +26,7 @@ func TestMatchCommandPattern(t *testing.T) {
 
 func TestEvaluateCommandPolicyDefaultRules(t *testing.T) {
 	policy := ai.CommandPolicy{
-		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
 		CommandRules: defaultCommandRules(),
 		AllowedTools: []string{"shell"},
 	}
@@ -55,7 +55,7 @@ func TestEvaluateCommandPolicyDefaultRules(t *testing.T) {
 
 func TestEvaluateCommandPolicyRejectsShellComposition(t *testing.T) {
 	policy := ai.CommandPolicy{
-		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
 		CommandRules: []ai.CommandRule{{Pattern: "ls *", Action: ai.CommandPermissionAllow}},
 		AllowedTools: []string{"shell"},
 	}
@@ -75,12 +75,49 @@ func TestEvaluateCommandPolicyRejectsShellComposition(t *testing.T) {
 
 func TestEvaluateCommandPolicyUnknownCommandAsks(t *testing.T) {
 	policy := ai.CommandPolicy{
-		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}},
+		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
 		CommandRules: defaultCommandRules(),
 	}
 
 	got, _ := evaluateCommandPolicy(policy, "shell", "session-1", "journalctl -u ssh")
 	if got != commandPolicyDecisionAsk {
 		t.Fatalf("unknown command decision = %q, want ask", got)
+	}
+}
+
+func TestEvaluateCommandPolicyScopesAndPrecedence(t *testing.T) {
+	policy := ai.CommandPolicy{
+		Tools: []ai.CommandTool{{ID: "shell", Enabled: true}, {ID: "other", Enabled: true}},
+		CommandRules: []ai.CommandRule{
+			{Pattern: "cat *", Action: ai.CommandPermissionAsk},
+			{ToolID: "shell", Pattern: "cat /etc/hosts", Action: ai.CommandPermissionAllow},
+			{ToolID: "shell", SessionID: "session-2", Pattern: "cat /etc/hosts", Action: ai.CommandPermissionDeny},
+			{ToolID: "other", Pattern: "cat /etc/hosts", Action: ai.CommandPermissionAllow},
+		},
+	}
+
+	if got, _ := evaluateCommandPolicy(policy, "shell", "session-1", "cat /etc/hosts"); got != commandPolicyDecisionAllow {
+		t.Fatalf("exact approval = %q, want allow", got)
+	}
+	if got, _ := evaluateCommandPolicy(policy, "shell", "session-2", "cat /etc/hosts"); got != commandPolicyDecisionDeny {
+		t.Fatalf("explicit session deny = %q, want deny", got)
+	}
+	if got, _ := evaluateCommandPolicy(policy, "shell", "session-1", "cat /etc/passwd"); got != commandPolicyDecisionAsk {
+		t.Fatalf("broad ask = %q, want ask", got)
+	}
+	if got, _ := evaluateCommandPolicy(policy, "other", "session-1", "cat /etc/hosts"); got != commandPolicyDecisionAllow {
+		t.Fatalf("tool-scoped rule = %q, want allow", got)
+	}
+}
+
+func TestEvaluateCommandPolicyRejectsSecretExpansion(t *testing.T) {
+	policy := ai.CommandPolicy{
+		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
+		CommandRules: []ai.CommandRule{{Pattern: "echo *", Action: ai.CommandPermissionAllow}},
+	}
+	for _, command := range []string{"echo $TOKEN", "echo ${TOKEN}", "echo foo\\bar"} {
+		if got, _ := evaluateCommandPolicy(policy, "shell", "session-1", command); got != commandPolicyDecisionDeny {
+			t.Errorf("secret/escape command %q = %q, want deny", command, got)
+		}
 	}
 }
