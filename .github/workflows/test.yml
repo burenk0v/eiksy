@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -15,111 +15,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - name: Patch native tool flow
-        if: github.ref == 'refs/heads/feat/ai-tool-calling'
-        shell: python
-        run: |
-          from pathlib import Path
-          p = Path('internal/app/service.go')
-          text = p.read_text()
-          if 'extractCommandRequest(reply)' in text:
-              start = text.index('func (s *Service) SendChatMessage')
-              end = text.index('// ClearChat removes all messages from the AI chat history.', start)
-              send = '''func (s *Service) SendChatMessage(ctx context.Context, message string, activeSessionID string) error {
-          \tmessage = strings.TrimSpace(message)
-          \tif message == "" { return fmt.Errorf("message cannot be empty") }
-          \tactiveSessionID = strings.TrimSpace(activeSessionID)
-          \tstate := s.store.AIState()
-          \tprovider, err := s.activeConfiguredProvider(state)
-          \tif err != nil { return err }
-          \tif provider == nil { return fmt.Errorf("no AI provider is configured; configure one in Settings first") }
-          \ts.emitFn("ai:status", map[string]string{"status": "thinking"})
-          \tdefer s.emitFn("ai:status", map[string]string{"status": "idle"})
-          \t_, _, err = s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message)
-          \tif err != nil { return fmt.Errorf("AI request failed: %w", err) }
-          \treturn nil
-          }
 
-          '''
-              text = text[:start] + send + text[end:]
-              start = text.index('func (s *Service) ResolveCommandPolicyRequest')
-              end = text.index('// AcceptSSHHostKey trusts the pending unknown host key for the given tab and', start)
-              resolve = '''func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandPermissionMode) error {
-          \trequestID = strings.TrimSpace(requestID)
-          \tif requestID == "" { return fmt.Errorf("request id is required") }
-          \tstate := s.store.AIState()
-          \tpolicy := normalizeCommandPolicy(state.CommandPolicy)
-          \tindex := -1
-          \tvar request ai.CommandRequest
-          \tfor i, entry := range policy.PendingRequests {
-          \t\tif entry.ID == requestID { index = i; request = entry; break }
-          \t}
-          \tif index < 0 { return fmt.Errorf("command request %q not found", requestID) }
-          \tremovePending := func() { policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...) }
-          \tif mode == ai.CommandPermissionModeDeny {
-          \t\tremovePending(); state.CommandPolicy = policy
-          \t\tif state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
-          \t\t\tpending := state.PendingNativeToolCall; state.PendingNativeToolCall = nil; s.store.UpdateAIState(state)
-          \t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, `{"status":"approval_denied","reason":"user denied the command"}`)
-          \t\t}
-          \t\tmessage := fmt.Sprintf("Denied command request for `%s`.", request.Command)
-          \t\tstate.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message}); s.store.UpdateAIState(state)
-          \t\ts.emitFn("ai:message", map[string]string{"role": "assistant", "content": message}); return nil
-          \t}
-          \tswitch mode { case ai.CommandPermissionModeAlways, ai.CommandPermissionModeSession, ai.CommandPermissionModeNow: default: return fmt.Errorf("unsupported permission mode %q", mode) }
-          \tif !commandToolEnabled(policy, request.ToolID) { return fmt.Errorf("tool %q is disabled in command policy", request.ToolID) }
-          \tdecision, reason := evaluateCommandPolicy(policy, request.ToolID, request.SessionID, request.Command)
-          \tif decision == commandPolicyDecisionDeny {
-          \t\tremovePending(); state.CommandPolicy = policy
-          \t\tmessage := fmt.Sprintf("Command denied by Command Policy: `%s`", request.Command)
-          \t\tif strings.TrimSpace(reason) != "" { message += fmt.Sprintf(" (%s)", reason) }
-          \t\tstate.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message}); s.store.UpdateAIState(state)
-          \t\ts.emitFn("ai:message", map[string]string{"role": "assistant", "content": message}); return nil
-          \t}
-          \tremovePending()
-          \tswitch mode {
-          \tcase ai.CommandPermissionModeAlways:
-          \t\tpolicy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: always allow this exact command"})
-          \tcase ai.CommandPermissionModeSession:
-          \t\tpolicy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: allow this exact command for this session"})
-          \t}
-          \tpolicy.CommandRules = normalizeCommandRules(policy.CommandRules); state.CommandPolicy = policy
-          \tif state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
-          \t\tpending := state.PendingNativeToolCall; state.PendingNativeToolCall = nil; s.store.UpdateAIState(state)
-          \t\tif err := s.executeSessionCommand(request.SessionID, request.Command); err != nil { return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error())) }
-          \t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))
-          \t}
-          \tif request.ToolID != "shell" { return fmt.Errorf("tool %q does not support command dispatch", request.ToolID) }
-          \tmessage := ""
-          \tif err := s.executeSessionCommand(request.SessionID, request.Command); err != nil { message = fmt.Sprintf("Command execution failed: %v", err) } else { message = fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command) }
-          \tstate.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message}); s.store.UpdateAIState(state)
-          \ts.emitFn("ai:message", map[string]string{"role": "assistant", "content": message}); return nil
-          }
-
-          '''
-              text = text[:start] + resolve + text[end:]
-              start = text.find('type parsedCommandRequest struct {')
-              if start >= 0:
-                  end = text.index('type Service struct {', start)
-                  text = text[:start] + text[end:]
-              start = text.find('func extractCommandRequest(')
-              if start >= 0:
-                  end = text.index('func (s *Service) executeSessionCommand', start)
-                  text = text[:start] + text[end:]
-              p.write_text(text)
-      - name: Format
-        run: gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
       - name: Run tests
         run: go test ./...
-      - name: Commit patch
-        if: github.ref == 'refs/heads/feat/ai-tool-calling'
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
-          if git diff --cached --quiet; then echo 'No source changes to commit'; else git commit -m 'feat(ai): finish native approval continuation'; git push; fi
