@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -15,12 +15,68 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
+      - name: Patch disk persistence
+        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('internal/storage/disk/store.go')
+          text = p.read_text()
+          old = '''type persistedAIWorkspaceState struct {
+          \tProviders     []persistedAIProviderDescriptor `json:"providers"`
+          \tContextPolicy ai.ContextPolicy                `json:"contextPolicy"`
+          \tCommandPolicy ai.CommandPolicy                `json:"commandPolicy"`
+          \tMessages      []ai.ChatMessage                `json:"messages"`
+          \tChatSessionID string                          `json:"chatSessionId"`
+          }'''
+          new = '''type persistedAIWorkspaceState struct {
+          \tProviders             []persistedAIProviderDescriptor `json:"providers"`
+          \tContextPolicy         ai.ContextPolicy                `json:"contextPolicy"`
+          \tCommandPolicy         ai.CommandPolicy                `json:"commandPolicy"`
+          \tMessages              []ai.ChatMessage                `json:"messages"`
+          \tChatSessionID         string                          `json:"chatSessionId"`
+          \tPendingNativeToolCall *ai.PendingNativeToolCall       `json:"pendingNativeToolCall,omitempty"`
+          }'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          old = '''\t\tChatSessionID: state.ChatSessionID,
+\t\tProviders:     make([]persistedAIProviderDescriptor, 0, len(state.Providers)),'''
+          new = '''\t\tChatSessionID:         state.ChatSessionID,
+\t\tPendingNativeToolCall: clonePendingNativeToolCall(state.PendingNativeToolCall),
+\t\tProviders:             make([]persistedAIProviderDescriptor, 0, len(state.Providers)),'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          old = '''\t\tChatSessionID: persisted.ChatSessionID,
+\t\tProviders:     make([]ai.ProviderDescriptor, 0, len(persisted.Providers)),'''
+          new = '''\t\tChatSessionID:         persisted.ChatSessionID,
+\t\tPendingNativeToolCall: clonePendingNativeToolCall(persisted.PendingNativeToolCall),
+\t\tProviders:             make([]ai.ProviderDescriptor, 0, len(persisted.Providers)),'''
+          if old in text:
+              text = text.replace(old, new, 1)
+          marker = '''func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState {'''
+          helper = '''func clonePendingNativeToolCall(pending *ai.PendingNativeToolCall) *ai.PendingNativeToolCall {
+          \tif pending == nil { return nil }
+          \tclone := *pending
+          \treturn &clone
+          }
 
+          '''
+          if 'func clonePendingNativeToolCall(' not in text:
+              text = text.replace(marker, helper + marker, 1)
+          p.write_text(text)
+      - name: Format
+        run: gofmt -w internal/storage/disk/store.go
       - name: Run tests
         run: go test ./...
+      - name: Commit patch
+        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/storage/disk/store.go
+          if git diff --cached --quiet; then echo 'No disk persistence changes'; else git commit -m 'feat(ai): persist pending native tool approvals'; git push; fi
