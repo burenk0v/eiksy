@@ -1,0 +1,48 @@
+name: migrate-ai-tool-calling
+
+on:
+  push:
+    branches:
+      - feat/ai-tool-calling
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/ai-tool-calling
+          fetch-depth: 0
+
+      - name: Apply native tool calling integration
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('internal/app/service.go')
+          text = p.read_text()
+          marker = '\tactiveSessionID = strings.TrimSpace(activeSessionID)\n'
+          injection = marker + '\n\tif reply, handled, err := s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID); handled {\n\t\treturn err\n\t} else if err != nil {\n\t\treturn fmt.Errorf("AI tool calling failed: %w", err)\n\t} else {\n\t\t_ = reply\n\t}\n'
+          if 'sendChatMessageWithNativeTools' not in text:
+              # Native path must run after provider selection, so locate the state/provider block.
+              old = '''\tif provider == nil {\n\t\treturn fmt.Errorf("no AI provider is configured; configure one in Settings first")\n\t}\n\n\tstate.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})'''
+              new = '''\tif provider == nil {\n\t\treturn fmt.Errorf("no AI provider is configured; configure one in Settings first")\n\t}\n\n\tif reply, handled, err := s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message); handled {\n\t\treturn err\n\t} else if err != nil {\n\t\treturn fmt.Errorf("AI tool calling failed: %w", err)\n\t} else {\n\t\t_ = reply\n\t}\n\n\tstate.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})'''
+              if old not in text:
+                  raise SystemExit('service.go insertion point not found')
+              text = text.replace(old, new, 1)
+              p.write_text(text)
+          PY
+
+      - name: Remove migration workflow
+        run: rm -f .github/workflows/ai-tool-calling-migrate.yml
+
+      - name: Commit migration
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/app/service.go .github/workflows/ai-tool-calling-migrate.yml
+          git diff --cached --quiet || git commit -m 'feat: integrate native AI tool calling'
+          git push origin feat/ai-tool-calling
