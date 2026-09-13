@@ -1629,6 +1629,14 @@ func (s *Service) SendChatMessage(ctx context.Context, message string, activeSes
 		return fmt.Errorf("no AI provider is configured; configure one in Settings first")
 	}
 
+	if reply, handled, err := s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message); handled {
+		return err
+	} else if err != nil {
+		return fmt.Errorf("AI tool calling failed: %w", err)
+	} else {
+		_ = reply
+	}
+
 	state.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})
 	s.store.UpdateAIState(state)
 
