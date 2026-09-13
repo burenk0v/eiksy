@@ -41,18 +41,20 @@ type nativeChatResponse struct {
 }
 
 func (s *Service) sendChatMessageWithNativeTools(ctx context.Context, provider *ai.ProviderDescriptor, state ai.WorkspaceState, activeSessionID, userMessage string) (string, bool, error) {
-	if provider == nil || !commandToolEnabled(state.CommandPolicy, nativeSSHExecPolicyToolID) {
+	if provider == nil {
 		return "", false, nil
 	}
-
+	tools := []map[string]any(nil)
+	if commandToolEnabled(state.CommandPolicy, nativeSSHExecPolicyToolID) {
+		tools = openAIToolDefinitions()
+	}
 	messages := s.nativeMessagesFromState(state, activeSessionID)
 	messages = append(messages, nativeChatMessage{Role: "user", Content: userMessage})
-	return s.runNativeToolLoop(ctx, provider, state.ChatSessionID, state.CommandPolicy, activeSessionID, userMessage, messages)
+	return s.runNativeToolLoop(ctx, provider, state.ChatSessionID, state.CommandPolicy, activeSessionID, userMessage, messages, tools)
 }
 
-func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDescriptor, chatSessionID string, policy ai.CommandPolicy, activeSessionID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
+func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDescriptor, chatSessionID string, policy ai.CommandPolicy, activeSessionID, userMessage string, messages []nativeChatMessage, tools []map[string]any) (string, bool, error) {
 	toolPolicy := normalizeCommandPolicy(policy)
-	tools := openAIToolDefinitions()
 
 	for turn := 0; turn < 4; turn++ {
 		response, err := s.callNativeToolCompletion(ctx, provider, messages, chatSessionID, tools)
@@ -73,6 +75,9 @@ func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDe
 			return reply, true, nil
 		}
 
+		if len(tools) == 0 {
+			return "", true, fmt.Errorf("AI returned tool calls while tools are disabled")
+		}
 		messages = append(messages, nativeChatMessage{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
 		for _, call := range response.ToolCalls {
 			result, pending, err := s.dispatchNativeToolCall(call, toolPolicy, activeSessionID, provider.ID, userMessage, messages)
@@ -235,7 +240,11 @@ func (s *Service) resumePendingNativeToolCall(ctx context.Context, pending *ai.P
 	}
 	state.PendingNativeToolCall = nil
 	s.store.UpdateAIState(state)
-	_, _, err = s.runNativeToolLoop(ctx, provider, state.ChatSessionID, state.CommandPolicy, pending.SessionID, pending.UserMessage, messages)
+	tools := []map[string]any(nil)
+	if commandToolEnabled(state.CommandPolicy, nativeSSHExecPolicyToolID) {
+		tools = openAIToolDefinitions()
+	}
+	_, _, err = s.runNativeToolLoop(ctx, provider, state.ChatSessionID, state.CommandPolicy, pending.SessionID, pending.UserMessage, messages, tools)
 	return err
 }
 
