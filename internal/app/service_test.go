@@ -1,13 +1,309 @@
 package app
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
-	"eiksy/internal/memory"
+	"eiksy/internal/domain/settings"
 	"eiksy/internal/securestorage"
+	"eiksy/internal/storage/memory"
 )
 
+func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	state := service.GetShellState()
+	if len(state.Protocols) != 3 { t.Fatalf("expected 3 protocols, got %d", len(state.Protocols)) }
+	if state.SessionProfiles == nil { t.Fatal("expected session profiles slice") }
+	if len(state.CredentialProviders) != 0 { t.Fatalf("expected 0 credential providers, got %d", len(state.CredentialProviders)) }
+	if len(state.AI.Providers) != 2 { t.Fatalf("expected 2 ai providers, got %d", len(state.AI.Providers)) }
+}
+
+func TestLaunchSessionCreatesRuntimeTabAndHistory(t *testing.T) {
+	service := NewService(seedStore(t), nil, nil)
+	before := service.GetShellState()
+	launched, err := service.LaunchSession("artifact-mirror")
+	if err != nil { t.Fatalf("launch session: %v", err) }
+	after := service.GetShellState()
+	if launched.ProfileID != "artifact-mirror" { t.Fatalf("expected profile artifact-mirror, got %s", launched.ProfileID) }
+	if len(after.ActiveSessions) != len(before.ActiveSessions)+1 { t.Fatalf("expected active session count to grow, before=%d after=%d", len(before.ActiveSessions), len(after.ActiveSessions)) }
+	if len(after.SessionHistory) != len(before.SessionHistory)+1 { t.Fatalf("expected launch history count to grow, before=%d after=%d", len(before.SessionHistory), len(after.SessionHistory)) }
+	if len(after.SessionHistory) == 0 || after.SessionHistory[0].ProfileID != "artifact-mirror" { t.Fatalf("expected newest launch history entry to be artifact-mirror, got %+v", after.SessionHistory) }
+	var launchedProfileFound bool
+	for _, profile := range after.SessionProfiles {
+		if profile.ID == "artifact-mirror" {
+			launchedProfileFound = true
+			if profile.LastLaunchedAt == "" { t.Fatal("expected launched profile to record last launch time") }
+			break
+		}
+	}
+	if !launchedProfileFound { t.Fatal("expected launched profile to remain in shell state") }
+}
+
+func TestLaunchHistoryIsCapped(t *testing.T) {
+	service := NewService(seedStore(t), nil, nil)
+	for range 150 { if _, err := service.LaunchSession("artifact-mirror"); err != nil { t.Fatalf("launch session: %v", err) } }
+	state := service.GetShellState()
+	if len(state.SessionHistory) != 100 { t.Fatalf("expected capped launch history of 100 entries, got %d", len(state.SessionHistory)) }
+}
+
+func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *testing.T) {
+	store := memory.NewStore()
+	original := sessions.Profile{ID: "prod-ssh", Name: "prod-ssh", ProtocolID: "ssh", Host: "prod.internal", Port: 22, Username: "ops", Password: sessions.EncryptedString("keep-me")}
+	if err := store.UpsertSessionProfile(original); err != nil { t.Fatalf("seed session profile: %v", err) }
+	service := NewService(store, nil, nil)
+	updated := original; updated.Name = "prod-ssh-renamed"; updated.Password = ""
+	if err := service.CreateSessionProfile(updated); err != nil { t.Fatalf("update session profile: %v", err) }
+	profile, ok := store.SessionProfile("prod-ssh")
+	if !ok { t.Fatal("updated profile not found") }
+	if !profile.HasPassword { t.Fatal("expected password flag to be preserved") }
+	password, err := store.LoadSecret(securestorage.SessionPasswordKey("prod-ssh"))
+	if err != nil { t.Fatalf("load preserved password: %v", err) }
+	if password != "keep-me" { t.Fatalf("expected password to be preserved, got %q", password) }
+}
+
+func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SelectAIProvider("openai-compatible-cloud"); err != nil { t.Fatalf("select ai provider: %v", err) }
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	if !cloudProvider.Selected { t.Fatal("expected cloud provider to be selected") }
+}
+
+func TestSaveCloudProviderStoresEndpointAndConfiguration(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil { t.Fatalf("save cloud provider: %v", err) }
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	if !cloudProvider.Selected { t.Fatal("expected cloud provider to be selected") }
+	if !cloudProvider.Configured { t.Fatal("expected cloud provider to be configured") }
+	if cloudProvider.Endpoint != "https://models.example.com/v1" { t.Fatalf("expected cloud endpoint to be saved, got %q", cloudProvider.Endpoint) }
+	if cloudProvider.Model != "gpt-5.6" { t.Fatalf("expected cloud model to be saved, got %q", cloudProvider.Model) }
+	if cloudProvider.Status != "ready" { t.Fatalf("expected cloud provider status ready, got %q", cloudProvider.Status) }
+	if !cloudProvider.HasToken { t.Fatal("expected cloud provider token flag to be set") }
+	token, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"))
+	if err != nil { t.Fatalf("load saved cloud token: %v", err) }
+	if token != "secret-token" { t.Fatalf("expected cloud token to be saved, got %q", token) }
+}
+
+func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "secret-token"); err != nil { t.Fatalf("save cloud provider: %v", err) }
+	if err := service.SaveCloudProvider("gpt-5.7", "https://models.example.com/v2", ""); err != nil { t.Fatalf("save cloud provider with empty token: %v", err) }
+	state := service.GetShellState()
+	cloudProvider := mustFindProviderByID(t, state, "openai-compatible-cloud")
+	token, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"))
+	if err != nil { t.Fatalf("load preserved cloud token: %v", err) }
+	if token != "secret-token" { t.Fatalf("expected cloud token to be preserved, got %q", token) }
+	if cloudProvider.Model != "gpt-5.7" { t.Fatalf("expected updated model to be saved, got %q", cloudProvider.Model) }
+	if cloudProvider.Endpoint != "https://models.example.com/v2" { t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint) }
+}
+
+func TestSaveLocalProviderStoresCustomURLAndSelectsLocalProvider(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SaveLocalProvider("https://models.example.com/qwen3.gguf"); err != nil { t.Fatalf("save local provider: %v", err) }
+	state := service.GetShellState()
+	localProvider := mustFindProviderByID(t, state, "local-qwen3-4b")
+	if !localProvider.Selected { t.Fatal("expected local provider to be selected") }
+	if localProvider.DownloadURL != "https://models.example.com/qwen3.gguf" { t.Fatalf("expected local provider url to be saved, got %q", localProvider.DownloadURL) }
+	if localProvider.Status != "download required" { t.Fatalf("expected local provider to require download, got %q", localProvider.Status) }
+}
+
+func TestDownloadAndStartLocalModel(t *testing.T) {
+	homeDir := t.TempDir(); t.Setenv("HOME", homeDir)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("gguf")) })); defer server.Close()
+	binDir := t.TempDir(); scriptPath := filepath.Join(binDir, "llama-server")
+	script := "#!/usr/bin/env python3\nimport json\nfrom http.server import BaseHTTPRequestHandler, HTTPServer\n\nclass Handler(BaseHTTPRequestHandler):\n    def do_GET(self):\n        if self.path == '/v1/models':\n            body = json.dumps({'data': [{'id': 'Qwen3-4B-Q4_K_M'}]}).encode()\n            self.send_response(200); self.send_header('Content-Type', 'application/json'); self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body); return\n        self.send_response(404); self.end_headers()\n    def log_message(self, format, *args): pass\n\nHTTPServer(('127.0.0.1', 8012), Handler).serve_forever()\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil { t.Fatalf("write llama-server stub: %v", err) }
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.DownloadLocalModel(server.URL + "/Qwen3-4B-Q4_K_M.gguf"); err != nil { t.Fatalf("download local model: %v", err) }
+	state := service.GetShellState(); localProvider := mustFindProviderByID(t, state, "local-qwen3-4b")
+	if !fileExists(localProvider.LocalPath) { t.Fatalf("expected local model file to exist at %q", localProvider.LocalPath) }
+	if localProvider.Status != "stopped" { t.Fatalf("expected downloaded local model to be stopped, got %q", localProvider.Status) }
+	if err := service.StartLocalModel(); err != nil { t.Fatalf("start local model: %v", err) }
+	t.Cleanup(func() { _ = service.StopLocalModel() })
+	state = service.GetShellState(); localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
+	if localProvider.Status != "running" { t.Fatal("expected local provider to be running") }
+	if err := service.StopLocalModel(); err != nil { t.Fatalf("stop local model: %v", err) }
+	state = service.GetShellState(); localProvider = mustFindProviderByID(t, state, "local-qwen3-4b")
+	if localProvider.Status == "running" { t.Fatal("expected local provider to stop") }
+}
+
+func TestWaitForLocalModelReadyFailsWhenRequestedModelMissing(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":[{"id":"other-model"}]}`)) })); defer server.Close()
+	service := NewService(memory.NewStore(), nil, nil)
+	err := service.waitForLocalModelReady(server.URL, "qwen3-required", time.Second)
+	if err == nil || !strings.Contains(err.Error(), "qwen3-required") { t.Fatalf("expected missing model readiness error, got %v", err) }
+}
+
+func TestListCloudModelsFetchesAndSortsUniqueModels(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { authHeader = r.Header.Get("Authorization"); if r.URL.Path != "/v1/models" { t.Fatalf("expected /v1/models path, got %s", r.URL.Path) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6"},{"id":"gpt-4.1"},{"id":"gpt-5.6"},{"id":" "}]}`)) })); defer server.Close()
+	service := NewService(memory.NewStore(), nil, nil)
+	models, err := service.ListCloudModels(server.URL+"/v1", "secret-token")
+	if err != nil { t.Fatalf("list cloud models: %v", err) }
+	if !slices.Equal(models, []string{"gpt-4.1", "gpt-5.6"}) { t.Fatalf("unexpected models list: %#v", models) }
+	if !strings.HasPrefix(authHeader, "Bearer ") { t.Fatalf("expected bearer authorization header, got %q", authHeader) }
+}
+
+func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
+	var authHeader string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { authHeader = r.Header.Get("Authorization"); w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6"}]}`)) })); defer server.Close()
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SaveCloudProvider("gpt-5.6", server.URL+"/v1", "saved-token"); err != nil { t.Fatalf("save cloud provider: %v", err) }
+	if _, err := service.ListCloudModels(server.URL+"/v1", ""); err != nil { t.Fatalf("list cloud models: %v", err) }
+	if !strings.HasPrefix(authHeader, "Bearer ") { t.Fatalf("expected bearer authorization header, got %q", authHeader) }
+}
+
+func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil); defer stopCloudAuthSessionForTest(service)
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1")
+	if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
+	if session.Status != "pending" { t.Fatalf("expected pending auth session, got %q", session.Status) }
+	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
+	if authURL.Scheme != "https" || authURL.Host != "sourcegraph.example.com" { t.Fatalf("unexpected auth url origin: %s", session.AuthURL) }
+	if authURL.Path != "/user/settings/tokens/new/callback" { t.Fatalf("unexpected auth url path: %s", authURL.Path) }
+	if !strings.HasPrefix(authURL.Query().Get("requestFrom"), "CODY_CLI-") { t.Fatalf("unexpected requestFrom value: %q", authURL.Query().Get("requestFrom")) }
+}
+
+func TestStartCloudProviderAuthRejectsUnsupportedEndpoint(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	_, err := service.StartCloudProviderAuth("https://api.openai.com/v1")
+	if err == nil || !strings.Contains(err.Error(), "Sourcegraph/Cody-compatible") { t.Fatalf("expected unsupported endpoint error, got %v", err) }
+}
+
+func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil); defer stopCloudAuthSessionForTest(service)
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1"); if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
+	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
+	requestFrom := authURL.Query().Get("requestFrom"); port := strings.TrimPrefix(requestFrom, "CODY_CLI-"); if port == requestFrom || port == "" { t.Fatalf("unexpected requestFrom value: %q", requestFrom) }
+	resp, err := http.Get("http://localhost:" + port + "/api/sourcegraph/token?token=browser-token"); if err != nil { t.Fatalf("invoke callback: %v", err) }; resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
+	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
+	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
+	if completed.Token != "browser-token" { t.Fatalf("expected received token to be returned, got %q", completed.Token) }
+}
+
+func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil); defer stopCloudAuthSessionForTest(service)
+	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1"); if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
+	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
+	requestFrom := authURL.Query().Get("requestFrom"); port := strings.TrimPrefix(requestFrom, "CODY_CLI-"); if port == requestFrom || port == "" { t.Fatalf("unexpected requestFrom value: %q", requestFrom) }
+	resp, err := http.Post("http://127.0.0.1:"+port+"/api/sourcegraph/token", "application/json", bytes.NewBufferString(`{"accessToken":"posted-token"}`)); if err != nil { t.Fatalf("post callback: %v", err) }; resp.Body.Close()
+	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
+	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
+	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
+	if completed.Token != "posted-token" { t.Fatalf("expected posted token to be returned, got %q", completed.Token) }
+}
+
+func TestListVaultSecretsRenewsTokenWhenEnabled(t *testing.T) {
+	var renewCalls, listCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/token/renew-self": renewCalls++; if r.Method != http.MethodPost { t.Fatalf("expected renew POST, got %s", r.Method) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"auth":{"renewable":true}}`)); case "/v1/secret/metadata/team": listCalls++; if got := r.URL.Query().Get("list"); got != "true" { t.Fatalf("expected list=true query, got %q", got) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/","db"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
+	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAutoRenewToken = true
+	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil { t.Fatalf("store vault token: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
+	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
+	if renewCalls != 1 { t.Fatalf("expected 1 renew call, got %d", renewCalls) }; if listCalls != 1 { t.Fatalf("expected 1 list call, got %d", listCalls) }; if len(entries) != 2 { t.Fatalf("expected 2 entries, got %d", len(entries)) }
+}
+
+func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/token/renew-self": http.Error(w, "renew denied", http.StatusForbidden); case "/v1/secret/metadata/team": w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
+	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAutoRenewToken = true
+	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil { t.Fatalf("store vault token: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
+	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
+	if len(entries) != 1 || entries[0].Name != "prod" { t.Fatalf("unexpected entries: %#v", entries) }
+}
+
+func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
+	var loginCalls, listCalls int; var listedWithToken string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/oidc-sec/login/CORP\\alice": loginCalls++; if r.Method != http.MethodPost { t.Fatalf("expected login POST, got %s", r.Method) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"auth":{"client_token":"dynamic-token"}}`)); case "/v1/secret/metadata/team": listCalls++; listedWithToken = r.Header.Get("X-Vault-Token"); w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
+	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAuthMethod = "oidc-sec"; cfg.VaultLogin = `CORP\alice`
+	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-pass"); err != nil { t.Fatalf("store vault password: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
+	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
+	if loginCalls != 1 { t.Fatalf("expected 1 login call, got %d", loginCalls) }; if listCalls != 1 { t.Fatalf("expected 1 list call, got %d", listCalls) }; if listedWithToken != "dynamic-token" { t.Fatalf("expected listed token to be dynamic-token, got %q", listedWithToken) }; if len(entries) != 1 || entries[0].Name != "prod" { t.Fatalf("unexpected entries: %#v", entries) }
+}
+
+func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if err := service.SendChatMessage(nil, "hello", ""); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") { t.Fatalf("expected provider configuration error, got %v", err) }
+	service.ClearChat(); state := service.GetShellState()
+	if state.AI.Messages == nil { t.Fatal("expected clear chat to leave an empty message slice") }; if len(state.AI.Messages) != 0 { t.Fatalf("expected chat messages to be cleared, got %d", len(state.AI.Messages)) }; if state.AI.ChatSessionID == "" { t.Fatal("expected chat session id to be regenerated") }
+}
+
+func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testing.T) {
+	store := memory.NewStore(); profile := sessions.Profile{ID: "ssh-host", Name: "ssh-host", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}; if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	ssh := &recordingSSHManager{}; service := NewService(store, ssh, nil); tab, err := service.LaunchSession(profile.ID); if err != nil { t.Fatalf("launch session: %v", err) }
+	state := store.AIState(); state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-1", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}; store.UpdateAIState(state)
+	if err := service.ResolveCommandPolicyRequest("request-1", ai.CommandPermissionModeSession); err != nil { t.Fatalf("resolve request: %v", err) }
+	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending requests to be cleared, got %d", len(updated.CommandPolicy.PendingRequests)) }
+	if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "uname -a", ai.CommandPermissionAllow) { t.Fatalf("expected exact shell command grant for session %s", tab.ID) }
+	if len(ssh.inputs) != 1 { t.Fatalf("expected exactly one command dispatch, got %d", len(ssh.inputs)) }; if ssh.inputs[0].tabID != tab.ID { t.Fatalf("expected command to run in tab %s, got %s", tab.ID, ssh.inputs[0].tabID) }; if ssh.inputs[0].payload != "uname -a\n" { t.Fatalf("unexpected command payload %q", ssh.inputs[0].payload) }
+}
+
+func TestUpdateCommandPolicyNormalizesState(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil); policy := ai.CommandPolicy{Tools: []ai.CommandTool{{ID: " shell ", Name: "Shell", Enabled: true}, {ID: "custom-tool", Name: "Custom", Enabled: true}}, AllowedTools: []string{"SHELL", " ", "custom-tool", "shell"}, SessionAllowedTools: map[string][]string{" tab-1 ": []string{"SHELL", "custom-tool", "shell"}}, PendingRequests: []ai.CommandRequest{{ID: " req-1 ", ToolID: " SHELL ", SessionID: " tab-1 ", Command: "  ls -la  "}, {ID: "req-empty-command", ToolID: "shell", SessionID: "tab-1", Command: "   "}}, LocalDocsPath: " /tmp/docs "}
+	if err := service.UpdateCommandPolicy(policy); err != nil { t.Fatalf("update command policy: %v", err) }; state := service.GetShellState()
+	if state.AI.CommandPolicy.LocalDocsPath != "/tmp/docs" { t.Fatalf("expected docs path to be trimmed, got %q", state.AI.CommandPolicy.LocalDocsPath) }; if !slices.Contains(state.AI.CommandPolicy.AllowedTools, "shell") { t.Fatal("expected shell in normalized allowed tools") }; if len(state.AI.CommandPolicy.SessionAllowedTools["tab-1"]) == 0 { t.Fatal("expected normalized per-session tools for tab-1") }; if _, exists := state.AI.CommandPolicy.SessionAllowedTools[" tab-1 "]; exists { t.Fatal("expected spaced session key to be normalized") }; if len(state.AI.CommandPolicy.PendingRequests) != 1 { t.Fatalf("expected only valid pending requests after normalization, got %d", len(state.AI.CommandPolicy.PendingRequests)) }; if state.AI.CommandPolicy.PendingRequests[0].Command != "ls -la" { t.Fatalf("expected pending command to be trimmed, got %q", state.AI.CommandPolicy.PendingRequests[0].Command) }
+}
+
+func TestResolveCommandPolicyRequestPersistsAlwaysGrantOnExecutionFailure(t *testing.T) {
+	store := memory.NewStore(); profile := sessions.Profile{ID: "ssh-host-fail", Name: "ssh-host-fail", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}; if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	ssh := &recordingSSHManager{sendInputErr: fmt.Errorf("write failed")}; service := NewService(store, ssh, nil); tab, err := service.LaunchSession(profile.ID); if err != nil { t.Fatalf("launch session: %v", err) }
+	state := store.AIState(); state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-fail", ToolID: "shell", SessionID: tab.ID, Command: "hostname"}}; store.UpdateAIState(state)
+	if err := service.ResolveCommandPolicyRequest("request-fail", ai.CommandPermissionModeAlways); err != nil { t.Fatalf("resolve request: %v", err) }
+	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending request to be removed, got %d", len(updated.CommandPolicy.PendingRequests)) }; if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", "", "hostname", ai.CommandPermissionAllow) { t.Fatalf("expected exact global command grant to persist, got %+v", updated.CommandPolicy.CommandRules) }
+}
+
+func TestBuildPortForwardSpecsWithRemoteTarget(t *testing.T) { specs := buildPortForwardSpecs("8080,9000-9001", "db.internal", "5432"); if specs != "8080:db.internal:5432,9000:db.internal:5432,9001:db.internal:5432" { t.Fatalf("unexpected specs: %s", specs) } }
+func TestBuildPortForwardSpecsFallsBackToSamePortWhenRemotePortIsEmpty(t *testing.T) { specs := buildPortForwardSpecs("8080-8081", "db.internal", ""); if specs != "8080:db.internal:8080,8081:db.internal:8081" { t.Fatalf("unexpected specs: %s", specs) } }
+
+func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
+	store := memory.NewStore(); service := NewService(store, nil, nil); initial := store.Settings(); initial.VaultProvider = "keepass"; initial.KeePassDatabasePath = "/tmp/dev.kdbx"
+	if err := store.StoreSecret(securestorage.KeePassPasswordKey(), "keepass-secret"); err != nil { t.Fatalf("store keepass password: %v", err) }; if err := store.UpdateSettings(initial); err != nil { t.Fatalf("seed settings: %v", err) }
+	updated := store.Settings(); updated.KeePassPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasKeePassPassword { t.Fatal("expected keepass password flag to persist") }; password, err := store.LoadSecret(securestorage.KeePassPasswordKey()); if err != nil { t.Fatalf("load keepass password: %v", err) }; if password != "keepass-secret" { t.Fatalf("expected keepass password to persist, got %q", password) }
+}
+
+func TestUpdateSettingsVaultPasswordPersistsOnBlankUpdate(t *testing.T) {
+	store := memory.NewStore(); service := NewService(store, nil, nil); initial := store.Settings(); initial.VaultAuthMethod = "domain"; initial.VaultLogin = "CORP\\ops"
+	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-secret"); err != nil { t.Fatalf("store vault password: %v", err) }; if err := store.UpdateSettings(initial); err != nil { t.Fatalf("seed settings: %v", err) }
+	updated := store.Settings(); updated.VaultPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasVaultPassword { t.Fatal("expected vault password flag to persist") }; password, err := store.LoadSecret(securestorage.VaultPasswordKey()); if err != nil { t.Fatalf("load vault password: %v", err) }; if password != "vault-secret" { t.Fatalf("expected vault password to persist, got %q", password) }
+}
+
+func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
+	store := memory.NewStore(); target := sessions.Profile{ID: "jump-host", Name: "jump-host", ProtocolID: "ssh", Host: "jump.internal", Port: 22, Username: "ops"}; source := sessions.Profile{ID: "source-host", Name: "source-host", ProtocolID: "ssh", Host: "source.internal", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(target); err != nil { t.Fatalf("seed target profile: %v", err) }; if err := store.UpsertSessionProfile(source); err != nil { t.Fatalf("seed source profile: %v", err) }
+	cfg := store.Settings(); cfg.PortForwardRules = []settings.PortForwardRule{{LocalPort: "15432", RemoteHost: "db.internal", RemotePort: "5432", HostID: "jump-host", Enabled: true}}; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
+	service := NewService(store, nil, nil); withRules := service.applySSHForwardingSettings(source); if got := withRules.Options["local_forwards"]; got != "15432:db.internal:5432" { t.Fatalf("unexpected forward specs: %q", got) }
+}
+
+func stopCloudAuthSessionForTest(service *Service) { service.authMu.Lock(); defer service.authMu.Unlock(); service.stopCloudAuthLocked() }
+
+func seedStore(t *testing.T) *memory.Store {
+	t.Helper(); store := memory.NewStore(); profiles := []sessions.Profile{{ID: "artifact-mirror", Name: "artifact-mirror", Group: "Shared Services", Tags: []string{"sftp", "artifacts"}, ProtocolID: "sftp", Host: "mirror.internal", Port: 22, Username: "mirrorbot"}, {ID: "ops-linux-admin", Name: "ops-linux-admin", Group: "Production", Tags: []string{"linux", "ssh"}, ProtocolID: "ssh", Host: "prod-shell.internal", Port: 22, Username: "ops"}}
+	for _, profile := range profiles { if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed session profile: %v", err) } }; return store
+}
+
+func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.ProviderDescriptor { t.Helper(); for _, provider := range state.AI.Providers { if provider.ID == providerID { return provider } }; t.Fatalf("expected provider %q to exist", providerID); return ai.ProviderDescriptor{} }
+
+func hasCommandRule(rules []ai.CommandRule, toolID, sessionID, pattern string, action ai.CommandPermissionAction) bool { for _, rule := range rules { if rule.ToolID == toolID && rule.SessionID == sessionID && rule.Pattern == pattern && rule.Action == action { return true } }; return false }
+
+type sshInputCall struct { tabID string; payload string }
+type recordingSSHManager struct { inputs []sshInputCall; sendInputErr error }
+func (m *recordingSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
+func (m *recordingSSHManager) SendInput(tabID, data string) error { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: data}); return m.sendInputErr }
+func (m *recordingSSHManager) ResizeTerminal(string, int, int) error { return nil }
+func (m *recordingSSHManager) Disconnect(string) error { return nil }
+func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
+func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
+func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
