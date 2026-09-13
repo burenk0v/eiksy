@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
+	"eiksy/internal/securestorage"
 )
 
 const nativeSSHExecToolName = "ssh.exec"
@@ -230,9 +231,6 @@ func (s *Service) resumePendingNativeToolCall(ctx context.Context, pending *ai.P
 	provider, err := s.providerByID(state, pending.ProviderID)
 	if err != nil {
 		return err
-	}
-	if strings.TrimSpace(pending.UserMessage) != "" {
-		state.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: pending.UserMessage})
 	}
 	state.PendingNativeToolCall = nil
 	s.store.UpdateAIState(state)
