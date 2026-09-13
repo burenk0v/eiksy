@@ -1,0 +1,180 @@
+name: patch-native-tool-flow
+
+on:
+  push:
+    branches: [feat/ai-tool-calling]
+    paths: [.github/workflows/patch-native-tool-flow.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch service
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p = Path('internal/app/service.go')
+          text = p.read_text()
+
+          send = '''func (s *Service) SendChatMessage(ctx context.Context, message string, activeSessionID string) error {
+          	message = strings.TrimSpace(message)
+          	if message == "" {
+          		return fmt.Errorf("message cannot be empty")
+          	}
+          	activeSessionID = strings.TrimSpace(activeSessionID)
+
+          	state := s.store.AIState()
+          	provider, err := s.activeConfiguredProvider(state)
+          	if err != nil {
+          		return err
+          	}
+          	if provider == nil {
+          		return fmt.Errorf("no AI provider is configured; configure one in Settings first")
+          	}
+
+          	s.emitFn("ai:status", map[string]string{"status": "thinking"})
+          	defer s.emitFn("ai:status", map[string]string{"status": "idle"})
+          	_, _, err = s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message)
+          	if err != nil {
+          		return fmt.Errorf("AI request failed: %w", err)
+          	}
+          	return nil
+          }
+
+          // ClearChat removes all messages from the AI chat history.
+          '''
+          text, n = re.subn(r'func \(s \*Service\) SendChatMessage[\\s\\S]*?// ClearChat removes all messages from the AI chat history\\.\\n', send, text, count=1)
+          if n != 1:
+              raise SystemExit('SendChatMessage block not found')
+
+          resolve = '''func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandPermissionMode) error {
+          	requestID = strings.TrimSpace(requestID)
+          	if requestID == "" {
+          		return fmt.Errorf("request id is required")
+          	}
+          	state := s.store.AIState()
+          	policy := normalizeCommandPolicy(state.CommandPolicy)
+          	index := -1
+          	var request ai.CommandRequest
+          	for i, entry := range policy.PendingRequests {
+          		if entry.ID == requestID {
+          			index = i
+          			request = entry
+          			break
+          		}
+          	}
+          	if index < 0 {
+          		return fmt.Errorf("command request %q not found", requestID)
+          	}
+          
+          	removePending := func() {
+          		policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+          	}
+          
+          	if mode == ai.CommandPermissionModeDeny {
+          		removePending()
+          		state.CommandPolicy = policy
+          		if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+          			pending := state.PendingNativeToolCall
+          			state.PendingNativeToolCall = nil
+          			s.store.UpdateAIState(state)
+          			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, `{"status":"approval_denied","reason":"user denied the command"}`)
+          		}
+          		message := fmt.Sprintf("Denied command request for `%s`.", request.Command)
+          		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
+          		s.store.UpdateAIState(state)
+          		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+          		return nil
+          	}
+          
+          	switch mode {
+          	case ai.CommandPermissionModeAlways, ai.CommandPermissionModeSession, ai.CommandPermissionModeNow:
+          	default:
+          		return fmt.Errorf("unsupported permission mode %q", mode)
+          	}
+          	if !commandToolEnabled(policy, request.ToolID) {
+          		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
+          	}
+          
+          	decision, reason := evaluateCommandPolicy(policy, request.ToolID, request.SessionID, request.Command)
+          	if decision == commandPolicyDecisionDeny {
+          		removePending()
+          		state.CommandPolicy = policy
+          		message := fmt.Sprintf("Command denied by Command Policy: `%s`", request.Command)
+          		if strings.TrimSpace(reason) != "" {
+          			message += fmt.Sprintf(" (%s)", reason)
+          		}
+          		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
+          		s.store.UpdateAIState(state)
+          		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+          		return nil
+          	}
+          
+          	removePending()
+          	switch mode {
+          	case ai.CommandPermissionModeAlways:
+          		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{
+          			ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow,
+          			Description: "Approved by user: always allow this exact command",
+          		})
+          	case ai.CommandPermissionModeSession:
+          		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{
+          			ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow,
+          			Description: "Approved by user: allow this exact command for this session",
+          		})
+          	}
+          	policy.CommandRules = normalizeCommandRules(policy.CommandRules)
+          	state.CommandPolicy = policy
+          
+          	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+          		pending := state.PendingNativeToolCall
+          		state.PendingNativeToolCall = nil
+          		s.store.UpdateAIState(state)
+          		if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+          			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))
+          		}
+          		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))
+          	}
+          
+          	if request.ToolID != "shell" {
+          		return fmt.Errorf("tool %q does not support command dispatch", request.ToolID)
+          	}
+          	message := ""
+          	if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+          		message = fmt.Sprintf("Command execution failed: %v", err)
+          	} else {
+          		message = fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
+          	}
+          	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
+          	s.store.UpdateAIState(state)
+          	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+          	return nil
+          }
+
+          // AcceptSSHHostKey trusts the pending unknown host key for the given tab and
+          '''
+          text, n = re.subn(r'func \(s \*Service\) ResolveCommandPolicyRequest[\\s\\S]*?// AcceptSSHHostKey trusts the pending unknown host key for the given tab and\\n', resolve, text, count=1)
+          if n != 1:
+              raise SystemExit('ResolveCommandPolicyRequest block not found')
+
+          p.write_text(text)
+      - name: Format and test
+        run: |
+          gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
+          go test ./...
+      - name: Commit and remove patcher
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
+          git commit -m 'feat(ai): finish native approval continuation'
+          git push
+          git rm .github/workflows/patch-native-tool-flow.yml
+          git commit -m 'chore: remove temporary native tool flow patcher'
+          git push
