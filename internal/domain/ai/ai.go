@@ -86,7 +86,7 @@ type CommandPolicy struct {
 	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
 	CommandRules        []CommandRule       `json:"commandRules,omitempty"`
 	PendingRequests     []CommandRequest    `json:"pendingRequests"`
-	LocalDocsPath        string             `json:"localDocsPath,omitempty"`
+	LocalDocsPath       string              `json:"localDocsPath,omitempty"`
 }
 
 type ChatMessage struct {

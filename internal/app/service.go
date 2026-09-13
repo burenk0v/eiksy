@@ -80,14 +80,6 @@ const (
 	localAIPort            = "8012"
 )
 
-type parsedCommandRequest struct {
-	Type      string `json:"type"`
-	ToolID    string `json:"tool"`
-	SessionID string `json:"sessionId"`
-	Command   string `json:"command"`
-	Reason    string `json:"reason"`
-}
-
 type Service struct {
 	ctx             context.Context
 	store           stateStore
@@ -1620,7 +1612,6 @@ func (s *Service) SendChatMessage(ctx context.Context, message string, activeSes
 		return fmt.Errorf("message cannot be empty")
 	}
 	activeSessionID = strings.TrimSpace(activeSessionID)
-
 	state := s.store.AIState()
 	provider, err := s.activeConfiguredProvider(state)
 	if err != nil {
@@ -1629,74 +1620,12 @@ func (s *Service) SendChatMessage(ctx context.Context, message string, activeSes
 	if provider == nil {
 		return fmt.Errorf("no AI provider is configured; configure one in Settings first")
 	}
-
-	if reply, handled, err := s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message); handled {
-		return err
-	} else if err != nil {
-		return fmt.Errorf("AI tool calling failed: %w", err)
-	} else {
-		_ = reply
-	}
-
-	state.Messages = append(state.Messages, ai.ChatMessage{Role: "user", Content: message})
-	s.store.UpdateAIState(state)
-
 	s.emitFn("ai:status", map[string]string{"status": "thinking"})
 	defer s.emitFn("ai:status", map[string]string{"status": "idle"})
-	reply, err := s.callChatCompletion(s.resolveContext(ctx), provider, state.Messages, state.ChatSessionID, state.CommandPolicy, activeSessionID)
+	_, _, err = s.sendChatMessageWithNativeTools(s.resolveContext(ctx), provider, state, activeSessionID, message)
 	if err != nil {
 		return fmt.Errorf("AI request failed: %w", err)
 	}
-
-	state = s.store.AIState()
-	state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
-	if commandRequest, ok := extractCommandRequest(reply); ok {
-		if commandRequest.SessionID == "" {
-			commandRequest.SessionID = activeSessionID
-		}
-		commandRequest.ToolID = strings.ToLower(strings.TrimSpace(commandRequest.ToolID))
-		if commandRequest.ToolID == "" {
-			commandRequest.ToolID = "shell"
-		}
-		commandRequest.Command = strings.TrimSpace(commandRequest.Command)
-		commandRequest.Reason = strings.TrimSpace(commandRequest.Reason)
-		if commandRequest.Command == "" {
-			reply = "I could not run a command because the request did not include a command string."
-		} else if !commandToolEnabled(state.CommandPolicy, commandRequest.ToolID) {
-			reply = fmt.Sprintf("Tool %s is disabled in Command Policy. Enable it first to use command execution.", commandRequest.ToolID)
-		} else if commandRequest.ToolID != "shell" {
-			reply = fmt.Sprintf("Tool %s does not support command dispatch yet. Use shell for command execution.", commandRequest.ToolID)
-		} else if decision, reason := evaluateCommandPolicy(state.CommandPolicy, commandRequest.ToolID, commandRequest.SessionID, commandRequest.Command); decision == commandPolicyDecisionAllow {
-			if err := s.executeSessionCommand(commandRequest.SessionID, commandRequest.Command); err != nil {
-				reply = fmt.Sprintf("Command execution failed: %v", err)
-			} else {
-				reply = fmt.Sprintf("Executed command in session %s via tool %s:\n`%s`", commandRequest.SessionID, commandRequest.ToolID, commandRequest.Command)
-			}
-		} else if decision == commandPolicyDecisionDeny {
-			reply = fmt.Sprintf("Command denied by Command Policy: `%s`", commandRequest.Command)
-			if strings.TrimSpace(reason) != "" {
-				reply += fmt.Sprintf(" (%s)", reason)
-			}
-		} else {
-			request := ai.CommandRequest{
-				ID:          fmt.Sprintf("cmdreq-%d", time.Now().UTC().UnixNano()),
-				ToolID:      commandRequest.ToolID,
-				SessionID:   commandRequest.SessionID,
-				Command:     commandRequest.Command,
-				Reason:      commandRequest.Reason,
-				RequestedAt: time.Now().UTC().Format(time.RFC3339),
-			}
-			state.CommandPolicy.PendingRequests = append(state.CommandPolicy.PendingRequests, request)
-			reply = fmt.Sprintf("Command permission required for tool %s in session %s.\nCommand: `%s`", request.ToolID, request.SessionID, request.Command)
-			if request.Reason != "" {
-				reply += fmt.Sprintf("\nReason: %s", request.Reason)
-			}
-		}
-	}
-	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: reply})
-	s.store.UpdateAIState(state)
-
-	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": reply})
 	return nil
 }
 
@@ -1734,9 +1663,18 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	if index < 0 {
 		return fmt.Errorf("command request %q not found", requestID)
 	}
-	if mode == ai.CommandPermissionModeDeny {
+	removePending := func() {
 		policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+	}
+	if mode == ai.CommandPermissionModeDeny {
+		removePending()
 		state.CommandPolicy = policy
+		if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+			pending := state.PendingNativeToolCall
+			state.PendingNativeToolCall = nil
+			s.store.UpdateAIState(state)
+			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, `{"status":"approval_denied","reason":"user denied the command"}`)
+		}
 		message := fmt.Sprintf("Denied command request for `%s`.", request.Command)
 		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
 		s.store.UpdateAIState(state)
@@ -1751,10 +1689,9 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	if !commandToolEnabled(policy, request.ToolID) {
 		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
 	}
-
 	decision, reason := evaluateCommandPolicy(policy, request.ToolID, request.SessionID, request.Command)
 	if decision == commandPolicyDecisionDeny {
-		policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+		removePending()
 		state.CommandPolicy = policy
 		message := fmt.Sprintf("Command denied by Command Policy: `%s`", request.Command)
 		if strings.TrimSpace(reason) != "" {
@@ -1765,27 +1702,29 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
 		return nil
 	}
-
-	policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
+	removePending()
 	switch mode {
 	case ai.CommandPermissionModeAlways:
-		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{
-			ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow,
-			Description: "Approved by user: always allow this exact command",
-		})
+		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: always allow this exact command"})
 	case ai.CommandPermissionModeSession:
-		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{
-			ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow,
-			Description: "Approved by user: allow this exact command for this session",
-		})
+		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: allow this exact command for this session"})
 	}
 	policy.CommandRules = normalizeCommandRules(policy.CommandRules)
 	state.CommandPolicy = policy
-
-	message := ""
+	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+		pending := state.PendingNativeToolCall
+		state.PendingNativeToolCall = nil
+		s.store.UpdateAIState(state)
+		if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))
+		}
+		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))
+	}
 	if request.ToolID != "shell" {
-		message = fmt.Sprintf("Approved tool %s request. Command dispatch is currently supported only for shell, so `%s` was not executed.", request.ToolID, request.Command)
-	} else if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+		return fmt.Errorf("tool %q does not support command dispatch", request.ToolID)
+	}
+	message := ""
+	if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
 		message = fmt.Sprintf("Command execution failed: %v", err)
 	} else {
 		message = fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
@@ -2139,30 +2078,6 @@ func commandToolEnabled(policy ai.CommandPolicy, toolID string) bool {
 		}
 	}
 	return false
-}
-
-func extractCommandRequest(reply string) (parsedCommandRequest, bool) {
-	payload := strings.TrimSpace(reply)
-	if strings.HasPrefix(payload, "```") {
-		payload = strings.TrimPrefix(payload, "```")
-		payload = strings.TrimSpace(payload)
-		if strings.HasPrefix(payload, "json") {
-			payload = strings.TrimSpace(strings.TrimPrefix(payload, "json"))
-		}
-		payload = strings.TrimSuffix(payload, "```")
-		payload = strings.TrimSpace(payload)
-	}
-	if !strings.HasPrefix(payload, "{") || !strings.HasSuffix(payload, "}") {
-		return parsedCommandRequest{}, false
-	}
-	var request parsedCommandRequest
-	if err := json.Unmarshal([]byte(payload), &request); err != nil {
-		return parsedCommandRequest{}, false
-	}
-	if strings.ToLower(strings.TrimSpace(request.Type)) != "command_request" {
-		return parsedCommandRequest{}, false
-	}
-	return request, true
 }
 
 func (s *Service) executeSessionCommand(sessionID, command string) error {
