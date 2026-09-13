@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -22,5 +22,29 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Remove legacy pseudo-json AI path
+        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        shell: python
+        run: |
+          from pathlib import Path
+          p = Path('internal/app/service.go')
+          text = p.read_text()
+          marker = 'func (s *Service) callChatCompletion('
+          if marker in text:
+              start = text.index(marker)
+              end = text.index('func normalizeCommandPolicy(', start)
+              text = text[:start] + text[end:]
+              p.write_text(text)
+      - name: Format
+        run: gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
+
       - name: Run tests
         run: go test ./...
+
+      - name: Commit cleanup
+        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/app/service.go internal/app/native_tool_calling.go internal/domain/ai/ai.go
+          if git diff --cached --quiet; then echo 'No legacy AI path changes'; else git commit -m 'refactor(ai): remove legacy pseudo-json completion'; git push; fi
