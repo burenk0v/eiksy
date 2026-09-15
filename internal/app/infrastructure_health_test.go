@@ -61,6 +61,18 @@ func TestAnalyzeInfrastructureHealthFailedCheck(t *testing.T) {
 	}
 }
 
+func TestAnalyzeInfrastructureHealthMalformedMemoryOutput(t *testing.T) {
+	report := analyzeInfrastructureHealth([]aiDiagnosticCheck{
+		{Name: "memory", Result: sessions.CommandExecutionResult{Stdout: "Mem: unknown values\n"}},
+	})
+	if report.Status != "healthy" {
+		t.Fatalf("expected healthy status when malformed output cannot be interpreted, got %q", report.Status)
+	}
+	if len(report.Findings) != 0 {
+		t.Fatalf("malformed output should not create a fabricated finding: %#v", report.Findings)
+	}
+}
+
 func TestParseHumanBytes(t *testing.T) {
 	cases := []struct {
 		value string
