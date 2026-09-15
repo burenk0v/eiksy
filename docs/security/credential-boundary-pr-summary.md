@@ -1,0 +1,1 @@
+The security hardening branch denies direct access to common credential material through Command Policy, adds regression coverage, and documents the backend-owned credential boundary.
