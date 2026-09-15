@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
-	"eiksy/internal/domain/sessions"
 	"eiksy/internal/securestorage"
 )
 
