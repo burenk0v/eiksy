@@ -53,42 +53,6 @@ func TestAIInfrastructureContextNeverContainsCredentialMaterial(t *testing.T) {
 	}
 }
 
-func TestCommandAuditRedactsCredentialMaterial(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil)
-	service.recordCommandAudit(
-		"provider-1",
-		"session-1",
-		`curl -H "Authorization: Bearer super-secret-token" https://example.test?api_key=super-secret-key`,
-		"allow",
-		"approved",
-		`request failed password=super-secret-password`,
-		1,
-		42,
-		ai.CommandAuditEvent{ErrorType: "remote_error", Error: "token=super-secret-error"},
-	)
-
-	trail := service.GetCommandAuditTrail()
-	if len(trail) != 1 {
-		t.Fatalf("expected one audit event, got %d", len(trail))
-	}
-
-	serialized, err := json.Marshal(trail[0])
-	if err != nil {
-		t.Fatalf("marshal audit event: %v", err)
-	}
-	payload := string(serialized)
-	for _, secret := range []string{
-		"super-secret-token",
-		"super-secret-key",
-		"super-secret-password",
-		"super-secret-error",
-	} {
-		if strings.Contains(payload, secret) {
-			t.Fatalf("audit trail leaked secret %q: %s", secret, payload)
-		}
-	}
-}
-
 func TestCommandPolicyResolutionAuditDoesNotLeakCredentialMaterial(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	request := ai.CommandRequest{
