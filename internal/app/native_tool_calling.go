@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/sessions"
 	"eiksy/internal/securestorage"
 )
 
@@ -184,11 +185,21 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 		}
 		return fmt.Sprintf(`{"error":"command denied by Command Policy","reason":%q}`, reason), false, nil
 	case commandPolicyDecisionAllow:
-		output, err := s.executeSessionCommandWithOutput(args.SessionID, args.Command)
-		if err != nil {
-			return fmt.Sprintf(`{"error":"command execution failed","message":%q,"output":%q}`, err.Error(), output), false, nil
+		result, err := s.executeSessionCommandResult(args.SessionID, args.Command)
+		payload := map[string]any{
+			"status":    "executed",
+			"sessionId": args.SessionID,
+			"command":   args.Command,
+			"result":    result,
 		}
-		return fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q,"output":%q}`, args.SessionID, args.Command, output), false, nil
+		if err != nil {
+			payload["status"] = "execution_failed"
+		}
+		encoded, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return "", false, marshalErr
+		}
+		return string(encoded), false, nil
 	case commandPolicyDecisionAsk:
 		state := s.store.AIState()
 		state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
