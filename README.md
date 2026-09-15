@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="frontend/src/assets/images/logo.png" alt="Eiksy logo" width="180">
+  <img src="frontend/src/assets/images/logo.png" alt="Eiksy AI operations platform logo" width="180">
 </p>
 
 <h1 align="center">Eiksy</h1>
 
 <p align="center">
   <strong>Think. Connect. Operate.</strong><br>
-  Secure remote operations workstation with AI at your side.
+  AI-powered remote operations workstation for infrastructure
 </p>
 
 <p align="center">
@@ -31,79 +31,199 @@
 
 ## What is Eiksy?
 
-Eiksy is a cross-platform remote operations workstation built with Go and Wails.
+**Eiksy is an AI-powered remote operations workstation for infrastructure engineers, DevOps engineers and system administrators.**
 
-It brings remote access, file management, credentials, and AI-assisted operations into a single desktop application.
+It combines **AI assistance, terminal access, SSH, SFTP, RDP, remote file management and secure credential storage** in a single cross-platform desktop application.
 
-Instead of switching between terminal clients, SFTP tools, RDP applications, password managers, and AI assistants, Eiksy aims to provide one secure workspace for working with infrastructure.
+Instead of switching between an SSH client, terminal emulator, SFTP client, RDP application, password manager and AI assistant, Eiksy provides one workspace for **secure infrastructure operations**.
+
+Eiksy is designed for people who work with remote servers and infrastructure every day and want AI to become a useful part of their workflow — without giving an AI agent uncontrolled access to production systems.
+
+### In short
+
+**Eiksy = AI + Terminal + SSH/SFTP + RDP + Credentials + Infrastructure Operations**
 
 ---
 
-## Features
+## Why Eiksy?
 
-### SSH
+Modern infrastructure workflows often require several separate tools:
 
-- SSH terminal sessions
-- Import existing SSH configuration
-- "ProxyJump" support
-- SSH agent integration
-- Local SSH tunnels
-- Encrypted SSH key passphrases
-- Saved connection profiles
-- Session history
-- Multiple active sessions
+```text
+Terminal
+   +
+SSH client
+   +
+SFTP client
+   +
+RDP client
+   +
+Password manager
+   +
+AI assistant
+   =
+Too many tools
+```
 
-### SFTP
+Eiksy brings these workflows together:
 
-- Remote file browsing
-- Directory navigation
-- File transfers
-- Remote file editing
-- SFTP alongside SSH sessions
-
-### RDP
-
-RDP support is part of the remote-session architecture and is being actively developed.
-
-### Credential management
-
-Eiksy provides a common credential-provider abstraction for different storage backends:
-
-- HashiCorp Vault
-- KeePass
-- Windows Password Manager
-- Local encrypted storage
-
-Sensitive local data is protected using:
-
-- OS keychain-backed master-password flow
-- Argon2id key derivation
-- XChaCha20-Poly1305 encryption
-- encrypted SQLite storage
-
-### AI
-
-Eiksy supports OpenAI-compatible AI providers.
-
-Providers can be configured with:
-
-- custom API endpoint
-- authentication token
-- model selection
-- provider-specific settings
-- local Qwen3 4B (Q4_K_M) download and launch controls, with an override for a custom model URL
-
-This makes it possible to use both cloud-based and self-hosted AI services.
+```text
+                 ┌─────────────────────┐
+                 │       Eiksy         │
+                 │                     │
+                 │  AI Assistant       │
+                 │  SSH / SFTP         │
+                 │  RDP                │
+                 │  File Management    │
+                 │  Credentials        │
+                 │  Remote Operations  │
+                 └─────────────────────┘
+                           │
+                           ▼
+                     Infrastructure
+```
 
 The goal is not to build another chat application.
 
-The goal is to make AI a natural part of everyday infrastructure operations.
+The goal is to make **AI a natural part of everyday infrastructure operations**.
+
+---
+
+## Key features
+
+### AI-assisted infrastructure operations
+
+Eiksy supports OpenAI-compatible AI providers and can connect AI assistance directly to the infrastructure workflow.
+
+Supported configuration includes:
+
+- custom API endpoints;
+- authentication tokens;
+- model selection;
+- provider-specific settings;
+- local Qwen3 4B (Q4_K_M) model download and launch;
+- custom local model URLs.
+
+Both **cloud AI** and **self-hosted/local AI** workflows are supported.
+
+The long-term direction is an AI assistant that can understand the current infrastructure context and help the operator investigate, diagnose and execute tasks — while keeping the human in control.
+
+### SSH
+
+Eiksy provides a full SSH workflow:
+
+- SSH terminal sessions;
+- import of existing SSH configuration;
+- `ProxyJump` support;
+- SSH agent integration;
+- local SSH tunnels;
+- encrypted SSH key passphrases;
+- saved connection profiles;
+- session history;
+- multiple active sessions.
+
+Eiksy can therefore be used as a **modern SSH client and terminal workstation** for remote infrastructure.
+
+### SFTP
+
+Remote file operations are available alongside SSH sessions:
+
+- remote file browsing;
+- directory navigation;
+- file transfers;
+- remote file editing;
+- SFTP sessions alongside SSH.
+
+This eliminates the need to switch between a terminal and a separate SFTP application for common administration tasks.
+
+### RDP
+
+RDP support is part of the Eiksy remote-session architecture and is actively being developed.
+
+The long-term goal is to provide SSH, SFTP and RDP workflows from the same operations workstation.
+
+---
+
+## Secure credential management
+
+Infrastructure tools handle sensitive information.
+
+Eiksy therefore provides a common credential-provider abstraction for different storage backends:
+
+- HashiCorp Vault;
+- KeePass;
+- Windows Password Manager;
+- local encrypted storage.
+
+Sensitive local data is protected using:
+
+- OS keychain-backed master-password flow;
+- Argon2id key derivation;
+- XChaCha20-Poly1305 encryption;
+- encrypted SQLite storage.
+
+The architecture is designed so that credentials can remain separate from ordinary application configuration.
+
+---
+
+## AI with human-in-the-loop security
+
+Giving an AI agent unrestricted access to infrastructure creates obvious security risks.
+
+Eiksy follows a **human-in-the-loop** approach.
+
+```text
+User
+  │
+  ▼
+Eiksy
+  │
+  ├── Remote session
+  ├── Infrastructure context
+  ├── Credentials
+  └── AI assistant
+          │
+          ▼
+     Suggested action
+          │
+          ▼
+         User
+          │
+          ▼
+     Approved action
+```
+
+The user remains the final decision maker.
+
+Potentially destructive infrastructure operations should not silently become autonomous actions.
+
+The long-term goal is to combine the productivity of AI agents with the safety requirements of real infrastructure.
+
+---
+
+## Security principles
+
+Security is a core part of the Eiksy architecture.
+
+The application can work with credentials and remote infrastructure, so security is treated as a design requirement rather than an optional feature.
+
+Eiksy follows several principles:
+
+- secrets should never be stored in plaintext;
+- credentials should be separated from ordinary application configuration;
+- external secret stores should be supported whenever possible;
+- AI should not automatically receive unrestricted infrastructure access;
+- potentially destructive operations should remain under user control;
+- sensitive information should not be written to logs;
+- security-sensitive functionality should be designed for auditability.
+
+For security vulnerabilities, please follow [`SECURITY.md`](./SECURITY.md) rather than opening a public issue.
 
 ---
 
 ## Architecture
 
-Eiksy follows a backend-first desktop architecture.
+Eiksy follows a backend-first desktop architecture built with **Go and Wails**.
 
 ```mermaid
 flowchart TB
@@ -141,61 +261,43 @@ This keeps the architecture easier to test, maintain and extend.
 
 ---
 
-## AI-assisted operations
+## Eiksy as a MobaXterm alternative
 
-AI can be extremely useful when working with infrastructure — but unrestricted AI access to production systems creates obvious security risks.
+If you are looking for a **MobaXterm alternative**, SSH client, SFTP client or remote operations workstation with integrated AI, Eiksy explores a different approach.
 
-Eiksy is designed around a human-in-the-loop approach.
+Traditional remote-access tools primarily focus on connecting to infrastructure.
+
+Eiksy adds another layer:
 
 ```text
-User
-  │
-  ▼
-eiksy
-  │
-  ├── Remote session
-  ├── Infrastructure context
-  ├── Credentials
-  └── AI assistant
-          │
-          ▼
-     Suggested action
-          │
-          ▼
-         User
+Remote Access
+      +
+Infrastructure Tools
+      +
+Secure Credentials
+      +
+AI Assistance
 ```
 
-The user remains the final decision maker.
+The objective is not simply to reproduce an existing terminal application.
 
-The long-term goal is to provide powerful AI assistance without turning the workstation into an uncontrolled autonomous infrastructure agent.
+Eiksy aims to become an **AI-native operations workstation**.
 
 ---
 
-## Security
+## Supported workflows
 
-Security is a core part of the Eiksy architecture.
+Eiksy is intended for workflows such as:
 
-The application can work with sensitive credentials and remote infrastructure, so security is treated as a design requirement rather than an optional feature.
-
-### Security principles
-
-- Secrets should never be stored in plaintext.
-- Credentials should be separated from ordinary application configuration.
-- External secret stores should be supported whenever possible.
-- AI should not automatically receive unrestricted access to infrastructure.
-- Potentially destructive operations should remain under user control.
-- Sensitive information should not be written to logs.
-
-### Local secret storage
-
-Local sensitive data is protected using:
-
-- OS keychain-backed master-password flow
-- Argon2id key derivation
-- XChaCha20-Poly1305 encryption
-- encrypted SQLite storage
-
-For security vulnerabilities, please follow the instructions in [`SECURITY.md`](./SECURITY.md) rather than opening a public issue.
+- connecting to Linux servers over SSH;
+- managing remote files through SFTP;
+- working with multiple remote sessions;
+- accessing Windows systems through RDP;
+- using Vault or KeePass for credentials;
+- investigating infrastructure problems with AI assistance;
+- using local/self-hosted AI models;
+- combining terminal work and AI assistance;
+- developing repeatable infrastructure operations workflows.
 
 ---
 
@@ -352,15 +454,6 @@ vX.Y.Z
 
 is pushed.
 
-For example:
-
-```bash
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-The README intentionally uses the latest release instead of referencing a specific version.
-
 ---
 
 ## Configuration and secrets
@@ -369,13 +462,13 @@ Never commit sensitive information to the repository.
 
 Do not commit:
 
-- `.env`
-- passwords
-- API tokens
-- Vault tokens
-- SSH private keys
-- RDP credentials
-- certificates containing private keys
+- `.env`;
+- passwords;
+- API tokens;
+- Vault tokens;
+- SSH private keys;
+- RDP credentials;
+- certificates containing private keys.
 
 Use the application's encrypted storage or an external credential provider for sensitive data.
 
@@ -385,13 +478,14 @@ Use the application's encrypted storage or an external credential provider for s
 
 Eiksy is an actively developed open-source project.
 
-The project is currently focused on building a reliable foundation for:
+Current development focuses on building a reliable foundation for:
 
-- remote infrastructure access
-- secure credential management
-- AI-assisted operations
-- cross-platform desktop workflows
-- extensible protocol support
+- remote infrastructure access;
+- secure credential management;
+- AI-assisted operations;
+- cross-platform desktop workflows;
+- extensible protocol support;
+- controlled AI interaction with infrastructure.
 
 Some components are still evolving and may change between releases.
 
@@ -425,20 +519,20 @@ The roadmap is intentionally flexible and will evolve with the project.
 
 Go provides:
 
-- efficient concurrency
-- strong networking capabilities
-- a small runtime footprint
-- cross-platform support
-- simple distribution as a native binary
-- a mature ecosystem for infrastructure tooling
+- efficient concurrency;
+- strong networking capabilities;
+- a small runtime footprint;
+- cross-platform support;
+- simple distribution as a native binary;
+- a mature ecosystem for infrastructure tooling.
 
 ### Wails
 
 Wails combines:
 
-- a native Go backend
-- a modern web-based UI
-- desktop application capabilities
+- a native Go backend;
+- a modern web-based UI;
+- desktop application capabilities.
 
 This allows Eiksy to keep infrastructure logic in Go while maintaining a flexible and modern user interface.
 
@@ -454,7 +548,7 @@ Architecture, security decisions, testing and final engineering decisions remain
 
 The project follows a pragmatic vibe-coding approach:
 
-«Rapid iteration. Pragmatic decisions. Continuous refinement.»
+> Rapid iteration. Pragmatic decisions. Continuous refinement.
 
 AI is a development tool — not a substitute for engineering, testing or security review.
 
@@ -491,5 +585,5 @@ See [`LICENSE`](./LICENSE) for the full license text.
 ---
 
 <p align="center">
-  <strong>Think. Connect. Operate.</strong>
+  <strong>Eiksy — Think. Connect. Operate.</strong>
 </p>
