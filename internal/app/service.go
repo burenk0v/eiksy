@@ -1715,10 +1715,11 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		pending := state.PendingNativeToolCall
 		state.PendingNativeToolCall = nil
 		s.store.UpdateAIState(state)
-		if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
-			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))
+		output, err := s.executeSessionCommandWithOutput(request.SessionID, request.Command)
+		if err != nil {
+			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))
 		}
-		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))
+		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))
 	}
 	if request.ToolID != "shell" {
 		return fmt.Errorf("tool %q does not support command dispatch", request.ToolID)

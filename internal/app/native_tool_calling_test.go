@@ -30,10 +30,16 @@ func (m *nativeTestSSHManager) SendInput(sessionID, data string) error {
 	return nil
 }
 func (m *nativeTestSSHManager) ResizeTerminal(string, int, int) error { return nil }
-func (m *nativeTestSSHManager) Disconnect(string) error                { return nil }
-func (m *nativeTestSSHManager) SetOutputHandler(string, func(string))  {}
-func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error)   { return ".", nil }
-func (m *nativeTestSSHManager) AcceptHostKey(string) error              { return nil }
+func (m *nativeTestSSHManager) Disconnect(string) error               { return nil }
+func (m *nativeTestSSHManager) SetOutputHandler(string, func(string)) {}
+func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error)  { return ".", nil }
+func (m *nativeTestSSHManager) AcceptHostKey(string) error            { return nil }
+func (m *nativeTestSSHManager) ExecCommand(sessionID, command string) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.commands = append(m.commands, sessionID+":"+command+"\n")
+	return "Linux eiksy-test 6.0", nil
+}
 
 func TestCallNativeToolCompletionParsesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +108,7 @@ func TestNativeToolApprovalResumesConversation(t *testing.T) {
 	ssh := &nativeTestSSHManager{}
 	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
 	store.UpdateAIState(ai.WorkspaceState{
-		Providers: []ai.ProviderDescriptor{{ID: "provider-1", Model: "qwen3", Endpoint: "", Class: ai.ProviderClassOpenAICompatible, Selected: true, Configured: true}},
+		Providers:     []ai.ProviderDescriptor{{ID: "provider-1", Model: "qwen3", Endpoint: "", Class: ai.ProviderClassOpenAICompatible, Selected: true, Configured: true}},
 		CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}},
 		ChatSessionID: "chat-1",
 	})
