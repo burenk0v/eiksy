@@ -3,7 +3,7 @@ package app
 import "encoding/json"
 
 // AITool describes an action that the model may request. The model never gets
-direct access to the implementation; Service remains the execution gate.
+// direct access to the implementation; Service remains the execution gate.
 type AITool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
