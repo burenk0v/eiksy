@@ -30,6 +30,9 @@ func (s *Service) executeSessionCommandWithOutput(sessionID, command string) (st
 		}
 		output += result.Stderr
 	}
+	if len(output) > maxAICommandOutput {
+		output = output[:maxAICommandOutput] + "\n[output truncated by Eiksy]"
+	}
 	return output, err
 }
 
