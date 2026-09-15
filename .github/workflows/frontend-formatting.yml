@@ -1,7 +1,9 @@
 name: Frontend formatting
 
 on:
-  workflow_dispatch:
+  push:
+    branches:
+      - chore/frontend-formatting
 
 jobs:
   format:
