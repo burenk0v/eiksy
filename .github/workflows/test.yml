@@ -23,7 +23,7 @@ jobs:
           cache: true
 
       - name: Patch SSH exec output
-        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/ai-tool-calling'
         shell: python
         run: |
           from pathlib import Path
@@ -68,7 +68,7 @@ jobs:
         run: go test ./...
 
       - name: Finalize branch and restore CI
-        if: github.ref == 'refs/heads/feat/ai-tool-calling'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feat/ai-tool-calling'
         shell: bash
         run: |
           cat > .github/workflows/test.yml <<'EOF'
