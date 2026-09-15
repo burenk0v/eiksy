@@ -22,7 +22,7 @@ func (s *Service) RecordCommandPolicyResolutionForApp(request ai.CommandRequest,
 	if err != nil {
 		result = "approval_resolution_failed"
 		extra.ErrorType = "approval_resolution_error"
-		extra.Error = strings.TrimSpace(err.Error())
+		extra.Error = redactCommand(strings.TrimSpace(err.Error()))
 	}
 
 	s.recordCommandAudit(
