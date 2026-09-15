@@ -10,6 +10,7 @@ import (
 )
 
 const maxCommandAuditEvents = 500
+const maxCommandAuditText = 4096
 
 type commandAuditBuffer struct {
 	mu     sync.RWMutex
@@ -37,18 +38,18 @@ func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecis
 	event := ai.CommandAuditEvent{
 		ID:             "audit-cmd-" + time.Now().UTC().Format("20060102T150405.000000000Z"),
 		At:             time.Now().UTC().Format(time.RFC3339Nano),
-		ChatSessionID:  chatSessionID,
-		ProviderID:     strings.TrimSpace(providerID),
+		ChatSessionID:  redactAuditValue(chatSessionID),
+		ProviderID:     redactAuditValue(providerID),
 		ToolID:         nativeSSHExecPolicyToolID,
-		SessionID:      strings.TrimSpace(sessionID),
-		Command:        redactCommand(command),
-		PolicyDecision: strings.TrimSpace(policyDecision),
-		Approval:       strings.TrimSpace(approval),
-		Result:         strings.TrimSpace(result),
+		SessionID:      redactAuditValue(sessionID),
+		Command:        redactAuditValue(command),
+		PolicyDecision: redactAuditValue(policyDecision),
+		Approval:       redactAuditValue(approval),
+		Result:         redactAuditValue(result),
 		ExitCode:       exitCode,
 		DurationMs:     durationMs,
-		ErrorType:      strings.TrimSpace(extra.ErrorType),
-		Error:          strings.TrimSpace(extra.Error),
+		ErrorType:      redactAuditValue(extra.ErrorType),
+		Error:          redactAuditValue(extra.Error),
 	}
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
@@ -75,6 +76,28 @@ func (s *Service) GetCommandAuditTrail() []ai.CommandAuditEvent {
 		result = append(result, buffer.events[i])
 	}
 	return result
+}
+
+// redactAuditValue is the final audit-boundary sanitizer. Audit fields must
+// never retain raw command/error/result text supplied by an execution path.
+// Keep the sanitizer centralized so new recordCommandAudit callers inherit it.
+func redactAuditValue(value string) string {
+	redacted := redactCommand(strings.TrimSpace(value))
+	redacted = strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		default:
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}
+	}, redacted)
+	if len(redacted) > maxCommandAuditText {
+		redacted = redacted[:maxCommandAuditText] + "...[TRUNCATED]"
+	}
+	return redacted
 }
 
 func redactCommand(command string) string {
