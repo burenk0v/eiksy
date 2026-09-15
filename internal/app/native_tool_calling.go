@@ -17,6 +17,7 @@ import (
 
 const nativeSSHExecToolName = "ssh.exec"
 const nativeSSHExecPolicyToolID = "shell"
+const nativeSSHDiagnosticsToolName = "ssh.diagnostics"
 
 type nativeChatMessage struct {
 	Role       string           `json:"role"`
@@ -151,6 +152,9 @@ func (s *Service) callNativeToolCompletion(ctx context.Context, provider *ai.Pro
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
 	if call.Type != "function" && call.Type != "" {
 		return "", false, fmt.Errorf("unsupported tool call type %q", call.Type)
+	}
+	if call.Function.Name == nativeSSHDiagnosticsToolName {
+		return s.dispatchNativeDiagnostics(call, policy, activeSessionID, providerID)
 	}
 	if call.Function.Name != nativeSSHExecToolName {
 		return marshalNativeToolError("unknown tool %q", call.Function.Name), false, nil
@@ -314,7 +318,7 @@ func (s *Service) nativeToolSystemPrompt(policy ai.CommandPolicy, activeSessionI
 	}
 
 	prompt := fmt.Sprintf(
-		"You are connected to Eiksy. Use registered tools when an action is required. Never invent tools. The ssh.exec tool executes exactly one command in an active SSH session and is always enforced by Command Policy. Active session: %q. Enabled policy tools: [%s].",
+		"You are connected to Eiksy. Use registered tools when an action is required. Never invent tools. The ssh.exec tool executes exactly one command in an active SSH session and is always enforced by Command Policy. The ssh.diagnostics tool runs only fixed read-only checks and does not accept arbitrary commands. Active session: %q. Enabled policy tools: [%s].",
 		activeSessionID, strings.Join(enabled, ", "),
 	)
 	context, err := s.GetAIInfrastructureContext(activeSessionID)
