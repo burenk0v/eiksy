@@ -8,8 +8,8 @@ import (
 
 func TestAnalyzeInfrastructureHealthHealthy(t *testing.T) {
 	report := analyzeInfrastructureHealth([]aiDiagnosticCheck{
-		{name: "memory", Result: sessions.CommandExecutionResult{Stdout: "              total        used        free      shared  buff/cache   available\nMem:           16Gi       8Gi       2Gi       100Mi       6Gi       10Gi\n"}},
-		{name: "disk", Result: sessions.CommandExecutionResult{Stdout: "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1       100G   50G   50G  50% /\n"}},
+		{Name: "memory", Result: sessions.CommandExecutionResult{Stdout: "              total        used        free      shared  buff/cache   available\nMem:           16Gi       8Gi       2Gi       100Mi       6Gi       10Gi\n"}},
+		{Name: "disk", Result: sessions.CommandExecutionResult{Stdout: "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1       100G   50G   50G  50% /\n"}},
 	})
 	if report.Status != "healthy" {
 		t.Fatalf("expected healthy status, got %q: %#v", report.Status, report)
@@ -21,7 +21,7 @@ func TestAnalyzeInfrastructureHealthHealthy(t *testing.T) {
 
 func TestAnalyzeInfrastructureHealthDiskThresholds(t *testing.T) {
 	report := analyzeInfrastructureHealth([]aiDiagnosticCheck{
-		{name: "disk", Result: sessions.CommandExecutionResult{Stdout: "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1       100G   92G    8G  92% /\n/dev/sda2       100G   97G    3G  97% /data\n"}},
+		{Name: "disk", Result: sessions.CommandExecutionResult{Stdout: "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1       100G   92G    8G  92% /\n/dev/sda2       100G   97G    3G  97% /data\n"}},
 	})
 	if report.Status != "critical" {
 		t.Fatalf("expected critical status, got %q", report.Status)
@@ -39,7 +39,7 @@ func TestAnalyzeInfrastructureHealthDiskThresholds(t *testing.T) {
 
 func TestAnalyzeInfrastructureHealthMemoryThresholds(t *testing.T) {
 	report := analyzeInfrastructureHealth([]aiDiagnosticCheck{
-		{name: "memory", Result: sessions.CommandExecutionResult{Stdout: "Mem: 16Gi 15Gi 100Mi 100Mi 900Mi 1Gi\n"}},
+		{Name: "memory", Result: sessions.CommandExecutionResult{Stdout: "Mem: 16Gi 15Gi 100Mi 100Mi 900Mi 1Gi\n"}},
 	})
 	if report.Status != "critical" {
 		t.Fatalf("expected critical status, got %q", report.Status)
@@ -51,7 +51,7 @@ func TestAnalyzeInfrastructureHealthMemoryThresholds(t *testing.T) {
 
 func TestAnalyzeInfrastructureHealthFailedCheck(t *testing.T) {
 	report := analyzeInfrastructureHealth([]aiDiagnosticCheck{
-		{name: "disk", Result: sessions.CommandExecutionResult{ExitCode: 1, Stderr: "df: permission denied", Error: "command failed"}},
+		{Name: "disk", Result: sessions.CommandExecutionResult{ExitCode: 1, Stderr: "df: permission denied", Error: "command failed"}},
 	})
 	if report.Status != "degraded" {
 		t.Fatalf("expected degraded status, got %q", report.Status)
