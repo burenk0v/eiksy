@@ -1,0 +1,60 @@
+name: Patch AI exec output
+
+on:
+  push:
+    branches: [feat/ai-tool-calling]
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply patch
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p = Path('internal/app/service.go')
+          text = p.read_text()
+          marker = 'type sftpManager interface {'
+          if 'type sshCommandExecutor interface' not in text:
+              text = text.replace(marker, 'type sshCommandExecutor interface {\n\tExecCommand(string, string) (string, error)\n}\n\n' + marker, 1)
+          old = '''func (s *Service) executeSessionCommand(sessionID, command string) error {'''
+          if old in text:
+              start = text.index(old)
+              end = text.index('\n}\n', start) + 3
+              new = '''func (s *Service) executeSessionCommand(sessionID, command string) (string, error) {\n\tsessionID = strings.TrimSpace(sessionID)\n\tcommand = strings.TrimSpace(command)\n\tif sessionID == "" { return "", fmt.Errorf("command request session id is required") }\n\tif command == "" { return "", fmt.Errorf("command cannot be empty") }\n\ttab, ok := s.runtimeTab(sessionID)\n\tif !ok { return "", fmt.Errorf("active session %q not found", sessionID) }\n\tif tab.ProtocolID != "ssh" { return "", fmt.Errorf("commands can only run in ssh sessions") }\n\tif s.sshManager == nil { return "", fmt.Errorf("ssh manager is not configured") }\n\texecutor, ok := s.sshManager.(sshCommandExecutor)\n\tif !ok { return "", fmt.Errorf("ssh command execution is not supported") }\n\treturn executor.ExecCommand(sessionID, command)\n}'''
+              text = text[:start] + new + text[end:]
+          text = text.replace('if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {', 'if _, err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {')
+          p.write_text(text)
+
+          p = Path('internal/ssh/manager.go')
+          text = p.read_text()
+          if 'func (m *Manager) ExecCommand(' not in text:
+              marker = 'func (m *Manager) SendInput(tabID, data string) error {'
+              method = '''func (m *Manager) ExecCommand(tabID, command string) (string, error) {\n\tm.mu.RLock()\n\tconn := m.connections[tabID]\n\tm.mu.RUnlock()\n\tif conn == nil { return "", fmt.Errorf("ssh tab %q is not connected", tabID) }\n\tcommand = strings.TrimSpace(command)\n\tif command == "" { return "", fmt.Errorf("command cannot be empty") }\n\tsession, err := conn.client.NewSession()\n\tif err != nil { return "", fmt.Errorf("create ssh exec session: %w", err) }\n\tdefer session.Close()\n\toutput, err := session.CombinedOutput(command)\n\tresult := string(output)\n\tconst maxToolOutput = 32768\n\tif len(result) > maxToolOutput { result = result[:maxToolOutput] + "\\n[output truncated by Eiksy]" }\n\tif err != nil { return result, fmt.Errorf("run command over ssh: %w", err) }\n\treturn result, nil\n}\n\n'''
+              if marker not in text: raise SystemExit('SSH SendInput marker not found')
+              text = text.replace(marker, method + marker, 1)
+          p.write_text(text)
+
+          p = Path('internal/app/native_tool_calling.go')
+          text = p.read_text()
+          text = text.replace('''if err := s.executeSessionCommand(args.SessionID, args.Command); err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q}`, err.Error()), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q}`, args.SessionID, args.Command), false, nil''', '''output, err := s.executeSessionCommand(args.SessionID, args.Command)\n\t\tif err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q,"output":%q}`, err.Error(), output), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q,"output":%q}`, args.SessionID, args.Command, output), false, nil''')
+          text = text.replace('''if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))''', '''output, err := s.executeSessionCommand(request.SessionID, request.Command)\n\t\tif err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))''')
+          p.write_text(text)
+      - name: Test
+        run: |
+          gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/ssh/manager.go
+          go test ./...
+      - name: Commit and cleanup
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/app/service.go internal/app/native_tool_calling.go internal/ssh/manager.go
+          git rm .github/workflows/patch-ai-exec.yml
+          git commit -m 'feat(ai): return SSH command output to tool calls'
+          git push
