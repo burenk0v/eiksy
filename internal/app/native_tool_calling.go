@@ -184,10 +184,11 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 		}
 		return fmt.Sprintf(`{"error":"command denied by Command Policy","reason":%q}`, reason), false, nil
 	case commandPolicyDecisionAllow:
-		if err := s.executeSessionCommand(args.SessionID, args.Command); err != nil {
-			return fmt.Sprintf(`{"error":"command execution failed","message":%q}`, err.Error()), false, nil
+		output, err := s.executeSessionCommandWithOutput(args.SessionID, args.Command)
+		if err != nil {
+			return fmt.Sprintf(`{"error":"command execution failed","message":%q,"output":%q}`, err.Error(), output), false, nil
 		}
-		return fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q}`, args.SessionID, args.Command), false, nil
+		return fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q,"output":%q}`, args.SessionID, args.Command, output), false, nil
 	case commandPolicyDecisionAsk:
 		state := s.store.AIState()
 		state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
