@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -14,15 +15,12 @@ type sshCommandExecutor interface {
 }
 
 type sshStructuredCommandExecutor interface {
-	ExecCommandResult(stringContext, string, string) (sessions.CommandExecutionResult, error)
+	ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error)
 }
 
-// executeSessionCommandWithOutput is the native-tool execution path. The
-// caller must already have evaluated Command Policy before invoking it.
-//
-// It returns the legacy combined output for callers that still render command
-// results as text. Native tool calling uses executeSessionCommandResult below
-// so stdout/stderr/exit-code remain machine-readable.
+// executeSessionCommandWithOutput is the legacy text-oriented execution path.
+// Native tool calling uses executeSessionCommandResult below so stdout,
+// stderr, exit code and duration remain machine-readable.
 func (s *Service) executeSessionCommandWithOutput(sessionID, command string) (string, error) {
 	result, err := s.executeSessionCommandResult(sessionID, command)
 	output := result.Stdout
@@ -58,10 +56,8 @@ func (s *Service) executeSessionCommandResult(sessionID, command string) (sessio
 			return sessions.CommandExecutionResult{ExitCode: -1}, fmt.Errorf("session %q is not an ssh session", sessionID)
 		}
 
-		if executor, ok := s.sshManager.(interface {
-			ExecCommandResult(stringContext, string, string) (sessions.CommandExecutionResult, error)
-		}); ok {
-			return executor.ExecCommandResult(s.resolveContext(nil), sessionID, command)
+		if executor, ok := s.sshManager.(sshStructuredCommandExecutor); ok {
+			return executor.ExecCommandResult(s.resolveContext(context.Background()), sessionID, command)
 		}
 		if executor, ok := s.sshManager.(sshCommandExecutor); ok {
 			output, err := executor.ExecCommand(sessionID, command)
@@ -77,16 +73,3 @@ func (s *Service) executeSessionCommandResult(sessionID, command string) (sessio
 	}
 	return sessions.CommandExecutionResult{ExitCode: -1}, fmt.Errorf("active ssh session %q not found", sessionID)
 }
-
-// stringContext is intentionally an alias-shaped interface only to keep the
-// execution adapter independent from a concrete context implementation.
-// The SSH manager accepts context.Context; the adapter is replaced below by
-// the concrete signature at compile time.
-type stringContext = interface {
-	Done() <-chan struct{}
-	Err() error
-	Deadline() (deadlineTime, bool)
-	Value(any) any
-}
-
-type deadlineTime = interface{}
