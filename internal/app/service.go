@@ -111,6 +111,7 @@ type stateStore interface {
 	UpdateSettings(settings.AppSettings) error
 	SecureStorageStatus() securestorage.Status
 	EnsureMasterPassword(string) error
+	LockSecureStorage()
 	SecretExists(string) bool
 	LoadSecret(string) (string, error)
 	StoreSecret(string, string) error
@@ -171,6 +172,11 @@ func (s *Service) EmitLog(level, message string) {
 		"message": message,
 		"time":    timestamp,
 	})
+}
+
+func (s *Service) LockSecureStorage() {
+	s.store.LockSecureStorage()
+	s.emitFn("secure-storage:status", map[string]bool{"unlocked": false})
 }
 
 func (s *Service) GetShellState() ShellState {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/zalando/go-keyring"
 	"golang.org/x/crypto/argon2"
@@ -23,6 +24,7 @@ const (
 	defaultKeyringUser = "master-key"
 	masterKeySize      = 32
 	saltSize           = 16
+	autoLockDuration   = 15 * time.Minute
 	argonTime          = 3
 	argonMemoryKiB     = 64 * 1024
 	argonThreads       = 4
@@ -46,12 +48,13 @@ type Keyring interface {
 }
 
 type Manager struct {
-	mu          sync.RWMutex
-	db          *sql.DB
-	keyring     Keyring
-	serviceName string
-	keyringUser string
-	masterKey   []byte
+	mu            sync.RWMutex
+	db            *sql.DB
+	keyring       Keyring
+	serviceName   string
+	keyringUser   string
+	masterKey     []byte
+	autoLockTimer *time.Timer
 }
 
 type wrappedMasterKeyRecord struct {
@@ -93,7 +96,11 @@ func NewWithKeyring(dbPath string, keyring Keyring) (*Manager, error) {
 }
 
 func (m *Manager) Close() error {
-	if m == nil || m.db == nil {
+	if m == nil {
+		return nil
+	}
+	m.Lock()
+	if m.db == nil {
 		return nil
 	}
 	return m.db.Close()
@@ -131,6 +138,7 @@ func (m *Manager) EnsureMasterPassword(password string) error {
 			_ = m.keyring.Set(m.serviceName, m.keyringUser, record)
 		}
 		m.setMasterKey(masterKey)
+		m.touchAutoLock()
 		return nil
 	case errors.Is(err, keyring.ErrNotFound):
 		masterKey := make([]byte, masterKeySize)
@@ -145,6 +153,7 @@ func (m *Manager) EnsureMasterPassword(password string) error {
 			return fmt.Errorf("store master key in keychain: %w", err)
 		}
 		m.setMasterKey(masterKey)
+		m.touchAutoLock()
 		return nil
 	default:
 		return fmt.Errorf("access os keychain: %w", err)
@@ -249,12 +258,49 @@ func (m *Manager) requireUnlockedMasterKey() ([]byte, error) {
 		return nil, ErrMasterPasswordRequired
 	}
 	m.mu.RLock()
-	defer m.mu.RUnlock()
 	masterKey := append([]byte(nil), m.masterKey...)
 	if len(masterKey) != masterKeySize {
+		m.mu.RUnlock()
 		return nil, ErrMasterPasswordRequired
 	}
+	m.mu.RUnlock()
+	m.touchAutoLock()
 	return masterKey, nil
+}
+
+func (m *Manager) Lock() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.zeroizeMasterKeyLocked()
+	if m.autoLockTimer != nil {
+		m.autoLockTimer.Stop()
+		m.autoLockTimer = nil
+	}
+}
+
+func (m *Manager) touchAutoLock() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.masterKey) != masterKeySize {
+		return
+	}
+	if m.autoLockTimer != nil {
+		m.autoLockTimer.Stop()
+	}
+	m.autoLockTimer = time.AfterFunc(autoLockDuration, m.Lock)
+}
+
+func (m *Manager) zeroizeMasterKeyLocked() {
+	for i := range m.masterKey {
+		m.masterKey[i] = 0
+	}
+	m.masterKey = nil
 }
 
 func (m *Manager) setMasterKey(masterKey []byte) {

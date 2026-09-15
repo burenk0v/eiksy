@@ -109,8 +109,11 @@ func NewStoreAt(baseDir string) (*Store, error) {
 }
 
 func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Store, error) {
-	if err := os.MkdirAll(filepath.Join(baseDir, "models"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(baseDir, "models"), 0o700); err != nil {
 		return nil, fmt.Errorf("create eiksy directory: %w", err)
+	}
+	if err := os.Chmod(baseDir, 0o700); err != nil {
+		return nil, fmt.Errorf("secure eiksy directory permissions: %w", err)
 	}
 
 	var (
@@ -391,13 +394,7 @@ func (s *Store) loadSessionProfiles() error {
 	}
 	var profiles []sessions.Profile
 	if err := json.Unmarshal(content, &profiles); err != nil {
-		if renameErr := os.Rename(s.sessionsPath, s.sessionsPath+".fail"); renameErr != nil {
-			return fmt.Errorf("decode sessions file: %w (also failed to rename: %v)", err, renameErr)
-		}
-		if writeErr := os.WriteFile(s.sessionsPath, []byte("[]\n"), 0o600); writeErr != nil {
-			return fmt.Errorf("decode sessions file: %w (also failed to recreate: %v)", err, writeErr)
-		}
-		return nil
+		return fmt.Errorf("decode sessions file: %w", err)
 	}
 	for _, persisted := range profiles {
 		profile := cloneProfile(persisted)
@@ -421,12 +418,7 @@ func (s *Store) loadSettings() error {
 	var loaded settings.AppSettings
 	var persisted persistedSettings
 	if err := json.Unmarshal(content, &persisted); err != nil {
-		if renameErr := os.Rename(s.settingsPath, s.settingsPath+".fail"); renameErr != nil {
-			return fmt.Errorf("decode settings file: %w (also failed to rename: %v)", err, renameErr)
-		}
-		s.settings = defaultSettings()
-		s.aiState = defaultAIState()
-		return s.saveSettings()
+		return fmt.Errorf("decode settings file: %w", err)
 	}
 	loaded = persisted.AppSettings
 	defaults := defaultSettings()
@@ -505,11 +497,17 @@ func (s *Store) nextEventIDLocked() string {
 
 func ensureJSONFile(path string, defaultContent []byte) error {
 	if _, err := os.Stat(path); err == nil {
-		return nil
+		return os.Chmod(path, 0o600)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 	return os.WriteFile(path, defaultContent, 0o600)
+}
+
+func (s *Store) LockSecureStorage() {
+	if s.secretManager != nil {
+		s.secretManager.Lock()
+	}
 }
 
 func (s *Store) SecureStorageStatus() securestorage.Status {
