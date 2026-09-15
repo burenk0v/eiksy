@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"eiksy/internal/domain/settings"
 	"eiksy/internal/securestorage"
 
 	"github.com/tobischo/gokeepasslib/v3"
@@ -139,5 +138,3 @@ func (s *Service) keepassCredentialPathExists(secretPath string) (bool, error) {
 	}
 	return false, nil
 }
-
-var _ settings.AppSettings
