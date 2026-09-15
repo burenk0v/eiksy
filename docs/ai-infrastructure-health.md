@@ -28,6 +28,8 @@ The analyzer evaluates filesystem usage reported by `df -h`:
 
 A non-zero exit code or execution error produces a `warning` finding and changes overall status to `degraded`, unless another finding is already `critical`.
 
+Malformed or unrecognized diagnostic output is not converted into a guessed finding.
+
 ## Security model
 
 The analyzer does not execute commands and does not accept commands from the AI. It consumes the bounded structured results produced by `ssh.diagnostics`. The existing diagnostics path continues to enforce Command Policy before executing its fixed read-only command set.
