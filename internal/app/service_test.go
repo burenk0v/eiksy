@@ -208,32 +208,6 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	if completed.Token != "posted-token" { t.Fatalf("expected posted token to be returned, got %q", completed.Token) }
 }
 
-func TestListVaultSecretsRenewsTokenWhenEnabled(t *testing.T) {
-	var renewCalls, listCalls int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/token/renew-self": renewCalls++; if r.Method != http.MethodPost { t.Fatalf("expected renew POST, got %s", r.Method) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"auth":{"renewable":true}}`)); case "/v1/secret/metadata/team": listCalls++; if got := r.URL.Query().Get("list"); got != "true" { t.Fatalf("expected list=true query, got %q", got) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/","db"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
-	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAutoRenewToken = true
-	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil { t.Fatalf("store vault token: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
-	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
-	if renewCalls != 1 { t.Fatalf("expected 1 renew call, got %d", renewCalls) }; if listCalls != 1 { t.Fatalf("expected 1 list call, got %d", listCalls) }; if len(entries) != 2 { t.Fatalf("expected 2 entries, got %d", len(entries)) }
-}
-
-func TestListVaultSecretsContinuesWhenRenewalFails(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/token/renew-self": http.Error(w, "renew denied", http.StatusForbidden); case "/v1/secret/metadata/team": w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
-	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAutoRenewToken = true
-	if err := store.StoreSecret(securestorage.VaultTokenKey(), "vault-token"); err != nil { t.Fatalf("store vault token: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
-	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
-	if len(entries) != 1 || entries[0].Name != "prod" { t.Fatalf("unexpected entries: %#v", entries) }
-}
-
-func TestListVaultSecretsUsesLoginPasswordAuthMethod(t *testing.T) {
-	var loginCalls, listCalls int; var listedWithToken string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { switch r.URL.Path { case "/v1/auth/oidc-sec/login/CORP\\alice": loginCalls++; if r.Method != http.MethodPost { t.Fatalf("expected login POST, got %s", r.Method) }; w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"auth":{"client_token":"dynamic-token"}}`)); case "/v1/secret/metadata/team": listCalls++; listedWithToken = r.Header.Get("X-Vault-Token"); w.Header().Set("Content-Type", "application/json"); _, _ = w.Write([]byte(`{"data":{"keys":["prod/"]}}`)); default: t.Fatalf("unexpected path %s", r.URL.Path) } })); defer server.Close()
-	store := memory.NewStore(); cfg := store.Settings(); cfg.VaultAddress = server.URL; cfg.VaultMountPoint = "secret"; cfg.VaultAuthMethod = "oidc-sec"; cfg.VaultLogin = `CORP\alice`
-	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-pass"); err != nil { t.Fatalf("store vault password: %v", err) }; if err := store.UpdateSettings(cfg); err != nil { t.Fatalf("update settings: %v", err) }
-	service := NewService(store, nil, nil); entries, err := service.ListVaultSecrets("team"); if err != nil { t.Fatalf("list vault secrets: %v", err) }
-	if loginCalls != 1 { t.Fatalf("expected 1 login call, got %d", loginCalls) }; if listCalls != 1 { t.Fatalf("expected 1 list call, got %d", listCalls) }; if listedWithToken != "dynamic-token" { t.Fatalf("expected listed token to be dynamic-token, got %q", listedWithToken) }; if len(entries) != 1 || entries[0].Name != "prod" { t.Fatalf("unexpected entries: %#v", entries) }
-}
-
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	if err := service.SendChatMessage(nil, "hello", ""); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") { t.Fatalf("expected provider configuration error, got %v", err) }

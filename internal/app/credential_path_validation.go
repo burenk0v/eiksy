@@ -19,31 +19,14 @@ func (s *Service) ValidateCredentialPath(provider, secretPath string) error {
 		return err
 	}
 
-	parent := path.Dir(normalized)
-	name := path.Base(normalized)
-	if parent == "." {
-		parent = ""
-	}
-
-	entries, err := s.ListVaultSecretsForProvider(provider, parent)
+	exists, err := s.credentialPathExistsForProvider(provider, normalized)
 	if err != nil {
 		return fmt.Errorf("validate %s credential path %q: %w", provider, normalized, err)
 	}
-	for _, entry := range entries {
-		entryPath, err := normalizeCredentialPath(entry.Path)
-		if err != nil || entryPath != normalized {
-			continue
-		}
-		if path.Base(entryPath) != name {
-			continue
-		}
-		if entry.IsDir {
-			return fmt.Errorf("credential path %q points to a directory", normalized)
-		}
-		return nil
+	if !exists {
+		return fmt.Errorf("credential path %q was not found", normalized)
 	}
-
-	return fmt.Errorf("credential path %q was not found", normalized)
+	return nil
 }
 
 func normalizeCredentialPath(value string) (string, error) {
