@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"eiksy/internal/domain/sessions"
 )
 
 type InfrastructureHealthReport struct {
-	Status   string                     `json:"status"`
+	Status   string                       `json:"status"`
 	Findings []InfrastructureHealthFinding `json:"findings"`
 }
 
@@ -20,7 +18,6 @@ type InfrastructureHealthFinding struct {
 }
 
 const (
-	healthSeverityInfo     = "info"
 	healthSeverityWarning  = "warning"
 	healthSeverityCritical = "critical"
 )
@@ -153,5 +150,3 @@ func firstNonEmpty(values ...string) string {
 	}
 	return "unknown error"
 }
-
-var _ sessions.CommandExecutionResult
