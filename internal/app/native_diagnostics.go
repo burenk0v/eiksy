@@ -91,6 +91,7 @@ func (s *Service) dispatchNativeDiagnostics(call nativeToolCall, policy ai.Comma
 		"operation":  args.Operation,
 		"durationMs": time.Since(started).Milliseconds(),
 		"checks":     results,
+		"health":     analyzeInfrastructureHealth(results),
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
