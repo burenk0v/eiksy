@@ -173,16 +173,16 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 		args.SessionID = strings.TrimSpace(activeSessionID)
 	}
 	if args.SessionID == "" || args.Command == "" {
-		return `{"error":"sessionId and command are required"}`, false, nil
+		return `{"error":{"type":"invalid_request","message":"sessionId and command are required"}}`, false, nil
 	}
 
 	decision, reason := evaluateCommandPolicy(policy, nativeSSHExecPolicyToolID, args.SessionID, args.Command)
 	switch decision {
 	case commandPolicyDecisionDeny:
 		if strings.TrimSpace(reason) == "" {
-			return `{"error":"command denied by Command Policy"}`, false, nil
+			return `{"error":{"type":"policy_denied","message":"command denied by Command Policy"}}`, false, nil
 		}
-		return fmt.Sprintf(`{"error":"command denied by Command Policy","reason":%q}`, reason), false, nil
+		return fmt.Sprintf(`{"error":{"type":"policy_denied","message":"command denied by Command Policy","reason":%q}}`, reason), false, nil
 	case commandPolicyDecisionAllow:
 		result, err := s.executeSessionCommandResult(args.SessionID, args.Command)
 		payload := map[string]any{
@@ -230,7 +230,7 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
 		return fmt.Sprintf(`{"status":"approval_required","requestId":%q}`, request.ID), true, nil
 	default:
-		return `{"error":"unknown policy decision"}`, false, nil
+		return `{"error":{"type":"execution_error","message":"unknown policy decision"}}`, false, nil
 	}
 }
 
