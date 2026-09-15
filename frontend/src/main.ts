@@ -26,7 +26,6 @@ import {
   OpenRDP,
   LaunchSession,
   ListSFTPFiles,
-  ListVaultSecretsForProvider,
   NavigateSFTP,
   ImportSSHConfig,
   ReadSFTPFile,
@@ -56,7 +55,6 @@ import type {
   sessions,
   settings as settingsModels,
   sftp as sftpModels,
-  vault as vaultModels,
 } from "../wailsjs/go/models";
 
 type ShellState = appModels.ShellState;
@@ -72,7 +70,6 @@ type CommandPolicyState = {
   localDocsPath?: string;
 };
 type FileEntry = sftpModels.FileEntry;
-type VaultSecretNode = vaultModels.SecretNode;
 type SecureStorageStatus = securestorageModels.Status;
 
 type SessionFormState = {
@@ -109,14 +106,6 @@ type SFTPState = {
   selectedFiles: string[];
 };
 
-type VaultState = {
-  path: string;
-  entries: VaultSecretNode[];
-  loading: boolean;
-  error: string;
-  loaded: boolean;
-};
-
 type TerminalState = {
   terminal: Terminal;
   fitAddon: FitAddon;
@@ -128,14 +117,8 @@ type TerminalState = {
 
 type Theme = "dark" | "light" | "green";
 type SettingsTab =
-  | "ai"
-  | "commandpolicy"
-  | "sshconfig"
-  | "portforward"
-  | "theme"
-  | "about";
+  "ai" | "commandpolicy" | "sshconfig" | "portforward" | "theme" | "about";
 type SessionModalTab = "host" | "auth" | "network" | "other";
-type SecretsModalTab = "browser" | "settings";
 type SessionInnerTab = "console" | "sftp" | "screen";
 type VaultAuthMethod = "token" | "oidc" | "oidc-sec" | "domain";
 type CommandPolicyTab = "access" | "tools" | "settings";
@@ -221,13 +204,9 @@ class EiksyShell {
   private editingProfileID = "";
   private sessionNameAuto = true;
   private showSettingsModal = false;
-  private showVaultModal = false;
-  private showKeePassModal = false;
   private settingsTab: SettingsTab = "ai";
   private commandPolicyTab: CommandPolicyTab = "access";
   private commandPolicySessionId = "";
-  private vaultModalTab: SecretsModalTab = "browser";
-  private keepassModalTab: SecretsModalTab = "browser";
   private sessionInnerTab: SessionInnerTab = "console";
   private sessionForm: SessionFormState = this.defaultSessionForm();
   private sidebarCollapsed = false;
@@ -250,20 +229,6 @@ class EiksyShell {
     selectedFiles: [],
   };
   private sshConfigDraft = "";
-  private vaultState: VaultState = {
-    path: "",
-    entries: [],
-    loading: false,
-    error: "",
-    loaded: false,
-  };
-  private keepassState: VaultState = {
-    path: "",
-    entries: [],
-    loading: false,
-    error: "",
-    loaded: false,
-  };
   private theme: Theme;
   private sessionContextMenu: SessionContextMenuState = {
     visible: false,
@@ -410,8 +375,7 @@ class EiksyShell {
   private registerGlobalEvents(): void {
     EventsOn("app:log", (...payload: unknown[]) => {
       const data = payload[0] as
-        | { level?: string; message?: string; time?: string }
-        | undefined;
+        { level?: string; message?: string; time?: string } | undefined;
       if (!data?.message) return;
       const level = this.normalizeNotificationLevel(data.level);
       this.pushNotification(
@@ -508,8 +472,6 @@ class EiksyShell {
             ${this.renderRemoteEditorModal()}
             ${this.showSessionModal ? this.renderSessionModal() : ""}
             ${this.showSettingsModal ? this.renderSettingsModal() : ""}
-            ${this.showVaultModal ? this.renderVaultModal() : ""}
-            ${this.showKeePassModal ? this.renderKeePassModal() : ""}
             ${this.showNotificationCenter ? this.renderNotificationCenter() : ""}
             ${this.masterPasswordDialog.visible ? this.renderMasterPasswordDialog() : ""}
             ${this.renderToasts()}
@@ -568,24 +530,6 @@ class EiksyShell {
       ?.addEventListener("click", () => {
         this.closeSidebarActionsMenu();
         this.openSessionModalForCreate();
-      });
-    root
-      ?.querySelector<HTMLButtonElement>("[data-open-vault-modal]")
-      ?.addEventListener("click", () => {
-        this.closeSidebarActionsMenu();
-        this.showVaultModal = true;
-        this.vaultModalTab = "browser";
-        this.initializeSettingsDrafts();
-        this.render();
-      });
-    root
-      ?.querySelector<HTMLButtonElement>("[data-open-keepass-modal]")
-      ?.addEventListener("click", () => {
-        this.closeSidebarActionsMenu();
-        this.showKeePassModal = true;
-        this.keepassModalTab = "browser";
-        this.initializeSettingsDrafts();
-        this.render();
       });
 
     root
@@ -711,25 +655,6 @@ class EiksyShell {
           if (this.sessionInnerTab === "sftp") {
             await this.ensureActiveSFTPLoaded();
           }
-        });
-      });
-
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-vault-modal-tab]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          this.vaultModalTab =
-            (button.dataset.vaultModalTab as SecretsModalTab) ?? "browser";
-          this.render();
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-keepass-modal-tab]")
-      .forEach((button) => {
-        button.addEventListener("click", () => {
-          this.keepassModalTab =
-            (button.dataset.keepassModalTab as SecretsModalTab) ?? "browser";
-          this.render();
         });
       });
 
@@ -904,53 +829,6 @@ class EiksyShell {
           return;
         }
         await this.downloadFromSFTP(activeTab.id);
-      });
-
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-open-vault-browser]")
-      .forEach((button) => {
-        button.addEventListener("click", async () => {
-          const provider =
-            button.dataset.openVaultBrowser === "keepass" ? "keepass" : "vault";
-          await this.loadSecretsForProvider(provider, "");
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-refresh-vault-browser]")
-      .forEach((button) => {
-        button.addEventListener("click", async () => {
-          const provider =
-            button.dataset.refreshVaultBrowser === "keepass"
-              ? "keepass"
-              : "vault";
-          await this.loadSecretsForProvider(
-            provider,
-            this.stateByProvider(provider).path,
-          );
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-vault-up]")
-      .forEach((button) => {
-        button.addEventListener("click", async () => {
-          const provider =
-            button.dataset.vaultUp === "keepass" ? "keepass" : "vault";
-          await this.loadSecretsForProvider(
-            provider,
-            parentVaultPath(this.stateByProvider(provider).path),
-          );
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLButtonElement>("[data-vault-dir]")
-      .forEach((button) => {
-        button.addEventListener("click", async () => {
-          const targetPath = button.dataset.vaultDir;
-          const provider =
-            button.dataset.vaultProvider === "keepass" ? "keepass" : "vault";
-          if (!targetPath) return;
-          await this.loadSecretsForProvider(provider, targetPath);
-        });
       });
 
     root
@@ -1267,8 +1145,6 @@ class EiksyShell {
           const wasSessionModalOpen = this.showSessionModal;
           this.showSessionModal = false;
           this.showSettingsModal = false;
-          this.showVaultModal = false;
-          this.showKeePassModal = false;
           this.showNotificationCenter = false;
           if (wasSessionModalOpen) {
             this.editingProfileID = "";
@@ -1278,8 +1154,6 @@ class EiksyShell {
             this.sessionNameAuto = true;
             this.sessionModalTab = "host";
           }
-          this.vaultModalTab = "browser";
-          this.keepassModalTab = "browser";
           this.render();
         });
       });
@@ -2033,75 +1907,6 @@ class EiksyShell {
     this.render();
   }
 
-  private async loadVaultSecrets(
-    provider: "vault" | "keepass",
-    targetPath: string,
-  ): Promise<void> {
-    const normalizedPath = targetPath === "." ? "" : targetPath;
-    const currentState = this.stateByProvider(provider);
-    this.setProviderState(provider, {
-      ...currentState,
-      loading: true,
-      error: "",
-    });
-    this.render();
-    try {
-      const entries = await this.withMasterPasswordRetry(
-        () => ListVaultSecretsForProvider(provider, normalizedPath),
-        `Master password setup was cancelled, so the saved ${provider === "keepass" ? "KeePass" : "Vault"} credentials remain locked.`,
-      );
-      if (!entries) {
-        this.setProviderState(provider, {
-          ...currentState,
-          loading: false,
-          error: "",
-        });
-        this.render();
-        return;
-      }
-      this.setProviderState(provider, {
-        path: normalizedPath,
-        entries,
-        loading: false,
-        error: "",
-        loaded: true,
-      });
-    } catch (error) {
-      this.pushNotification(
-        "error",
-        formatError("Unable to load Vault secrets", error),
-      );
-      this.setProviderState(provider, {
-        ...currentState,
-        loading: false,
-        error: "",
-      });
-    }
-    this.render();
-  }
-
-  private async loadSecretsForProvider(
-    provider: "vault" | "keepass",
-    targetPath: string,
-  ): Promise<void> {
-    await this.loadVaultSecrets(provider, targetPath);
-  }
-
-  private stateByProvider(provider: "vault" | "keepass"): VaultState {
-    return provider === "keepass" ? this.keepassState : this.vaultState;
-  }
-
-  private setProviderState(
-    provider: "vault" | "keepass",
-    state: VaultState,
-  ): void {
-    if (provider === "keepass") {
-      this.keepassState = state;
-      return;
-    }
-    this.vaultState = state;
-  }
-
   private attachActiveTerminal(): void {
     const host = document.querySelector<HTMLDivElement>("#terminal-host");
     if (!host) {
@@ -2263,8 +2068,6 @@ class EiksyShell {
                                 <div class="sidebar-actions-menu-overlay" data-sidebar-actions-menu-overlay></div>
                                 <div class="sidebar-actions-menu" id="${this.sidebarActionsMenuID}" data-sidebar-actions-menu role="menu">
                                     <button class="sidebar-actions-menu-item" data-open-session-modal role="menuitem"><span class="sidebar-actions-menu-icon">+</span><span>New session</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-vault-modal role="menuitem"><span class="sidebar-actions-menu-icon">🗄️</span><span>Vault window</span></button>
-                                    <button class="sidebar-actions-menu-item" data-open-keepass-modal role="menuitem"><span class="sidebar-actions-menu-icon">🔑</span><span>KeePass window</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="ai" role="menuitem"><span class="sidebar-actions-menu-icon">🤖</span><span>AI settings</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="commandpolicy" role="menuitem"><span class="sidebar-actions-menu-icon">🛡️</span><span>Command Policy</span></button>
                                     <button class="sidebar-actions-menu-item" data-open-settings-tab="sshconfig" role="menuitem"><span class="sidebar-actions-menu-icon">📥</span><span>SSH Config import</span></button>
@@ -2534,36 +2337,6 @@ class EiksyShell {
                         </div>
                     </div>
                 </div>
-            </div>
-        `;
-  }
-
-  private renderVaultBrowser(provider: "vault" | "keepass"): string {
-    const state = this.stateByProvider(provider);
-    const sourceName = provider === "keepass" ? "KeePass" : "Vault";
-    if (state.loading) {
-      return '<div class="empty-state">Loading secrets…</div>';
-    }
-    if (!state.loaded) {
-      return `<div class="empty-state">Open ${sourceName} browser to load secrets.</div>`;
-    }
-    const entriesBlock =
-      state.entries.length > 0
-        ? state.entries
-            .map((entry) =>
-              entry.isDir
-                ? `<button class="sftp-entry sftp-dir" data-vault-dir="${escapeHtml(entry.path)}" data-vault-provider="${provider}"><span>${escapeHtml(entry.name)}</span><small>dir</small></button>`
-                : `<div class="sftp-entry sftp-file"><span>${escapeHtml(entry.name)}</span><small>secret</small></div>`,
-            )
-            .join("")
-        : '<div class="empty-state">No secrets in this path.</div>';
-    return `
-            <div class="sftp-path-row">
-                <span class="sftp-path">${escapeHtml(state.path || "/")}</span>
-                <button class="action-button secondary" data-vault-up="${provider}">..</button>
-            </div>
-            <div class="sftp-list">
-                ${entriesBlock}
             </div>
         `;
   }
@@ -3087,131 +2860,6 @@ class EiksyShell {
         `;
   }
 
-  private renderVaultModal(): string {
-    return `
-            <div class="modal-overlay">
-                <div class="modal-dialog wide settings-dialog">
-                    <div class="panel-header compact-header">
-                        <div>
-                            <div class="eyebrow">Vault</div>
-                            <h2>Vault window</h2>
-                        </div>
-                        <button class="icon-button" data-close-modal>×</button>
-                    </div>
-                    <nav class="modal-tabs">
-                        <button class="modal-tab ${this.vaultModalTab === "browser" ? "active" : ""}" data-vault-modal-tab="browser">Browser</button>
-                        <button class="modal-tab ${this.vaultModalTab === "settings" ? "active" : ""}" data-vault-modal-tab="settings">Settings</button>
-                    </nav>
-                    <div class="modal-body">
-                        <div class="modal-tab-panel ${this.vaultModalTab === "browser" ? "active" : ""}">
-                            <div class="section-heading">
-                                <span class="section-title">Vault Tree</span>
-                                <div class="section-actions">
-                                    <button class="action-button secondary" data-open-vault-browser="vault">Open</button>
-                                    <button class="action-button secondary" data-refresh-vault-browser="vault">Refresh</button>
-                                </div>
-                            </div>
-                            ${this.renderVaultBrowser("vault")}
-                        </div>
-                        <div class="modal-tab-panel ${this.vaultModalTab === "settings" ? "active" : ""}">
-                            <form class="provider-form" data-vault-settings-form>
-                                <label>
-                                    <span>Vault instance URL</span>
-                                    <input type="url" data-vault-address name="vaultAddress" value="${escapeHtml(this.vaultDraftAddress)}" placeholder="https://vault.example.com" />
-                                </label>
-                                <label>
-                                    <span>Mountpoint</span>
-                                    <input type="text" data-vault-mount name="vaultMountPoint" value="${escapeHtml(this.vaultDraftMountPoint)}" placeholder="secret" />
-                                </label>
-                                <label>
-                                    <span>Auth method</span>
-                                    <select data-vault-auth-method name="vaultAuthMethod">
-                                        <option value="token" ${this.vaultDraftAuthMethod === "token" ? "selected" : ""}>token</option>
-                                        <option value="oidc" ${this.vaultDraftAuthMethod === "oidc" ? "selected" : ""}>oidc</option>
-                                        <option value="oidc-sec" ${this.vaultDraftAuthMethod === "oidc-sec" ? "selected" : ""}>oidc-sec</option>
-                                        <option value="domain" ${this.vaultDraftAuthMethod === "domain" ? "selected" : ""}>domain login/password</option>
-                                    </select>
-                                </label>
-                                ${
-                                  this.vaultDraftAuthMethod === "token"
-                                    ? `<label>
-                                            <span>Token</span>
-                                            <input type="password" data-vault-token name="vaultToken" value="${escapeHtml(this.vaultDraftToken)}" placeholder="hvs...." />
-                                       </label>
-                                       ${this.shellState?.settings.hasVaultToken && !this.vaultDraftToken ? '<div class="section-copy">A Vault token is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ""}`
-                                    : `<label>
-                                            <span>Login</span>
-                                            <input type="text" data-vault-login name="vaultLogin" value="${escapeHtml(this.vaultDraftLogin)}" placeholder="DOMAIN\\\\user" />
-                                       </label>
-                                       <label>
-                                            <span>Password</span>
-                                            <input type="password" data-vault-password name="vaultPassword" value="${escapeHtml(this.vaultDraftPassword)}" />
-                                       </label>
-                                       ${this.shellState?.settings.hasVaultPassword && !this.vaultDraftPassword ? '<div class="section-copy">A Vault password is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ""}`
-                                }
-                                <label class="inline-check">
-                                    <span>Auto-renew token</span>
-                                    <input data-vault-renew name="vaultAutoRenewToken" type="checkbox" ${this.vaultDraftAutoRenewToken ? "checked" : ""} />
-                                </label>
-                                <div class="provider-form-actions">
-                                    <button class="action-button" type="submit">Save Vault settings</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-  }
-
-  private renderKeePassModal(): string {
-    return `
-            <div class="modal-overlay">
-                <div class="modal-dialog wide settings-dialog">
-                    <div class="panel-header compact-header">
-                        <div>
-                            <div class="eyebrow">KeePass</div>
-                            <h2>KeePass window</h2>
-                        </div>
-                        <button class="icon-button" data-close-modal>×</button>
-                    </div>
-                    <nav class="modal-tabs">
-                        <button class="modal-tab ${this.keepassModalTab === "browser" ? "active" : ""}" data-keepass-modal-tab="browser">Browser</button>
-                        <button class="modal-tab ${this.keepassModalTab === "settings" ? "active" : ""}" data-keepass-modal-tab="settings">Settings</button>
-                    </nav>
-                    <div class="modal-body">
-                        <div class="modal-tab-panel ${this.keepassModalTab === "browser" ? "active" : ""}">
-                            <div class="section-heading">
-                                <span class="section-title">KeePass Tree</span>
-                                <div class="section-actions">
-                                    <button class="action-button secondary" data-open-vault-browser="keepass">Open</button>
-                                    <button class="action-button secondary" data-refresh-vault-browser="keepass">Refresh</button>
-                                </div>
-                            </div>
-                            ${this.renderVaultBrowser("keepass")}
-                        </div>
-                        <div class="modal-tab-panel ${this.keepassModalTab === "settings" ? "active" : ""}">
-                            <form class="provider-form" data-keepass-settings-form>
-                                <label>
-                                    <span>KeePass database path</span>
-                                    <input type="text" data-keepass-db-path name="keepassDatabasePath" value="${escapeHtml(this.vaultDraftKeePassDatabasePath)}" placeholder="~/.config/KeePass/database.kdbx" />
-                                </label>
-                                <label>
-                                    <span>KeePass password</span>
-                                    <input type="password" data-keepass-password name="keepassPassword" value="${escapeHtml(this.vaultDraftKeePassPassword)}" />
-                                </label>
-                                ${this.shellState?.settings.hasKeePassPassword && !this.vaultDraftKeePassPassword ? '<div class="section-copy">A KeePass password is already saved in encrypted storage. Leave the field blank to keep it.</div>' : ""}
-                                <div class="provider-form-actions">
-                                    <button class="action-button" type="submit">Save KeePass settings</button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-  }
-
   private openSessionModalForCreate(): void {
     this.editingProfileID = "";
     this.sessionForm = this.defaultSessionForm();
@@ -3614,8 +3262,7 @@ class EiksyShell {
 
   private commandPolicy(): CommandPolicyState {
     const raw = this.shellState?.ai.commandPolicy as
-      | aiModels.CommandPolicy
-      | undefined;
+      aiModels.CommandPolicy | undefined;
     const tools = Array.isArray(raw?.tools) ? raw.tools : [];
     const allowedTools = Array.isArray(raw?.allowedTools)
       ? raw.allowedTools
@@ -4259,18 +3906,6 @@ function parentPath(value: string): string {
   const index = normalized.lastIndexOf("/");
   if (index <= 0) {
     return ".";
-  }
-  return normalized.slice(0, index);
-}
-
-function parentVaultPath(value: string): string {
-  if (!value || value === "/") {
-    return "";
-  }
-  const normalized = value.endsWith("/") ? value.slice(0, -1) : value;
-  const index = normalized.lastIndexOf("/");
-  if (index < 0) {
-    return "";
   }
   return normalized.slice(0, index);
 }
