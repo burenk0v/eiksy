@@ -5,7 +5,6 @@ import (
 	"strings"
 	"testing"
 
-	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/storage/memory"
 )
@@ -57,5 +56,3 @@ func TestExecuteSessionCommandWithOutputTruncatesLargeOutput(t *testing.T) {
 	if !strings.HasSuffix(output, "\n[output truncated by Eiksy]") { t.Fatalf("expected truncation marker") }
 	if len(output) <= maxAICommandOutput { t.Fatalf("expected marker to extend beyond output limit, got %d bytes", len(output)) }
 }
-
-var _ sessions.Profile
