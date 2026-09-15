@@ -1,0 +1,1 @@
+Credential boundary hardening is backend-enforced. Direct access to common secret material is denied by default AI command policy. Vault/KeePass and browser-auth token hand-off remain follow-up work.
