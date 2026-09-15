@@ -1,6 +1,7 @@
 name: Patch AI exec output
 
 on:
+  workflow_dispatch:
   push:
     branches: [feat/ai-tool-calling]
 
@@ -27,7 +28,7 @@ jobs:
           if old in text:
               start = text.index(old)
               end = text.index('\n}\n', start) + 3
-              new = '''func (s *Service) executeSessionCommand(sessionID, command string) (string, error) {\n\tsessionID = strings.TrimSpace(sessionID)\n\tcommand = strings.TrimSpace(command)\n\tif sessionID == "" { return "", fmt.Errorf("command request session id is required") }\n\tif command == "" { return "", fmt.Errorf("command cannot be empty") }\n\ttab, ok := s.runtimeTab(sessionID)\n\tif !ok { return "", fmt.Errorf("active session %q not found", sessionID) }\n\tif tab.ProtocolID != "ssh" { return "", fmt.Errorf("commands can only run in ssh sessions") }\n\tif s.sshManager == nil { return "", fmt.Errorf("ssh manager is not configured") }\n\texecutor, ok := s.sshManager.(sshCommandExecutor)\n\tif !ok { return "", fmt.Errorf("ssh command execution is not supported") }\n\treturn executor.ExecCommand(sessionID, command)\n}'''
+              new = '''func (s *Service) executeSessionCommand(sessionID, command string) (string, error) {\n\tsessionID = strings.TrimSpace(sessionID)\n\tcommand = strings.TrimSpace(command)\n\tif sessionID == "" { return "", fmt.Errorf("command request session id is required") }\n\tif command == "" { return "", fmt.Errorf("command cannot be empty") }\n\ttab, ok := s.runtimeTab(sessionID)\n\tif !ok { return "", fmt.Errorf("active session %q not found", sessionID) }\n\tif tab.ProtocolID != "ssh" { return "", fmt.Errorf("commands can only run in ssh sessions") }\n\tif s.sshManager == nil { return "", fmt.Errorf("ssh manager is not configured") }\n\tif executor, ok := s.sshManager.(sshCommandExecutor); ok {\n\t\treturn executor.ExecCommand(sessionID, command)\n\t}\n\tif err := s.sshManager.SendInput(sessionID, command+"\\n"); err != nil { return "", err }\n\treturn "", nil\n}'''
               text = text[:start] + new + text[end:]
           text = text.replace('if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {', 'if _, err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {')
           p.write_text(text)
@@ -43,8 +44,14 @@ jobs:
 
           p = Path('internal/app/native_tool_calling.go')
           text = p.read_text()
-          text = text.replace('''if err := s.executeSessionCommand(args.SessionID, args.Command); err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q}`, err.Error()), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q}`, args.SessionID, args.Command), false, nil''', '''output, err := s.executeSessionCommand(args.SessionID, args.Command)\n\t\tif err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q,"output":%q}`, err.Error(), output), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q,"output":%q}`, args.SessionID, args.Command, output), false, nil''')
-          text = text.replace('''if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))''', '''output, err := s.executeSessionCommand(request.SessionID, request.Command)\n\t\tif err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))''')
+          old = '''if err := s.executeSessionCommand(args.SessionID, args.Command); err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q}`, err.Error()), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q}`, args.SessionID, args.Command), false, nil'''
+          new = '''output, err := s.executeSessionCommand(args.SessionID, args.Command)\n\t\tif err != nil {\n\t\t\treturn fmt.Sprintf(`{"error":"command execution failed","message":%q,"output":%q}`, err.Error(), output), false, nil\n\t\t}\n\t\treturn fmt.Sprintf(`{"ok":true,"sessionId":%q,"command":%q,"output":%q}`, args.SessionID, args.Command, output), false, nil'''
+          if old not in text: raise SystemExit('native allow block not found')
+          text = text.replace(old, new, 1)
+          old = '''if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))'''
+          new = '''output, err := s.executeSessionCommand(request.SessionID, request.Command)\n\t\tif err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))'''
+          if old not in text: raise SystemExit('native approval block not found')
+          text = text.replace(old, new, 1)
           p.write_text(text)
       - name: Test
         run: |
