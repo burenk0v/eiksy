@@ -28,6 +28,19 @@ func commandToolRegistry() []AITool {
 				"additionalProperties": false,
 			},
 		},
+		{
+			Name: "ssh.diagnostics",
+			Description: "Run a fixed, read-only infrastructure diagnostic summary against the selected active SSH session. No arbitrary command is accepted.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sessionId": map[string]any{"type": "string", "description": "Active Eiksy SSH session ID."},
+					"operation": map[string]any{"type": "string", "enum": []string{"summary"}, "description": "Diagnostic operation to run."},
+				},
+				"required": []string{"sessionId", "operation"},
+				"additionalProperties": false,
+			},
+		},
 	}
 }
 
