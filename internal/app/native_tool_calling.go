@@ -179,20 +179,23 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 	decision, reason := evaluateCommandPolicy(policy, nativeSSHExecPolicyToolID, args.SessionID, args.Command)
 	switch decision {
 	case commandPolicyDecisionDeny:
+		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "denied", "policy_denied", 0, 0, ai.CommandAuditEvent{ErrorType: "policy_denied", Error: strings.TrimSpace(reason)})
 		if strings.TrimSpace(reason) == "" {
 			return `{"error":{"type":"policy_denied","message":"command denied by Command Policy"}}`, false, nil
 		}
 		return fmt.Sprintf(`{"error":{"type":"policy_denied","message":"command denied by Command Policy","reason":%q}}`, reason), false, nil
 	case commandPolicyDecisionAllow:
 		result, err := s.executeSessionCommandResult(args.SessionID, args.Command)
+		status := "executed"
+		if err != nil {
+			status = "execution_failed"
+		}
+		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "not_required", status, result.ExitCode, result.DurationMs, ai.CommandAuditEvent{ErrorType: string(result.ErrorType), Error: result.Error})
 		payload := map[string]any{
-			"status":    "executed",
+			"status":    status,
 			"sessionId": args.SessionID,
 			"command":   args.Command,
 			"result":    result,
-		}
-		if err != nil {
-			payload["status"] = "execution_failed"
 		}
 		encoded, marshalErr := json.Marshal(payload)
 		if marshalErr != nil {
@@ -226,10 +229,12 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 			MessagesJSON:  string(encodedMessages),
 		}
 		s.store.UpdateAIState(state)
+		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "required", "approval_required", 0, 0, ai.CommandAuditEvent{ErrorType: "approval_required"})
 		message := fmt.Sprintf("Command permission required for session %s.\nCommand: `%s`\nReason: %s", request.SessionID, request.Command, request.Reason)
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
 		return fmt.Sprintf(`{"status":"approval_required","requestId":%q}`, request.ID), true, nil
 	default:
+		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "not_required", "execution_failed", 0, 0, ai.CommandAuditEvent{ErrorType: "execution_error", Error: "unknown policy decision"})
 		return `{"error":{"type":"execution_error","message":"unknown policy decision"}}`, false, nil
 	}
 }
