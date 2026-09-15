@@ -15,7 +15,7 @@ func TestDispatchNativeDiagnosticsSummaryUsesFixedCommands(t *testing.T) {
 	ssh := &nativeTestSSHManager{}
 	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
 	service := NewService(store, ssh, nil)
-	policy := normalizeCommandPolicy(ai.CommandPolicy{Tools: []ai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}})
+	policy := ai.CommandPolicy{Tools: []ai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}, CommandRules: defaultCommandRules()}
 
 	call := nativeToolCall{ID: "diag-1", Type: "function"}
 	call.Function.Name = nativeSSHDiagnosticsToolName
