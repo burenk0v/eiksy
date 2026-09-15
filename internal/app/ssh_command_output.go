@@ -57,7 +57,7 @@ func (s *Service) executeSessionCommandResult(sessionID, command string) (sessio
 		}
 
 		if executor, ok := s.sshManager.(sshStructuredCommandExecutor); ok {
-			return executor.ExecCommandResult(s.resolveContext(context.Background()), sessionID, command)
+			return executor.ExecCommandResult(s.resolveContext(s.ctx), sessionID, command)
 		}
 		if executor, ok := s.sshManager.(sshCommandExecutor); ok {
 			output, err := executor.ExecCommand(sessionID, command)
