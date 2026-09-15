@@ -6,10 +6,10 @@ import (
 	"eiksy/internal/domain/ai"
 )
 
-// recordCommandPolicyResolution appends the second lifecycle event for a
+// RecordCommandPolicyResolutionForApp records the authorization outcome for a
 // command that entered the human-approval path. Execution itself is audited
 // separately by ssh.exec, so this event records only the authorization outcome.
-func (s *Service) recordCommandPolicyResolution(request ai.CommandRequest, mode ai.CommandPermissionMode, err error) {
+func (s *Service) RecordCommandPolicyResolutionForApp(request ai.CommandRequest, mode ai.CommandPermissionMode, err error) {
 	approval := "denied"
 	result := "approval_denied"
 	extra := ai.CommandAuditEvent{ErrorType: "approval_denied"}
@@ -29,7 +29,7 @@ func (s *Service) recordCommandPolicyResolution(request ai.CommandRequest, mode 
 		"",
 		request.SessionID,
 		request.Command,
-		string(commandPolicyDecisionAsk),
+		"ask",
 		approval,
 		result,
 		0,
