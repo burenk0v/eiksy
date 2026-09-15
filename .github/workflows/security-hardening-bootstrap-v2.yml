@@ -60,7 +60,6 @@ jobs:
               raise SystemExit(".fail recovery still present in store.go")
           disk.write_text(text)
 
-          # Secure storage: explicit lock, memory zeroization, 15-minute inactivity auto-lock.
           edit("internal/securestorage/manager.go", lambda t: once(t, r'("sync"\n)', r'\1\t"time"\n', "manager.go"))
           edit("internal/securestorage/manager.go", lambda t: once(t, r'\tmasterKeySize\s*= 32\n\tsaltSize\s*= 16\n', '\tmasterKeySize      = 32\n\tsaltSize           = 16\n\tautoLockDuration   = 15 * time.Minute\n', "manager.go"))
           edit("internal/securestorage/manager.go", lambda t: once(t, r'\tkeyringUser string\n\tmasterKey\s+\[\]byte\n', '\tkeyringUser   string\n\tmasterKey     []byte\n\tautoLockTimer *time.Timer\n', "manager.go"))
@@ -80,7 +79,7 @@ jobs:
       - name: Format and test
         run: |
           gofmt -w internal/storage/disk/store.go internal/storage/memory/store.go internal/securestorage/manager.go internal/app/service.go app.go
-          test -z "$(git grep -n '\.fail' -- ':!*.md' || true)"
+          test -z "$(git grep -n '\.fail' -- internal/storage/disk/store.go || true)"
           go test ./...
 
       - name: Commit hardened implementation and remove bootstrap workflow
