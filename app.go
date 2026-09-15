@@ -168,6 +168,10 @@ func (a *App) EnsureMasterPassword(password string) error {
 	return a.currentService().EnsureMasterPassword(password)
 }
 
+func (a *App) LockSecureStorage() {
+	a.currentService().LockSecureStorage()
+}
+
 func (a *App) UpdateSettings(input settings.AppSettings) error {
 	return a.currentService().UpdateSettings(input)
 }

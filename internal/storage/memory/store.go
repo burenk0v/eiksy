@@ -295,6 +295,12 @@ func (s *Store) nextEventIDLocked() string {
 	return fmt.Sprintf("event-%d", s.eventCounter)
 }
 
+func (s *Store) LockSecureStorage() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.secureStatus.Unlocked = false
+}
+
 func (s *Store) SecureStorageStatus() securestorage.Status {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
