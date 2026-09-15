@@ -1,49 +1,128 @@
 package sshmanager
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
+
+	"eiksy/internal/domain/sessions"
+	xssh "golang.org/x/crypto/ssh"
 )
 
-const maxExecOutput = 32 * 1024
+const (
+	maxExecOutput   = 32 * 1024
+	execCommandTimeout = 30 * time.Second
+)
 
-// ExecCommand executes one non-interactive command over the existing SSH
+// ExecCommand preserves the original simple execution API for callers that
+// only need combined output. AI execution should use ExecCommandResult so the
+// model receives structured stdout/stderr/exit-code information.
+func (m *Manager) ExecCommand(tabID, command string) (string, error) {
+	result, err := m.ExecCommandResult(context.Background(), tabID, command)
+	return combinedExecOutput(result), err
+}
+
+// ExecCommandResult executes one non-interactive command over the existing SSH
 // connection. It uses a fresh SSH exec session, so command execution does not
 // mutate the state of the interactive terminal session.
-func (m *Manager) ExecCommand(tabID, command string) (string, error) {
+//
+// A bounded timeout is enforced even when the caller does not provide one.
+func (m *Manager) ExecCommandResult(ctx context.Context, tabID, command string) (sessions.CommandExecutionResult, error) {
+	started := time.Now()
+	result := sessions.CommandExecutionResult{ExitCode: -1}
+	finish := func(err error) (sessions.CommandExecutionResult, error) {
+		result.Success = err == nil
+		result.DurationMs = time.Since(started).Milliseconds()
+		if err != nil {
+			result.Error = err.Error()
+		}
+		return result, err
+	}
+
 	tabID = strings.TrimSpace(tabID)
 	command = strings.TrimSpace(command)
 	if tabID == "" {
-		return "", fmt.Errorf("ssh tab id is required")
+		return finish(fmt.Errorf("ssh tab id is required"))
 	}
 	if command == "" {
-		return "", fmt.Errorf("command cannot be empty")
+		return finish(fmt.Errorf("command cannot be empty"))
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, execCommandTimeout)
+	defer cancel()
 
 	m.mu.RLock()
 	conn := m.connections[tabID]
 	m.mu.RUnlock()
 	if conn == nil || conn.client == nil {
-		return "", fmt.Errorf("ssh tab %q is not connected", tabID)
+		return finish(fmt.Errorf("ssh tab %q is not connected", tabID))
 	}
 
 	session, err := conn.client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("create ssh exec session: %w", err)
+		return finish(fmt.Errorf("create ssh exec session: %w", err))
 	}
 	defer session.Close()
 
-	output, err := session.CombinedOutput(command)
-	result := string(output)
-	if len(result) > maxExecOutput {
-		result = result[:maxExecOutput] + "\n[output truncated by Eiksy]"
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
+	if err := session.Start(command); err != nil {
+		return finish(fmt.Errorf("start command over ssh: %w", err))
 	}
-	if err != nil {
-		return result, fmt.Errorf("run command over ssh: %w", err)
+
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- session.Wait() }()
+
+	var waitErr error
+	select {
+	case waitErr = <-waitCh:
+	case <-ctx.Done():
+		_ = session.Close()
+		waitErr = fmt.Errorf("command execution timed out after %s: %w", execCommandTimeout, ctx.Err())
 	}
-	return result, nil
+
+	result.Stdout = truncateExecOutput(stdout.String())
+	result.Stderr = truncateExecOutput(stderr.String())
+	if waitErr == nil {
+		result.ExitCode = 0
+		return finish(nil)
+	}
+
+	var exitErr *xssh.ExitError
+	if errors.As(waitErr, &exitErr) {
+		result.ExitCode = exitErr.ExitStatus()
+	}
+	return finish(fmt.Errorf("run command over ssh: %w", waitErr))
+}
+
+func truncateExecOutput(value string) string {
+	if len(value) <= maxExecOutput {
+		return value
+	}
+	return value[:maxExecOutput] + "\n[output truncated by Eiksy]"
+}
+
+func combinedExecOutput(result sessions.CommandExecutionResult) string {
+	parts := make([]string, 0, 2)
+	if result.Stdout != "" {
+		parts = append(parts, result.Stdout)
+	}
+	if result.Stderr != "" {
+		parts = append(parts, result.Stderr)
+	}
+	return strings.Join(parts, "\n")
 }
 
 var _ interface {
 	ExecCommand(string, string) (string, error)
+} = (*Manager)(nil)
+
+var _ interface {
+	ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error)
 } = (*Manager)(nil)
