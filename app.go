@@ -221,7 +221,26 @@ func (a *App) UpdateCommandPolicy(policy ai.CommandPolicy) error {
 }
 
 func (a *App) ResolveCommandPolicyRequest(requestID string, mode string) error {
-	return a.currentService().ResolveCommandPolicyRequest(requestID, ai.CommandPermissionMode(mode))
+	service := a.currentService()
+	state := service.GetShellState().AI
+	var request ai.CommandRequest
+	for _, pending := range state.CommandPolicy.PendingRequests {
+		if pending.ID == requestID {
+			request = pending
+			break
+		}
+	}
+
+	permissionMode := ai.CommandPermissionMode(mode)
+	err := service.ResolveCommandPolicyRequest(requestID, permissionMode)
+	if request.ID != "" {
+		service.RecordCommandPolicyResolutionForApp(request, permissionMode, err)
+	}
+	return err
+}
+
+func (a *App) GetCommandAuditTrail() []ai.CommandAuditEvent {
+	return a.currentService().GetCommandAuditTrail()
 }
 
 func (a *App) AcceptSSHHostKey(tabID string) error {
