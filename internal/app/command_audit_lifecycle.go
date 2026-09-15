@@ -2,7 +2,6 @@ package app
 
 import (
 	"strings"
-	"time"
 
 	"eiksy/internal/domain/ai"
 )
@@ -38,25 +37,3 @@ func (s *Service) recordCommandPolicyResolution(request ai.CommandRequest, mode 
 		extra,
 	)
 }
-
-// commandAuditLifecycleResult is kept as a small internal helper so tests can
-// assert the exact lifecycle mapping without depending on timestamps.
-type commandAuditLifecycleResult struct {
-	Approval string
-	Result   string
-	Error    string
-}
-
-func commandAuditLifecycleResultForMode(mode ai.CommandPermissionMode, err error) commandAuditLifecycleResult {
-	result := commandAuditLifecycleResult{Approval: "denied", Result: "approval_denied"}
-	if mode != ai.CommandPermissionModeDeny {
-		result = commandAuditLifecycleResult{Approval: "approved", Result: "approved"}
-	}
-	if err != nil {
-		result.Result = "approval_resolution_failed"
-		result.Error = strings.TrimSpace(err.Error())
-	}
-	return result
-}
-
-var _ = time.Time{}
