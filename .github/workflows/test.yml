@@ -22,21 +22,25 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Apply final AI SSH approval output fix
+      - name: Clean duplicate AI SSH output patch
         shell: python
         run: |
           from pathlib import Path
+          import re
+
           p = Path('internal/app/service.go')
           text = p.read_text()
-          old = '''\t\tif err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q}`, err.Error()))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q}`, request.SessionID, request.Command))'''
-          new = '''\t\toutput, err := s.executeSessionCommandWithOutput(request.SessionID, request.Command)\n\t\tif err != nil {\n\t\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))\n\t\t}\n\t\treturn s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))'''
-          if old in text:
-              p.write_text(text.replace(old, new, 1))
+          text = text.replace('\tmaxAICommandOutput     = 32 * 1024\n', '', 1)
+          pattern = r'\nfunc \(s \*Service\) executeSessionCommandWithOutput\(sessionID, command string\) \(string, error\) \{.*?\n\}\n\nfunc vaultPathJoin'
+          text, count = re.subn(pattern, '\nfunc vaultPathJoin', text, count=1, flags=re.S)
+          if count == 0 and 'func (s *Service) executeSessionCommandWithOutput(' in text:
+              raise SystemExit('duplicate executeSessionCommandWithOutput block was not located')
+          p.write_text(text)
       - name: Format and test
         run: |
           gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/ssh/exec.go internal/app/ssh_command_output.go internal/app/ssh_command_output_test.go
           go test ./...
-      - name: Persist source fix and restore CI workflow
+      - name: Persist cleanup and restore CI workflow
         if: github.event_name == 'pull_request' && github.actor == 'burenk0v'
         run: |
           git config user.name 'github-actions[bot]'
@@ -44,5 +48,5 @@ jobs:
           git checkout -- .github/workflows/test.yml
           git add internal/app/service.go
           git diff --cached --quiet && exit 0
-          git commit -m 'fix(ai): return SSH output after approval'
+          git commit -m 'fix(ai): use shared SSH output executor after approval'
           git push
