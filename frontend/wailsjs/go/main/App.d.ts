@@ -4,7 +4,6 @@ import {sessions} from '../models';
 import {app} from '../models';
 import {sftp} from '../models';
 import {settings} from '../models';
-import {vault} from '../models';
 import {securestorage} from '../models';
 import {ai} from '../models';
 
@@ -37,10 +36,6 @@ export function LaunchSession(arg1:string):Promise<app.RuntimeSessionView>;
 export function ListCloudModels(arg1:string,arg2:string):Promise<Array<string>>;
 
 export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
-
-export function ListVaultSecrets(arg1:string):Promise<Array<vault.SecretNode>>;
-
-export function ListVaultSecretsForProvider(arg1:string,arg2:string):Promise<Array<vault.SecretNode>>;
 
 export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
 
@@ -87,3 +82,5 @@ export function AcceptSSHHostKey(arg1:string):Promise<void>;
 export function EnsureMasterPassword(arg1:string):Promise<void>;
 
 export function UpdateSettings(arg1:settings.AppSettings):Promise<void>;
+
+export function ValidateCredentialPath(arg1:string,arg2:string):Promise<void>;
