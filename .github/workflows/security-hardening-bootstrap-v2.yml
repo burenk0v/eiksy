@@ -1,0 +1,100 @@
+name: Bootstrap storage security hardening v2
+
+on:
+  push:
+    branches:
+      - security/storage-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: security/storage-hardening
+          fetch-depth: 0
+
+      - name: Apply hardening changes
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          def edit(path, fn):
+              p = Path(path)
+              text = p.read_text()
+              new = fn(text)
+              if new == text:
+                  raise SystemExit(f"no changes made to {path}")
+              p.write_text(new)
+
+          def once(text, pattern, replacement, path):
+              new, count = re.subn(pattern, replacement, text, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f"pattern not found in {path}: {pattern}")
+              return new
+
+          # Disk storage: private directory/files; corrupt JSON is reported, never copied to .fail.
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'os\.MkdirAll\(filepath\.Join\(baseDir, "models"\), 0o755\)',
+              'os.MkdirAll(filepath.Join(baseDir, "models"), 0o700)',
+              "store.go"))
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'(if err := os\.MkdirAll\(filepath\.Join\(baseDir, "models"\), 0o700\); err != nil \{\n\t\treturn nil, fmt\.Errorf\("create eiksy directory: %w", err\)\n\t\}\n)',
+              r'\1\tif err := os.Chmod(baseDir, 0o700); err != nil {\n\t\treturn nil, fmt.Errorf("secure eiksy directory permissions: %w", err)\n\t}\n',
+              "store.go"))
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'(if err != nil \{\n\t\treturn nil, err\n\t\}\n)(\n\tstore := &Store\{)',
+              r'\1\tif err := os.Chmod(filepath.Join(baseDir, "secrets.db"), 0o600); err != nil {\n\t\treturn nil, fmt.Errorf("secure secrets database permissions: %w", err)\n\t}\n\2',
+              "store.go"))
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'if err := json\.Unmarshal\(content, &profiles\); err != nil \{.*?\n\t\}',
+              'if err := json.Unmarshal(content, &profiles); err != nil {\n\t\treturn fmt.Errorf("decode sessions file: %w", err)\n\t}',
+              "store.go"))
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'if err := json\.Unmarshal\(content, &persisted\); err != nil \{.*?\n\t\}',
+              'if err := json.Unmarshal(content, &persisted); err != nil {\n\t\treturn fmt.Errorf("decode settings file: %w", err)\n\t}',
+              "store.go"))
+          edit("internal/storage/disk/store.go", lambda t: once(t,
+              r'if _, err := os\.Stat\(path\); err == nil \{\n\t\treturn nil\n\t\} else if !os\.IsNotExist\(err\) \{\n\t\treturn err\n\t\}\n\treturn os\.WriteFile\(path, defaultContent, 0o600\)',
+              'if _, err := os.Stat(path); err == nil {\n\t\treturn os.Chmod(path, 0o600)\n\t} else if !os.IsNotExist(err) {\n\t\treturn err\n\t}\n\treturn os.WriteFile(path, defaultContent, 0o600)',
+              "store.go"))
+
+          # Secure storage: explicit lock, memory zeroization, 15-minute inactivity auto-lock.
+          edit("internal/securestorage/manager.go", lambda t: once(t, r'("sync"\n)', r'\1\t"time"\n', "manager.go"))
+          edit("internal/securestorage/manager.go", lambda t: once(t, r'\tmasterKeySize\s*= 32\n\tsaltSize\s*= 16\n', '\tmasterKeySize      = 32\n\tsaltSize           = 16\n\tautoLockDuration   = 15 * time.Minute\n', "manager.go"))
+          edit("internal/securestorage/manager.go", lambda t: once(t, r'\tkeyringUser string\n\tmasterKey\s+\[\]byte\n', '\tkeyringUser  string\n\tmasterKey    []byte\n\tautoLockTimer *time.Timer\n', "manager.go"))
+          edit("internal/securestorage/manager.go", lambda t: once(t,
+              r'func \(m \*Manager\) Close\(\) error \{.*?\n\}',
+              '''func (m *Manager) Close() error {\n\tif m == nil {\n\t\treturn nil\n\t}\n\tm.Lock()\n\tif m.db == nil {\n\t\treturn nil\n\t}\n\treturn m.db.Close()\n}''', "manager.go"))
+          edit("internal/securestorage/manager.go", lambda t: t.replace('\t\tm.setMasterKey(masterKey)\n\t\treturn nil\n\tcase errors.Is(err, keyring.ErrNotFound):', '\t\tm.setMasterKey(masterKey)\n\t\tm.touchAutoLock()\n\t\treturn nil\n\tcase errors.Is(err, keyring.ErrNotFound):', 1))
+          edit("internal/securestorage/manager.go", lambda t: t.replace('\t\tm.setMasterKey(masterKey)\n\t\treturn nil\n\tdefault:', '\t\tm.setMasterKey(masterKey)\n\t\tm.touchAutoLock()\n\t\treturn nil\n\tdefault:', 1))
+          edit("internal/securestorage/manager.go", lambda t: once(t,
+              r'\tmasterKey := append\(\[\]byte\(nil\), m\.masterKey\.\.\.\)\n\tif len\(masterKey\) != masterKeySize \{\n\t\treturn nil, ErrMasterPasswordRequired\n\t\}\n\treturn masterKey, nil\n\}\n\nfunc \(m \*Manager\) setMasterKey',
+              '''\tmasterKey := append([]byte(nil), m.masterKey...)\n\tif len(masterKey) != masterKeySize {\n\t\treturn nil, ErrMasterPasswordRequired\n\t}\n\tm.touchAutoLock()\n\treturn masterKey, nil\n}\n\nfunc (m *Manager) Lock() {\n\tif m == nil {\n\t\treturn\n\t}\n\tm.mu.Lock()\n\tdefer m.mu.Unlock()\n\tm.zeroizeMasterKeyLocked()\n\tif m.autoLockTimer != nil {\n\t\tm.autoLockTimer.Stop()\n\t\tm.autoLockTimer = nil\n\t}\n}\n\nfunc (m *Manager) touchAutoLock() {\n\tif m == nil {\n\t\treturn\n\t}\n\tm.mu.Lock()\n\tdefer m.mu.Unlock()\n\tif len(m.masterKey) != masterKeySize {\n\t\treturn\n\t}\n\tif m.autoLockTimer != nil {\n\t\tm.autoLockTimer.Stop()\n\t}\n\tm.autoLockTimer = time.AfterFunc(autoLockDuration, m.Lock)\n}\n\nfunc (m *Manager) zeroizeMasterKeyLocked() {\n\tfor i := range m.masterKey {\n\t\tm.masterKey[i] = 0\n\t}\n\tm.masterKey = nil\n}\n\nfunc (m *Manager) setMasterKey''', "manager.go"))
+
+          # Application-level manual lock.
+          edit("internal/storage/disk/store.go", lambda t: once(t, r'func \(s \*Store\) SecureStorageStatus\(\)', 'func (s *Store) LockSecureStorage() {\n\tif s.secretManager != nil {\n\t\ts.secretManager.Lock()\n\t}\n}\n\nfunc (s *Store) SecureStorageStatus()', "store.go"))
+          edit("internal/storage/memory/store.go", lambda t: once(t, r'func \(s \*Store\) SecureStorageStatus\(\)', 'func (s *Store) LockSecureStorage() {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.secureStatus.Unlocked = false\n}\n\nfunc (s *Store) SecureStorageStatus()', "memory/store.go"))
+          edit("internal/app/service.go", lambda t: t.replace('\tEnsureMasterPassword(string) error\n', '\tEnsureMasterPassword(string) error\n\tLockSecureStorage()\n', 1))
+          edit("internal/app/service.go", lambda t: once(t, r'func \(s \*Service\) GetShellState\(\) ShellState \{', 'func (s *Service) LockSecureStorage() {\n\ts.store.LockSecureStorage()\n\ts.emitFn("secure-storage:status", map[string]bool{"unlocked": false})\n}\n\nfunc (s *Service) GetShellState() ShellState {', "service.go"))
+          edit("app.go", lambda t: once(t, r'(func \(a \*App\) EnsureMasterPassword\(password string\) error \{.*?\n\})', r'\1\n\nfunc (a *App) LockSecureStorage() {\n\ta.currentService().LockSecureStorage()\n}', "app.go"))
+
+          Path('.security-hardening-applied').write_text('security/storage-hardening\n')
+
+      - name: Format and test
+        run: |
+          gofmt -w internal/storage/disk/store.go internal/storage/memory/store.go internal/securestorage/manager.go internal/app/service.go app.go
+          go test ./...
+
+      - name: Commit hardened implementation and remove bootstrap workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/security-hardening-bootstrap-v2.yml
+          git add internal/storage/disk/store.go internal/storage/memory/store.go internal/securestorage/manager.go internal/app/service.go app.go .security-hardening-applied
+          git commit -m "security: harden local secret storage"
+          git push origin security/storage-hardening
