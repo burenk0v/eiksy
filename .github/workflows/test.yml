@@ -20,12 +20,13 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Finish native SSH tool execution
+      - name: Finish native AI SSH execution
         if: github.event_name == 'push' && github.ref == 'refs/heads/feat/ai-tool-calling'
         shell: python
         run: |
           from pathlib import Path
 
+          # Service: expose an optional command executor so tool calls can receive output.
           p = Path('internal/app/service.go')
           text = p.read_text()
           marker = 'type sftpManager interface {'
@@ -68,6 +69,7 @@ jobs:
           text = text.replace('if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {', 'if _, err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {')
           p.write_text(text)
 
+          # SSH manager: execute the command in a separate non-PTY SSH exec session.
           p = Path('internal/ssh/manager.go')
           text = p.read_text()
           if 'func (m *Manager) ExecCommand(' not in text:
@@ -101,9 +103,12 @@ jobs:
 }
 
 '''
+              if marker not in text:
+                  raise SystemExit('SendInput marker not found')
               text = text.replace(marker, method + marker, 1)
           p.write_text(text)
 
+          # Native tool result: include stdout/stderr on both success and failure.
           p = Path('internal/app/native_tool_calling.go')
           text = p.read_text()
           old = '''if err := s.executeSessionCommand(args.SessionID, args.Command); err != nil {
@@ -131,6 +136,7 @@ jobs:
               raise SystemExit('native approval block not found')
           text = text.replace(old, new, 1)
           p.write_text(text)
+
       - name: Format
         run: gofmt -w internal/app/service.go internal/app/native_tool_calling.go internal/ssh/manager.go
       - name: Run tests
@@ -165,9 +171,8 @@ jobs:
                 - name: Run tests
                   run: go test ./...
           EOF
-          rm -f .github/workflows/finish-ai-tool-calling.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add internal/app/service.go internal/app/native_tool_calling.go internal/ssh/manager.go .github/workflows/test.yml .github/workflows/finish-ai-tool-calling.yml
+          git add internal/app/service.go internal/app/native_tool_calling.go internal/ssh/manager.go .github/workflows/test.yml
           git commit -m 'feat(ai): return SSH command output to tool calls'
           git push
