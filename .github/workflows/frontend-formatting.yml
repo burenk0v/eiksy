@@ -1,0 +1,28 @@
+name: Frontend formatting
+
+on:
+  workflow_dispatch:
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/frontend-formatting
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Format frontend sources
+        run: npx --yes prettier@3.6.2 --write frontend/src/main.ts .github/workflows/build-binaries.yml
+      - name: Commit formatting
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add frontend/src/main.ts .github/workflows/build-binaries.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: format frontend and workflow files"
+          git push origin HEAD:chore/frontend-formatting
