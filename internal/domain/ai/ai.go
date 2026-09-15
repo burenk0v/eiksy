@@ -53,11 +53,11 @@ type CommandTool struct {
 }
 
 type CommandRule struct {
-	ToolID      string                 `json:"toolId,omitempty"`
-	SessionID   string                 `json:"sessionId,omitempty"`
-	Pattern     string                 `json:"pattern"`
+	ToolID      string                  `json:"toolId,omitempty"`
+	SessionID   string                  `json:"sessionId,omitempty"`
+	Pattern     string                  `json:"pattern"`
 	Action      CommandPermissionAction `json:"action"`
-	Description string                 `json:"description,omitempty"`
+	Description string                  `json:"description,omitempty"`
 }
 
 type CommandRequest struct {
@@ -69,13 +69,24 @@ type CommandRequest struct {
 	RequestedAt string `json:"requestedAt"`
 }
 
+type PendingNativeToolCall struct {
+	RequestID     string `json:"requestId"`
+	ProviderID    string `json:"providerId"`
+	ToolCallID    string `json:"toolCallId"`
+	ToolName      string `json:"toolName"`
+	ToolArguments string `json:"toolArguments"`
+	UserMessage   string `json:"userMessage"`
+	SessionID     string `json:"sessionId"`
+	MessagesJSON  string `json:"messagesJson"`
+}
+
 type CommandPolicy struct {
 	Tools               []CommandTool       `json:"tools"`
 	AllowedTools        []string            `json:"allowedTools"`
 	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
 	CommandRules        []CommandRule       `json:"commandRules,omitempty"`
 	PendingRequests     []CommandRequest    `json:"pendingRequests"`
-	LocalDocsPath        string             `json:"localDocsPath,omitempty"`
+	LocalDocsPath       string              `json:"localDocsPath,omitempty"`
 }
 
 type ChatMessage struct {
@@ -84,9 +95,10 @@ type ChatMessage struct {
 }
 
 type WorkspaceState struct {
-	Providers     []ProviderDescriptor `json:"providers"`
-	ContextPolicy ContextPolicy        `json:"contextPolicy"`
-	CommandPolicy CommandPolicy        `json:"commandPolicy"`
-	Messages      []ChatMessage        `json:"messages"`
-	ChatSessionID string               `json:"chatSessionId"`
+	Providers             []ProviderDescriptor   `json:"providers"`
+	ContextPolicy         ContextPolicy          `json:"contextPolicy"`
+	CommandPolicy         CommandPolicy          `json:"commandPolicy"`
+	Messages              []ChatMessage          `json:"messages"`
+	ChatSessionID         string                 `json:"chatSessionId"`
+	PendingNativeToolCall *PendingNativeToolCall `json:"pendingNativeToolCall,omitempty"`
 }
