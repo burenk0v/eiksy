@@ -45,7 +45,7 @@ func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecis
 		Command:        redactAuditValue(command),
 		PolicyDecision: redactAuditValue(policyDecision),
 		Approval:       redactAuditValue(approval),
-		Result:         redactAuditOutput(result),
+		Result:         redactAuditResult(result),
 		ExitCode:       exitCode,
 		DurationMs:     durationMs,
 		ErrorType:      redactAuditValue(extra.ErrorType),
@@ -107,6 +107,19 @@ func redactAuditOutput(value string) string {
 		return ""
 	}
 	return "[REDACTED]"
+}
+
+// redactAuditResult preserves the small, fixed vocabulary used by the command
+// authorization lifecycle. Any other result is treated as arbitrary command
+// output and is therefore redacted at the audit boundary.
+func redactAuditResult(value string) string {
+	result := strings.TrimSpace(value)
+	switch result {
+	case "", "approved", "approval_denied", "approval_resolution_failed":
+		return result
+	default:
+		return redactAuditOutput(result)
+	}
 }
 
 func redactCommand(command string) string {
