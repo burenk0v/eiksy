@@ -1,8 +1,7 @@
 package sessions
 
-// ts_type string
-type EncryptedString string
-
+// Profile contains only non-secret session metadata. Credential material lives
+// exclusively in secure storage and is resolved by the application at runtime.
 type Profile struct {
 	ID               string            `json:"id"`
 	Name             string            `json:"name"`
@@ -13,8 +12,6 @@ type Profile struct {
 	Host             string            `json:"host"`
 	Port             int               `json:"port"`
 	Username         string            `json:"username"`
-	Password         EncryptedString   `json:"-"`
-	KeyPassphrase    EncryptedString   `json:"-"`
 	HasPassword      bool              `json:"hasPassword"`
 	HasKeyPassphrase bool              `json:"hasKeyPassphrase"`
 	SecretRef        string            `json:"secretRef,omitempty"`
@@ -22,10 +19,8 @@ type Profile struct {
 	LastLaunchedAt   string            `json:"lastLaunchedAt,omitempty"`
 }
 
-// ProfileInput is used as the parameter type for CreateSessionProfile in the
-// Wails API. Unlike Profile, it exposes secret fields in JSON so that Wails
-// generates the corresponding TypeScript properties. Those values are persisted
-// only in the secure secret store.
+// ProfileInput is the Wails API DTO. Secret values exist only for the duration
+// of the create/update request and are written directly to secure storage.
 type ProfileInput struct {
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
@@ -43,7 +38,7 @@ type ProfileInput struct {
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
 }
 
-func (p ProfileInput) ToProfile() Profile {
+func (p ProfileInput) Metadata() Profile {
 	return Profile{
 		ID:             p.ID,
 		Name:           p.Name,
@@ -54,8 +49,6 @@ func (p ProfileInput) ToProfile() Profile {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
-		Password:       EncryptedString(p.Password),
-		KeyPassphrase:  EncryptedString(p.KeyPassphrase),
 		SecretRef:      p.SecretRef,
 		Options:        p.Options,
 		LastLaunchedAt: p.LastLaunchedAt,
