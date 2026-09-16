@@ -12,10 +12,10 @@ Eiksy treats credentials as application-owned secrets, not AI context.
 
 ## Vault and KeePass
 
-Vault and KeePass remain application-side credential sources. Their contents must never enter AI infrastructure context or ordinary workspace state. A later hardening change should minimize decrypted-value lifetime and prefer resolving credentials directly into connection operations instead of returning secret values to the UI.
+Vault and KeePass remain application-side credential sources. Their contents must never enter AI infrastructure context or ordinary workspace state. Decrypted values should be resolved directly into connection operations and must not be returned to the UI or AI context.
 
 ## Browser authentication
 
-The browser authorization flow uses a short-lived in-memory token during the callback hand-off. A follow-up hardening change should remove that token from the Wails-facing authentication-session DTO and consume it entirely in the backend when saving provider configuration.
+Browser authorization tokens are consumed entirely by the backend callback. The token is written directly to secure storage and is not copied into the Wails-facing authentication-session DTO. The UI receives only authorization status, message, endpoint and session metadata.
 
 The UI is not a security boundary. Authorization, secret storage, execution, and audit decisions belong to the backend.
