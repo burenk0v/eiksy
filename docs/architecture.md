@@ -22,8 +22,6 @@ Eiksy combines:
 - multiple credential providers;
 - centralized operational audit.
 
-The architecture must keep these capabilities composable without creating parallel security or execution paths.
-
 ### Primary goals
 
 1. Keep security-sensitive decisions in the backend.
@@ -172,39 +170,13 @@ There must not be a second direct path from UI, AI, diagnostics, remediation or 
 
 The executor is responsible for performing an already-authorized operation. It must not be used as a mechanism to bypass policy.
 
-### 3.5 AI provider boundary
+### 3.5 AI boundary
 
-`internal/domain/ai.Provider` is the runtime abstraction for AI backends.
+AI-specific architecture, context, native tools, command execution, diagnostics, remediation, security invariants and extension rules are documented in [`docs/ai.md`](ai.md).
 
-Provider-specific HTTP, authentication and protocol details stay behind the provider implementation.
+The application architecture treats AI as an explicit capability behind an application service and provider contract. AI does not own authorization, credentials or transport access.
 
-Application and domain code work with provider-neutral request/response contracts.
-
-AI providers may be:
-
-- cloud OpenAI-compatible services;
-- local/self-hosted OpenAI-compatible services;
-- future provider implementations satisfying the same contract.
-
-**Rule:** adding an AI provider must not require provider-specific calls in UI code or unrelated domain models.
-
-### 3.6 AI context boundary
-
-AI infrastructure context contains operational facts needed for assistance, diagnostics and analysis. It is not a credential context.
-
-AI context must not contain:
-
-- passwords;
-- API tokens;
-- SSH private keys or passphrases;
-- decrypted Vault/KeePass values;
-- secret references whose purpose is to reveal secret material;
-- arbitrary environment dumps;
-- opaque credential-bearing connection options.
-
-The AI may receive enough metadata to understand the current infrastructure context while secret acquisition remains an application-side operation.
-
-### 3.7 Secure storage boundary
+### 3.6 Secure storage boundary
 
 Credentials are application-owned secrets.
 
@@ -219,7 +191,7 @@ secret value             → secure storage
 
 Credential providers must not become secret browsers for the UI or AI.
 
-### 3.8 Vault / KeePass boundary
+### 3.7 Vault / KeePass boundary
 
 Vault and KeePass are application-side credential sources.
 
@@ -255,7 +227,7 @@ secret value
 connection
 ```
 
-### 3.9 Filesystem boundary
+### 3.8 Filesystem boundary
 
 Local and remote file operations are capabilities with explicit validation and bounded data flow.
 
@@ -263,7 +235,7 @@ Remote SFTP operations remain behind the connection/operation boundary. Local fi
 
 File content may be sensitive even when it is not formally a credential. Therefore ordinary file reads/searches can require approval according to policy.
 
-### 3.10 Audit boundary
+### 3.9 Audit boundary
 
 Audit is centralized.
 
@@ -279,66 +251,7 @@ Audit data must not contain raw:
 
 Command, error and result data are subject to the same redaction and bounded-output rules as the rest of the execution pipeline.
 
-## 4. AI-assisted operations
-
-AI is an operator assistant, not an autonomous security authority.
-
-The normal AI operation lifecycle is:
-
-```text
-AI request
-   ↓
-Infrastructure context
-   ↓
-AI proposal / tool call
-   ↓
-Command / operation policy
-   ↓
-Capability checks
-   ↓
-Approval if required
-   ↓
-Controlled executor
-   ↓
-Bounded result
-   ↓
-AI continuation / UI result
-   ↓
-Central audit
-```
-
-The important distinction is between **proposing** an operation and **being authorized to perform** it.
-
-AI output does not grant itself permission.
-
-### Approval
-
-Operations that policy marks as approval-required are surfaced to the human operator. Approval authorizes the specific operation; it does not grant the AI unrestricted access to the underlying transport or credentials.
-
-### Result bounding
-
-Command stdout, stderr and errors are bounded before they are returned to AI or UI. This limits accidental context expansion and reduces the amount of potentially sensitive remote data entering downstream processing.
-
-AI command input is also bounded before execution.
-
-## 5. Security invariants
-
-The following are architectural invariants, not implementation suggestions.
-
-1. **No secret persistence in ordinary state.** Credentials remain in secure storage.
-2. **No credentials in AI context.** AI receives operational context, not secret material.
-3. **No credential-bearing ordinary DTOs.** Wails/UI contracts must not expose secrets.
-4. **No direct AI-to-transport execution.** AI operations pass through policy, capabilities and the established executor.
-5. **No parallel command-execution path.** New features reuse the existing executor.
-6. **Approval cannot be bypassed by a lower layer.** An executor does not turn an unapproved operation into an approved one.
-7. **Audit remains centralized.** Security-relevant operation lifecycle events use the common audit path.
-8. **Audit is redacted.** Command, result and error fields cannot become secret exfiltration channels.
-9. **Remote and local file operations are bounded.** File access is subject to explicit capability/policy rules.
-10. **Provider implementations stay behind provider contracts.** UI and domain logic do not depend on provider-specific protocols.
-11. **Transport implementations stay behind connection/operation contracts.** Transport-specific state does not leak into unrelated models.
-12. **Security checks are regression-tested.** Architectural invariants are protected by automated tests.
-
-## 6. Data ownership model
+## 4. Data ownership model
 
 | Data | Owner | Normal persistence | AI visibility |
 | --- | --- | --- | --- |
@@ -355,7 +268,7 @@ The following are architectural invariants, not implementation suggestions.
 | Command output | Executor/result layer | Audit in bounded/redacted form where applicable | Bounded |
 | Errors | Application/execution layer | Audit in bounded/redacted form | Bounded |
 
-## 7. Architectural advantages
+## 5. Architectural advantages
 
 ### Security by construction
 
@@ -385,7 +298,7 @@ Features can be added on top of stable capabilities rather than creating another
 
 A centralized operation path makes it possible to reconstruct what was requested, what policy decided, what was approved, what executed and what result was returned, while applying consistent redaction.
 
-## 8. Architectural constraints and trade-offs
+## 6. Architectural constraints and trade-offs
 
 The architecture intentionally accepts some constraints in exchange for security and maintainability.
 
@@ -421,17 +334,17 @@ Some operations require a human decision even when AI can technically perform th
 
 ### Bounded results
 
-Large command outputs and errors are truncated/bounded before reaching AI/UI paths.
+Command stdout, stderr and errors are bounded before they are returned to AI or UI paths.
 
 **Trade-off:** a diagnostic may need pagination or a more targeted command; in return, context growth and accidental data exposure are constrained.
 
-## 9. Extension rules
+## 7. Extension rules
 
 Future functionality should follow these rules.
 
 1. **UI → application service only.**
 2. **New transports → connection/operation contracts.**
-3. **New AI backends → `ai.Provider`.**
+3. **New AI backends → AI provider contract.**
 4. **Commands → existing policy/capability/executor pipeline.**
 5. **Credentials → secure storage.**
 6. **AI context → runtime operational facts without secrets.**
@@ -442,22 +355,7 @@ Future functionality should follow these rules.
 
 A feature may add a new capability, service, adapter or provider implementation when the existing boundaries require it. It should not introduce a second architecture merely because that is locally more convenient.
 
-## 10. What is deliberately outside the core architecture
-
-The following are product-level extensions rather than reasons to redesign the core:
-
-- additional AI providers;
-- richer RDP functionality;
-- additional credential providers;
-- advanced Vault/KeePass workflows;
-- additional platform packaging;
-- infrastructure automation workflows;
-- UI/UX refinement;
-- new diagnostics and remediation capabilities.
-
-These should be implemented as focused product changes while preserving the core boundaries above.
-
-## 11. Architecture change policy
+## 8. Architecture change policy
 
 The architecture is considered stable.
 
