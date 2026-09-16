@@ -53,18 +53,15 @@ jobs:
               p=Path('internal/app')/name
               if p.exists(): p.write_text('\n'.join(line for line in p.read_text().splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line)+'\n')
 
-          p=Path('internal/storage/disk/store_test.go');t=p.read_text();t=t.replace('service.CreateSessionProfile(sessions.Profile{','service.CreateSessionProfile(sessions.ProfileInput{')
+          p=Path('internal/storage/disk/store_test.go');t=p.read_text().replace('service.CreateSessionProfile(sessions.Profile{','service.CreateSessionProfile(sessions.ProfileInput{')
           start=t.find('service.CreateSessionProfile(sessions.ProfileInput{')
           if start>=0:
               end=t.find('\n\t})',start)
               if end<0: raise SystemExit('session profile test block not found')
-              block=t[start:end]
-              block='\n'.join(line for line in block.splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line)
-              t=t[:start]+block+t[end:]
-          t=t.replace('expected 5 encrypted secrets, got %d','expected 4 encrypted secrets, got %d')
+              block=t[start:end];block='\n'.join(line for line in block.splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line);t=t[:start]+block+t[end:]
+          t=t.replace('if len(names) != 5 {','if len(names) != 4 {').replace('expected 5 encrypted secrets, got %d','expected 4 encrypted secrets, got %d')
           p.write_text(t)
           PY
-
           cat > /tmp/clean_secret_funcs.go <<'GO'
           package main
           import("go/ast";"go/parser";"go/token";"os")
@@ -85,7 +82,6 @@ jobs:
 
           func cloneProfile(profile sessions.Profile) sessions.Profile { cloned:=profile; cloned.Tags=append([]string{},profile.Tags...); if profile.Options!=nil { cloned.Options=make(map[string]string,len(profile.Options)); for k,v:=range profile.Options { cloned.Options[k]=v } }; return cloned }
           EOF
-
           cat > /tmp/split.go <<'GO'
           package main
           import("go/ast";"go/parser";"go/token";"os";"path/filepath";"sort";"strings")
