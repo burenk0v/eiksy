@@ -14,7 +14,7 @@ Baseline: `main` at `1dbe44b7b9c5ca18c5ed61a9a5ea4fd38b6bdad4`.
 - audit
 - Wails/UI exposure
 
-## Findings
+## Findings and implemented boundaries
 
 ### Sessions / settings
 
@@ -44,10 +44,10 @@ Command audit values pass through a final redaction and bounded-text sanitizer, 
 
 The UI is treated as an untrusted presentation layer. Backend policy, credential access, execution and audit remain authoritative.
 
-**Known follow-up:** the current browser authorization DTO still contains a short-lived OAuth/API token field. It is not persisted by the application and is used only during the browser-auth hand-off, but it is still exposed through the Wails-facing DTO. This is the final known Phase 1 boundary item and must be removed before declaring the architecture freeze complete.
+Browser authorization was hardened as part of Phase 1: the callback token is written directly to secure storage and the completed Wails-facing `CloudProviderAuthSession` contains no token value. A regression test verifies both properties.
 
 ## Phase 1 decision
 
-No new parallel execution, credential, storage or audit architecture should be introduced. The remaining browser-auth DTO issue is isolated and should be fixed before the Phase 1 completion marker is considered final.
+No new parallel execution, credential, storage or audit architecture should be introduced. The existing boundaries are now explicit and the remaining browser-auth credential exposure has been removed.
 
-After that fix, Phase 2 can focus on formalizing the AI command-execution contract rather than reopening the storage/session architecture.
+Phase 1 is ready for the regression suite and PR review. Phase 2 can focus on formalizing the AI command-execution contract rather than reopening the storage/session architecture.
