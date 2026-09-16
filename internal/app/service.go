@@ -303,7 +303,7 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	}
 	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
-	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options); err != nil {
+	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options); err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
 		return err
@@ -908,7 +908,7 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if err != nil {
 		return err
 	}
-	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, string(profile.Password), profile.Options)
+	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
@@ -988,6 +988,7 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.Username = strings.TrimSpace(profile.Username)
 	profile.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
 	profile.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
+	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	if profile.Port <= 0 {
 		profile.Port = 22
 	}
@@ -1617,12 +1618,7 @@ func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile
 	if strings.TrimSpace(keyPassphrase) != "" {
 		cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
 	}
-	if cloned.Options == nil {
-		cloned.Options = map[string]string{}
-	}
-	if strings.TrimSpace(string(cloned.KeyPassphrase)) != "" {
-		cloned.Options["ssh_private_key_passphrase"] = strings.TrimSpace(string(cloned.KeyPassphrase))
-	}
+	cloned.Options = cloneProfileOptionsWithoutCredentialSecrets(cloned.Options)
 	return cloned, nil
 }
 
@@ -1666,15 +1662,31 @@ func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceStat
 	return scrubbed
 }
 
+func profileCredential(profile sessions.Profile) string {
+	if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]), "key") {
+		return string(profile.KeyPassphrase)
+	}
+	return string(profile.Password)
+}
+
+func cloneProfileOptionsWithoutCredentialSecrets(options map[string]string) map[string]string {
+	if options == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(options))
+	for key, value := range options {
+		if key == "ssh_private_key_passphrase" {
+			continue
+		}
+		cloned[key] = value
+	}
+	return cloned
+}
+
 func cloneSessionProfile(profile sessions.Profile) sessions.Profile {
 	cloned := profile
 	cloned.Tags = append([]string(nil), profile.Tags...)
-	if profile.Options != nil {
-		cloned.Options = make(map[string]string, len(profile.Options))
-		for key, value := range profile.Options {
-			cloned.Options[key] = value
-		}
-	}
+	cloned.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	return cloned
 }
 

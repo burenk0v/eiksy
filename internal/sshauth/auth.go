@@ -11,19 +11,19 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
-func BuildAuthMethods(password string, options map[string]string) ([]xssh.AuthMethod, error) {
+func BuildAuthMethods(credential string, options map[string]string) ([]xssh.AuthMethod, error) {
 	authMethods := []xssh.AuthMethod{}
 	authMethod := strings.ToLower(strings.TrimSpace(optionValue(options, "auth_method")))
 	switch authMethod {
 	case "key":
-		privateKeyAuth, err := authMethodFromPrivateKey(options)
+		privateKeyAuth, err := authMethodFromPrivateKey(credential, options)
 		if err != nil {
 			return nil, err
 		}
 		authMethods = append(authMethods, privateKeyAuth)
 	default:
-		if strings.TrimSpace(password) != "" {
-			authMethods = append(authMethods, xssh.Password(password))
+		if strings.TrimSpace(credential) != "" {
+			authMethods = append(authMethods, xssh.Password(credential))
 		}
 		if shouldUseAgent(options) {
 			agentAuth, err := authMethodFromAgent(options)
@@ -70,7 +70,7 @@ func authMethodFromAgent(options map[string]string) (xssh.AuthMethod, error) {
 	return xssh.PublicKeysCallback(agentClient.Signers), nil
 }
 
-func authMethodFromPrivateKey(options map[string]string) (xssh.AuthMethod, error) {
+func authMethodFromPrivateKey(credential string, options map[string]string) (xssh.AuthMethod, error) {
 	path := strings.TrimSpace(optionValue(options, "ssh_private_key_path"))
 	if path == "" {
 		return nil, fmt.Errorf("ssh key authentication selected but key path is empty")
@@ -86,7 +86,7 @@ func authMethodFromPrivateKey(options map[string]string) (xssh.AuthMethod, error
 	if err != nil {
 		return nil, fmt.Errorf("read ssh private key %q: %w", path, err)
 	}
-	passphrase := strings.TrimSpace(optionValue(options, "ssh_private_key_passphrase"))
+	passphrase := strings.TrimSpace(credential)
 	var signer xssh.Signer
 	if passphrase != "" {
 		signer, err = xssh.ParsePrivateKeyWithPassphrase(privateKey, []byte(passphrase))
