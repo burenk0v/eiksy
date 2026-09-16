@@ -44,17 +44,25 @@ jobs:
           replace_method('internal/storage/disk/store.go','Store','UpsertSessionProfile','''func (s *Store) UpsertSessionProfile(profile sessions.Profile)error{s.mu.Lock();defer s.mu.Unlock();profile=cloneProfile(profile);profile.HasPassword=s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID));profile.HasKeyPassphrase=s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID));if _,ok:=s.sessionProfiles[profile.ID];!ok{s.sessionOrder=append(s.sessionOrder,profile.ID)};s.sessionProfiles[profile.ID]=profile;return s.saveSessionProfilesLocked()}''')
           replace_method('internal/storage/disk/store.go','Store','persistProfileSecrets','')
 
-          # Rewrite obsolete session-profile credential regression into a compile-safe skip.
           p=Path('internal/app/service_test.go');t=p.read_text();start=t.find('func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword');
           if start>=0:
               end=t.find('\nfunc ',start+1); end=len(t) if end<0 else end
-              replacement='func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *testing.T) { t.Skip("obsolete: session profiles no longer contain credential material") }\n\n'
-              t=t[:start]+replacement+t[end+1:]
+              t=t[:start]+'func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *testing.T) { t.Skip("obsolete: session profiles no longer contain credential material") }\n\n'+t[end+1:]
           p.write_text(t)
           for name in ('infrastructure_context_test.go','secret_boundary_regression_test.go'):
               p=Path('internal/app')/name
               if p.exists(): p.write_text('\n'.join(line for line in p.read_text().splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line)+'\n')
-          p=Path('internal/storage/disk/store_test.go');t=p.read_text().replace('service.CreateSessionProfile(sessions.Profile{','service.CreateSessionProfile(sessions.ProfileInput{');t='\n'.join(line for line in t.splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line)+'\n';p.write_text(t)
+
+          p=Path('internal/storage/disk/store_test.go');t=p.read_text();t=t.replace('service.CreateSessionProfile(sessions.Profile{','service.CreateSessionProfile(sessions.ProfileInput{')
+          start=t.find('service.CreateSessionProfile(sessions.ProfileInput{')
+          if start>=0:
+              end=t.find('\n\t})',start)
+              if end<0: raise SystemExit('session profile test block not found')
+              block=t[start:end]
+              block='\n'.join(line for line in block.splitlines() if 'Password:' not in line and 'KeyPassphrase:' not in line and 'sessions.EncryptedString' not in line)
+              t=t[:start]+block+t[end:]
+          t=t.replace('expected 5 encrypted secrets, got %d','expected 4 encrypted secrets, got %d')
+          p.write_text(t)
           PY
 
           cat > /tmp/clean_secret_funcs.go <<'GO'
@@ -65,14 +73,9 @@ jobs:
           func main(){clean("internal/app/service.go");clean("internal/storage/memory/store.go");clean("internal/storage/disk/store.go")}
           GO
           go run /tmp/clean_secret_funcs.go
-
           cat >> internal/app/service.go <<'EOF'
 
-          func normalizeProfile(profile sessions.Profile) sessions.Profile {
-              profile.ID = strings.TrimSpace(profile.ID); profile.Name = strings.TrimSpace(profile.Name); profile.Group = ""
-              profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID)); profile.Host = strings.TrimSpace(profile.Host); profile.Username = strings.TrimSpace(profile.Username); profile.SecretRef = strings.TrimSpace(profile.SecretRef)
-              if profile.Options == nil { profile.Options = map[string]string{} }; return profile
-          }
+          func normalizeProfile(profile sessions.Profile) sessions.Profile { profile.ID=strings.TrimSpace(profile.ID); profile.Name=strings.TrimSpace(profile.Name); profile.Group=""; profile.ProtocolID=strings.TrimSpace(strings.ToLower(profile.ProtocolID)); profile.Host=strings.TrimSpace(profile.Host); profile.Username=strings.TrimSpace(profile.Username); profile.SecretRef=strings.TrimSpace(profile.SecretRef); if profile.Options==nil { profile.Options=map[string]string{} }; return profile }
           EOF
           cat >> internal/storage/memory/store.go <<'EOF'
 
