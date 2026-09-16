@@ -31,6 +31,8 @@ type connection struct {
 	sftpClient *pkgsftp.Client
 }
 
+const maxSFTPReadSize = 16 << 20
+
 func NewManager() *Manager {
 	return &Manager{connections: map[string]*connection{}}
 }
@@ -113,11 +115,16 @@ func (m *Manager) ReadFile(tabID, targetPath string) (string, error) {
 		return "", fmt.Errorf("read sftp file %q: %w", targetPath, err)
 	}
 	defer file.Close()
-	bytes, err := io.ReadAll(file)
+
+	limited := io.LimitReader(file, maxSFTPReadSize+1)
+	data, err := io.ReadAll(limited)
 	if err != nil {
 		return "", fmt.Errorf("read sftp file %q: %w", targetPath, err)
 	}
-	return string(bytes), nil
+	if len(data) > maxSFTPReadSize {
+		return "", fmt.Errorf("read sftp file %q: file exceeds %d byte limit", targetPath, maxSFTPReadSize)
+	}
+	return string(data), nil
 }
 
 func (m *Manager) WriteFile(tabID, targetPath, content string) error {
@@ -145,6 +152,10 @@ func (m *Manager) UploadFile(tabID, localPath, remotePath string) error {
 	if conn == nil {
 		return fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
+	localPath, err := validateLocalUploadPath(localPath)
+	if err != nil {
+		return err
+	}
 	source, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("open local file %q: %w", localPath, err)
@@ -170,15 +181,16 @@ func (m *Manager) DownloadFile(tabID, remotePath, localPath string) error {
 	if conn == nil {
 		return fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
+	localPath, err := validateLocalDownloadPath(localPath)
+	if err != nil {
+		return err
+	}
 	source, err := conn.sftpClient.Open(remotePath)
 	if err != nil {
 		return fmt.Errorf("open remote file %q: %w", remotePath, err)
 	}
 	defer source.Close()
 
-	if err := os.MkdirAll(filepath.Dir(localPath), 0o755); err != nil {
-		return fmt.Errorf("create local directory for %q: %w", localPath, err)
-	}
 	target, err := os.OpenFile(localPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("open local file %q for write: %w", localPath, err)
@@ -189,6 +201,60 @@ func (m *Manager) DownloadFile(tabID, remotePath, localPath string) error {
 		return fmt.Errorf("download file %q to %q: %w", remotePath, localPath, err)
 	}
 	return nil
+}
+
+func validateLocalUploadPath(localPath string) (string, error) {
+	localPath = strings.TrimSpace(localPath)
+	if localPath == "" {
+		return "", fmt.Errorf("local file path is required")
+	}
+	if !filepath.IsAbs(localPath) {
+		return "", fmt.Errorf("local file path must be absolute")
+	}
+
+	info, err := os.Lstat(localPath)
+	if err != nil {
+		return "", fmt.Errorf("inspect local file %q: %w", localPath, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("local upload path %q must not be a symlink", localPath)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("local upload path %q is not a regular file", localPath)
+	}
+	return filepath.Clean(localPath), nil
+}
+
+func validateLocalDownloadPath(localPath string) (string, error) {
+	localPath = strings.TrimSpace(localPath)
+	if localPath == "" {
+		return "", fmt.Errorf("local file path is required")
+	}
+	if !filepath.IsAbs(localPath) {
+		return "", fmt.Errorf("local file path must be absolute")
+	}
+	localPath = filepath.Clean(localPath)
+
+	parent := filepath.Dir(localPath)
+	info, err := os.Stat(parent)
+	if err != nil {
+		return "", fmt.Errorf("inspect local download directory %q: %w", parent, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("local download parent %q is not a directory", parent)
+	}
+
+	if info, err := os.Lstat(localPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("local download path %q must not be a symlink", localPath)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("local download path %q is a directory", localPath)
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect local download path %q: %w", localPath, err)
+	}
+	return localPath, nil
 }
 
 func (m *Manager) Disconnect(tabID string) error {
