@@ -1,0 +1,96 @@
+name: split-service
+
+on:
+  push:
+    branches:
+      - refactor/architecture-hard-cutover
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Split Service
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          src = Path('internal/app/service.go')
+          text = src.read_text()
+          marker = 'func (s *Service) '
+          first = text.find(marker)
+          if first < 0:
+              raise SystemExit('no Service methods found')
+          start = text.rfind('\n', 0, first) + 1
+          prefix = text[:start]
+          rest = text[start:]
+          starts = [m.start() for m in re.finditer(r'(?m)^func \(s \*Service\) ', rest)]
+          methods = []
+          spans = []
+          for pos in starts:
+              brace = rest.find('{', pos)
+              depth = 0
+              end = None
+              for i in range(brace, len(rest)):
+                  c = rest[i]
+                  if c == '{': depth += 1
+                  elif c == '}':
+                      depth -= 1
+                      if depth == 0:
+                          end = i + 1
+                          break
+              if end is None: raise SystemExit('unbalanced method')
+              spans.append((pos, end))
+              methods.append(rest[pos:end])
+          pieces=[]; cursor=0
+          for a,b in spans:
+              pieces.append(rest[cursor:a]); cursor=b
+          pieces.append(rest[cursor:])
+          src.write_text(prefix + ''.join(pieces))
+          buckets={
+            'sessions.go': ('GetShellState','CreateSessionProfile','DeleteSessionProfile','LaunchSession','CloseSession','Profile'),
+            'ssh.go': ('SSH','AcceptHostKey'),
+            'sftp.go': ('SFTP',),
+            'rdp.go': ('RDP',),
+            'ai.go': ('AI','Chat','Provider','Model','Native','Cloud','Vault','KeePass'),
+            'audit.go': ('Audit','CommandPolicy'),
+            'settings.go': ('Settings','Credential'),
+            'workspace.go': ('Workspace','RuntimeTab'),
+          }
+          out={k:[] for k in buckets}; out['misc.go']=[]
+          for method in methods:
+              name=re.search(r'^func \(s \*Service\) (\w+)', method).group(1)
+              target='misc.go'
+              for file,prefixes in buckets.items():
+                  if any(name.startswith(p) or name == p for p in prefixes): target=file; break
+              out[target].append(method)
+          for file, ms in out.items():
+              if not ms: continue
+              Path('internal/app',file).write_text('package app\n\n'+'\n\n'.join(ms)+'\n')
+          PY
+          gofmt -w internal/app/*.go
+          go install golang.org/x/tools/cmd/goimports@latest
+          "$(go env GOPATH)/bin/goimports" -w internal/app/*.go
+          gofmt -w internal/app/*.go
+          go test ./...
+      - name: Commit and remove helper
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add internal/app .github/workflows/_split_service.yml
+          git rm .github/workflows/_split_service.yml
+          git commit -m 'refactor: split application service by capability'
+          git push
