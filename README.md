@@ -43,6 +43,11 @@ Eiksy is designed for people who work with remote servers and infrastructure eve
 
 **Eiksy = AI + Terminal + SSH/SFTP + RDP + Credentials + Infrastructure Operations**
 
+### Documentation
+
+- [Architecture](docs/architecture.md) — application architecture, boundaries, security invariants and extension rules.
+- [AI](docs/ai.md) — AI architecture, context, tools, command execution, diagnostics, remediation and AI security model.
+
 ---
 
 ## Why Eiksy?
