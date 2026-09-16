@@ -32,40 +32,6 @@ import (
 	"eiksy/internal/securestorage"
 )
 
-type ShellState struct {
-	Protocols           []protocols.Descriptor           `json:"protocols"`
-	SessionProfiles     []sessions.Profile               `json:"sessionProfiles"`
-	ActiveSessions      []RuntimeSessionView             `json:"activeSessions"`
-	SessionHistory      []sessions.HistoryEntry          `json:"sessionHistory"`
-	CredentialProviders []credentials.ProviderDescriptor `json:"credentialProviders"`
-	AI                  ai.WorkspaceState                `json:"ai"`
-	Workspace           WorkspaceView                    `json:"workspace"`
-	Settings            settings.AppSettings             `json:"settings"`
-}
-
-type WorkspaceView struct {
-	Layout       workspace.Layout  `json:"layout"`
-	RecentEvents []workspace.Event `json:"recentEvents"`
-}
-
-type RuntimeSessionView struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	ProtocolID  string `json:"protocolId"`
-	ProfileID   string `json:"profileId"`
-	Status      string `json:"status"`
-	Description string `json:"description"`
-}
-
-type CloudProviderAuthSession struct {
-	ID       string `json:"id"`
-	Status   string `json:"status"`
-	AuthURL  string `json:"authUrl,omitempty"`
-	Token    string `json:"token,omitempty"`
-	Message  string `json:"message,omitempty"`
-	Endpoint string `json:"endpoint,omitempty"`
-}
-
 const (
 	vaultAuthMethodToken   = "token"
 	vaultAuthMethodOIDC    = "oidc"
@@ -75,6 +41,8 @@ const (
 	localAIEndpoint        = "http://127.0.0.1:8012/v1"
 	localAIHost            = "127.0.0.1"
 	localAIPort            = "8012"
+	maxModelDownloadBytes  = int64(20 << 30)
+	maxModelListResponse   = 2 << 20
 )
 
 type Service struct {
@@ -330,7 +298,11 @@ func (s *Service) SendSSHInput(tabID, data string) error {
 	if s.sshManager == nil {
 		return fmt.Errorf("ssh manager is not configured")
 	}
-	return s.sshManager.SendInput(tabID, data)
+	err := s.sshManager.SendInput(tabID, data)
+	// Never retain interactive keystrokes: terminals commonly receive secrets.
+	// Record only that a manual SSH action crossed the execution boundary.
+	s.recordManualOperation(tabID, "interactive SSH input", err)
+	return err
 }
 
 func (s *Service) ResizeTerminal(tabID string, cols, rows int) error {
@@ -399,7 +371,9 @@ func (s *Service) SaveSFTPFile(tabID, filePath, content string) error {
 	if filePath == "" {
 		return fmt.Errorf("file path is required")
 	}
-	return s.sftpManager.WriteFile(tabID, filePath, content)
+	err := s.sftpManager.WriteFile(tabID, filePath, content)
+	s.recordManualOperation(tabID, "SFTP write: "+filePath, err)
+	return err
 }
 
 func (s *Service) UploadSFTPFiles(tabID, remoteDir string, localPaths []string) error {
@@ -423,8 +397,10 @@ func (s *Service) UploadSFTPFiles(tabID, remoteDir string, localPaths []string) 
 		}
 		remotePath := path.Join(remoteDir, filepath.Base(localPath))
 		if err := s.sftpManager.UploadFile(tabID, localPath, remotePath); err != nil {
+			s.recordManualOperation(tabID, "SFTP upload: "+remotePath, err)
 			return err
 		}
+		s.recordManualOperation(tabID, "SFTP upload: "+remotePath, nil)
 	}
 	return nil
 }
@@ -450,10 +426,22 @@ func (s *Service) DownloadSFTPFiles(tabID, localDir string, remotePaths []string
 		}
 		localPath := filepath.Join(localDir, path.Base(remotePath))
 		if err := s.sftpManager.DownloadFile(tabID, remotePath, localPath); err != nil {
+			s.recordManualOperation(tabID, "SFTP download: "+remotePath, err)
 			return err
 		}
+		s.recordManualOperation(tabID, "SFTP download: "+remotePath, nil)
 	}
 	return nil
+}
+
+func (s *Service) recordManualOperation(sessionID, operation string, err error) {
+	result := "completed"
+	extra := ai.CommandAuditEvent{}
+	if err != nil {
+		result = "failed"
+		extra = ai.CommandAuditEvent{ErrorType: "operation_error", Error: err.Error()}
+	}
+	s.recordCommandAudit("", sessionID, operation, "manual", "not_applicable", result, 0, 0, extra)
 }
 
 func (s *Service) renewVaultToken(baseURL *url.URL, token string) error {
@@ -668,6 +656,10 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 		return fmt.Errorf("local ai provider is not available")
 	}
 	provider := state.Providers[index]
+	parsedURL, err := url.Parse(provider.DownloadURL)
+	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "https" && !(parsedURL.Scheme == "http" && isLoopbackHost(parsedURL.Hostname()))) {
+		return fmt.Errorf("local model download URL must use HTTPS (or loopback HTTP)")
+	}
 
 	modelsDir, err := localModelsDir()
 	if err != nil {
@@ -694,15 +686,26 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("model download returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
 	}
+	if resp.ContentLength > maxModelDownloadBytes {
+		return fmt.Errorf("model download exceeds %d byte limit", maxModelDownloadBytes)
+	}
 
 	file, err := os.Create(tempPath)
 	if err != nil {
 		return fmt.Errorf("create model file: %w", err)
 	}
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	if _, err := io.Copy(file, io.LimitReader(resp.Body, maxModelDownloadBytes+1)); err != nil {
 		_ = file.Close()
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("write model file: %w", err)
+	}
+	if info, err := file.Stat(); err != nil || info.Size() > maxModelDownloadBytes {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		if err != nil {
+			return fmt.Errorf("inspect downloaded model: %w", err)
+		}
+		return fmt.Errorf("model download exceeds %d byte limit", maxModelDownloadBytes)
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tempPath)
@@ -729,6 +732,15 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	s.store.UpdateAIState(state)
 	s.EmitLog("info", fmt.Sprintf("Downloaded local AI model to %s.", targetPath))
 	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "localhost" {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
@@ -771,9 +783,12 @@ func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxModelListResponse+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(respBody) > maxModelListResponse {
+		return nil, fmt.Errorf("AI model list response exceeds %d byte limit", maxModelListResponse)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AI API returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
