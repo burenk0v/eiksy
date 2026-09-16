@@ -94,14 +94,17 @@ func TestSecurityRegressionAIContextExcludesCredentialMaterial(t *testing.T) {
 
 func TestSecurityRegressionAuditRedactsCommandErrorAndResult(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
-	request := ai.CommandRequest{
-		ID:        "security-regression-command",
-		ToolID:    "shell",
-		SessionID: "security-regression-session",
-		Command:   `curl -H "Authorization: Bearer command-secret" https://example.test`,
-	}
-
-	service.RecordCommandAudit(request, "output contains result-secret", &secretBoundaryError{message: "password=error-secret token=error-token"})
+	service.recordCommandAudit(
+		"provider",
+		"security-regression-session",
+		`curl -H "Authorization: Bearer command-secret" https://example.test`,
+		"allow",
+		"not_required",
+		"output contains result-secret",
+		0,
+		10,
+		ai.CommandAuditEvent{ErrorType: "execution_error", Error: "password=error-secret token=error-token"},
+	)
 
 	trail := service.GetCommandAuditTrail()
 	if len(trail) != 1 {
