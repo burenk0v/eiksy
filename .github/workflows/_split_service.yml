@@ -20,67 +20,64 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-      - name: Split Service
+      - name: Split Service with Go AST
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          src = Path('internal/app/service.go')
-          text = src.read_text()
-          marker = 'func (s *Service) '
-          first = text.find(marker)
-          if first < 0:
-              raise SystemExit('no Service methods found')
-          start = text.rfind('\n', 0, first) + 1
-          prefix = text[:start]
-          rest = text[start:]
-          starts = [m.start() for m in re.finditer(r'(?m)^func \(s \*Service\) ', rest)]
-          methods = []
-          spans = []
-          for pos in starts:
-              brace = rest.find('{', pos)
-              depth = 0
-              end = None
-              for i in range(brace, len(rest)):
-                  c = rest[i]
-                  if c == '{': depth += 1
-                  elif c == '}':
-                      depth -= 1
-                      if depth == 0:
-                          end = i + 1
-                          break
-              if end is None: raise SystemExit('unbalanced method')
-              spans.append((pos, end))
-              methods.append(rest[pos:end])
-          pieces=[]; cursor=0
-          for a,b in spans:
-              pieces.append(rest[cursor:a]); cursor=b
-          pieces.append(rest[cursor:])
-          src.write_text(prefix + ''.join(pieces))
-          buckets={
-            'sessions.go': ('GetShellState','CreateSessionProfile','DeleteSessionProfile','LaunchSession','CloseSession','Profile'),
-            'ssh.go': ('SSH','AcceptHostKey'),
-            'sftp.go': ('SFTP',),
-            'rdp.go': ('RDP',),
-            'ai.go': ('AI','Chat','Provider','Model','Native','Cloud','Vault','KeePass'),
-            'audit.go': ('Audit','CommandPolicy'),
-            'settings.go': ('Settings','Credential'),
-            'workspace.go': ('Workspace','RuntimeTab'),
+          cat > /tmp/split_service.go <<'GO'
+          package main
+          import (
+            "fmt"
+            "go/ast"
+            "go/parser"
+            "go/token"
+            "os"
+            "path/filepath"
+            "sort"
+            "strings"
+          )
+          func main() {
+            filename := "internal/app/service.go"
+            src, err := os.ReadFile(filename); if err != nil { panic(err) }
+            fset := token.NewFileSet()
+            f, err := parser.ParseFile(fset, filename, src, parser.ParseComments); if err != nil { panic(err) }
+            type method struct { name, text string; start, end int }
+            var methods []method
+            for _, decl := range f.Decls {
+              fn, ok := decl.(*ast.FuncDecl); if !ok || fn.Recv == nil || len(fn.Recv.List) == 0 { continue }
+              recv := fn.Recv.List[0].Type
+              star, ok := recv.(*ast.StarExpr); if !ok { continue }
+              ident, ok := star.X.(*ast.Ident); if !ok || ident.Name != "Service" { continue }
+              start := fset.Position(fn.Pos()).Offset
+              end := fset.Position(fn.End()).Offset
+              methods = append(methods, method{name: fn.Name.Name, text: string(src[start:end]), start:start, end:end})
+            }
+            if len(methods)==0 { panic("no Service methods found") }
+            sort.Slice(methods, func(i,j int) bool { return methods[i].start < methods[j].start })
+            var kept []byte; cursor := 0
+            for _, m := range methods { kept = append(kept, src[cursor:m.start]...); cursor=m.end }
+            kept = append(kept, src[cursor:]...)
+            if err := os.WriteFile(filename, kept, 0644); err != nil { panic(err) }
+            buckets := map[string][]string{
+              "sessions.go":{"GetShellState","CreateSessionProfile","DeleteSessionProfile","LaunchSession","CloseSession"},
+              "ssh.go":{"SSH","AcceptSSHHostKey"}, "sftp.go":{"SFTP"}, "rdp.go":{"RDP"},
+              "ai.go":{"AI","Chat","Provider","Model","Native","Cloud","Vault","KeePass"},
+              "audit.go":{"Audit","CommandPolicy"}, "settings.go":{"Settings","Credential"},
+              "workspace.go":{"Workspace","RuntimeTab"},
+            }
+            out := map[string][]string{}
+            for _, m := range methods {
+              target := "misc.go"
+              for file, prefixes := range buckets { for _, p := range prefixes { if m.name == p || strings.HasPrefix(m.name,p) { target=file; break } }; if _,ok:=out[target]; target!="misc.go" || ok { if target!="misc.go" { break } } }
+              out[target] = append(out[target], m.text)
+            }
+            for file, ms := range out {
+              if len(ms)==0 { continue }
+              body := "package app\n\n" + strings.Join(ms, "\n\n") + "\n"
+              if err := os.WriteFile(filepath.Join("internal/app",file), []byte(body), 0644); err != nil { panic(err) }
+            }
+            fmt.Printf("moved %d Service methods\n", len(methods))
           }
-          out={k:[] for k in buckets}; out['misc.go']=[]
-          for method in methods:
-              name=re.search(r'^func \(s \*Service\) (\w+)', method).group(1)
-              target='misc.go'
-              for file,prefixes in buckets.items():
-                  if any(name.startswith(p) or name == p for p in prefixes): target=file; break
-              out[target].append(method)
-          for file, ms in out.items():
-              if not ms: continue
-              Path('internal/app',file).write_text('package app\n\n'+'\n\n'.join(ms)+'\n')
-          PY
+          GO
+          go run /tmp/split_service.go
           gofmt -w internal/app/*.go
           go install golang.org/x/tools/cmd/goimports@latest
           "$(go env GOPATH)/bin/goimports" -w internal/app/*.go
