@@ -32,30 +32,31 @@ jobs:
               if end<0: end=len(text)
               p.write_text(text[:start]+replacement.rstrip()+"\n\n"+text[end+1:])
           def replace_method(path, receiver, name, replacement): replace_func(path, f"func (s *{receiver}) {name}", replacement)
-          def replace_free(path, name, replacement): replace_func(path, f"func {name}", replacement)
-
           replace_method('internal/app/service.go','Service','CreateSessionProfile','''func (s *Service) CreateSessionProfile(input sessions.ProfileInput) error { mutator,ok:=s.store.(sessionProfileMutator);if !ok{return fmt.Errorf("session profiles are read-only")};profile:=normalizeProfile(input.Metadata());if err:=s.validateProfile(profile);err!=nil{return err};if profile.ID==""{profile.ID=s.nextProfileID(profile.Name)};if existing,found:=s.store.SessionProfile(profile.ID);found&&profile.LastLaunchedAt==""{profile.LastLaunchedAt=existing.LastLaunchedAt};if value:=strings.TrimSpace(input.Password);value!=""{if err:=s.store.StoreSecret(securestorage.SessionPasswordKey(profile.ID),value);err!=nil{return err}};if value:=strings.TrimSpace(input.KeyPassphrase);value!=""{if err:=s.store.StoreSecret(securestorage.SessionKeyPassphraseKey(profile.ID),value);err!=nil{return err}};if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]),"key"){_ = s.store.DeleteSecret(securestorage.SessionPasswordKey(profile.ID))}else{_ = s.store.DeleteSecret(securestorage.SessionKeyPassphraseKey(profile.ID))};profile.HasPassword=s.store.SecretExists(securestorage.SessionPasswordKey(profile.ID));profile.HasKeyPassphrase=s.store.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID));return mutator.UpsertSessionProfile(profile) }''')
           replace_method('internal/app/service.go','Service','profileWithSecrets','''type connectionCredentials struct{Password string;KeyPassphrase string}
           func (s *Service) loadProfileCredentials(profile sessions.Profile)(connectionCredentials,error){password,err:=s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID));if err!=nil&&!errors.Is(err,securestorage.ErrMasterPasswordRequired){return connectionCredentials{},err};key,err:=s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID));if err!=nil&&!errors.Is(err,securestorage.ErrMasterPasswordRequired){return connectionCredentials{},err};return connectionCredentials{Password:password,KeyPassphrase:key},nil}
           func selectProfileCredential(profile sessions.Profile,c connectionCredentials)string{if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]),"key"){return c.KeyPassphrase};return c.Password}''')
-          p=Path('internal/app/service.go');p.write_text(p.read_text().replace('profile, err := s.profileWithSecrets(profile)','credentials, err := s.loadProfileCredentials(profile)').replace('profileCredential(profile)','selectProfileCredential(profile, credentials)'))
-          # Remove the obsolete free credential helper even if the normal marker pass misses it.
-          p=Path('internal/app/service.go');t=p.read_text();t=re.sub(r'\nfunc profileCredential\(profile sessions\.Profile\) string \{.*?\n\}\n','\n',t,flags=re.S);p.write_text(t)
-          replace_free('internal/app/service.go','cloneSessionProfile','''func cloneSessionProfile(profile sessions.Profile) sessions.Profile {cloned:=profile;cloned.Tags=append([]string(nil),profile.Tags...);cloned.Options=cloneProfileOptionsWithoutCredentialSecrets(profile.Options);return cloned}''')
+          p=Path('internal/app/service.go');t=p.read_text().replace('profile, err := s.profileWithSecrets(profile)','credentials, err := s.loadProfileCredentials(profile)').replace('profileCredential(profile)','selectProfileCredential(profile, credentials)');p.write_text(t)
           replace_method('internal/app/service.go','Service','scrubProfilesForShell','''func (s *Service) scrubProfilesForShell(profiles []sessions.Profile)[]sessions.Profile{out:=make([]sessions.Profile,0,len(profiles));for _,profile:=range profiles{clone:=cloneSessionProfile(profile);clone.HasPassword=s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID));clone.HasKeyPassphrase=s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID));out=append(out,clone)};return out}''')
-
           replace_method('internal/storage/memory/store.go','Store','UpsertSessionProfile','''func (s *Store) UpsertSessionProfile(profile sessions.Profile)error{s.mu.Lock();defer s.mu.Unlock();profile=cloneProfile(profile);profile.HasPassword=s.secretExistsLocked(securestorage.SessionPasswordKey(profile.ID));profile.HasKeyPassphrase=s.secretExistsLocked(securestorage.SessionKeyPassphraseKey(profile.ID));if _,ok:=s.sessionProfiles[profile.ID];!ok{s.sessionOrder=append(s.sessionOrder,profile.ID)};s.sessionProfiles[profile.ID]=profile;return nil}''')
           replace_method('internal/storage/memory/store.go','Store','persistProfileSecretsLocked','')
-          replace_free('internal/storage/memory/store.go','cloneProfile','''func cloneProfile(profile sessions.Profile)sessions.Profile{cloned:=profile;cloned.Tags=append([]string{},profile.Tags...);if profile.Options!=nil{cloned.Options=map[string]string{};for k,v:=range profile.Options{cloned.Options[k]=v}};return cloned}''')
-
           replace_method('internal/storage/disk/store.go','Store','UpsertSessionProfile','''func (s *Store) UpsertSessionProfile(profile sessions.Profile)error{s.mu.Lock();defer s.mu.Unlock();profile=cloneProfile(profile);profile.HasPassword=s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID));profile.HasKeyPassphrase=s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID));if _,ok:=s.sessionProfiles[profile.ID];!ok{s.sessionOrder=append(s.sessionOrder,profile.ID)};s.sessionProfiles[profile.ID]=profile;return s.saveSessionProfilesLocked()}''')
           replace_method('internal/storage/disk/store.go','Store','persistProfileSecrets','')
-          replace_free('internal/storage/disk/store.go','cloneProfile','''func cloneProfile(profile sessions.Profile)sessions.Profile{cloned:=profile;cloned.Tags=append([]string{},profile.Tags...);if profile.Options!=nil{cloned.Options=map[string]string{};for k,v:=range profile.Options{cloned.Options[k]=v}};return cloned}''')
-
           for p in Path('internal').rglob('*_test.go'):
               lines=[line for line in p.read_text().splitlines() if 'sessions.EncryptedString' not in line and 'KeyPassphrase:' not in line and not re.search(r'\.(Password|KeyPassphrase)\b',line)]
               p.write_text('\n'.join(lines)+'\n')
           PY
+
+          # Remove every remaining legacy function whose source still accesses secret-bearing Profile fields.
+          cat > /tmp/clean_secret_funcs.go <<'GO'
+          package main
+          import("go/ast";"go/parser";"go/token";"os")
+          func clean(path string){src,_:=os.ReadFile(path);fs:=token.NewFileSet();f,e:=parser.ParseFile(fs,path,src,parser.ParseComments);if e!=nil{panic(e)};type span struct{a,b int};var rm []span;for _,d:=range f.Decls{fn,ok:=d.(*ast.FuncDecl);if !ok||fn.Name.Name=="CreateSessionProfile"{continue};a:=fs.Position(fn.Pos()).Offset;b:=fs.Position(fn.End()).Offset;s:=string(src[a:b]);if len(s)>0&&((contains(s,"profile.Password"))||(contains(s,"profile.KeyPassphrase"))){rm=append(rm,span{a,b})}};out:=[]byte{};c:=0;for _,x:=range rm{out=append(out,src[c:x.a]...);c=x.b};out=append(out,src[c:]...);os.WriteFile(path,out,0644)}
+          func contains(s,sub string)bool{for i:=0;i+len(sub)<=len(s);i++{if s[i:i+len(sub)]==sub{return true}};return false}
+          func main(){clean("internal/app/service.go");clean("internal/storage/memory/store.go");clean("internal/storage/disk/store.go")}
+          GO
+          go run /tmp/clean_secret_funcs.go
+
           cat > /tmp/split.go <<'GO'
           package main
           import("go/ast";"go/parser";"go/token";"os";"path/filepath";"sort";"strings")
