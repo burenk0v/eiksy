@@ -68,3 +68,34 @@ func TestManagerReadsLegacyOpsyKeyringEntry(t *testing.T) {
 		t.Fatalf("expected migrated eiksy keyring entry: %v", err)
 	}
 }
+
+func TestManagerCloseLocksAndClearsMasterKey(t *testing.T) {
+	keyringStore := newMemoryKeyring()
+	manager, err := NewWithKeyring(filepath.Join(t.TempDir(), "secrets.db"), keyringStore)
+	if err != nil {
+		t.Fatalf("create manager: %v", err)
+	}
+
+	if err := manager.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock manager: %v", err)
+	}
+	if !manager.Status().Unlocked {
+		t.Fatal("manager should be unlocked before close")
+	}
+
+	if err := manager.Close(); err != nil {
+		t.Fatalf("close manager: %v", err)
+	}
+	if manager.Status().Unlocked {
+		t.Fatal("manager should be locked after close")
+	}
+	if manager.masterKey != nil {
+		t.Fatal("master key should be cleared after close")
+	}
+	if manager.autoLockTimer != nil {
+		t.Fatal("auto-lock timer should be cleared after close")
+	}
+	if manager.db != nil {
+		t.Fatal("database handle should be cleared after close")
+	}
+}

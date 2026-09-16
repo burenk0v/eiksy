@@ -103,7 +103,9 @@ func (m *Manager) Close() error {
 	if m.db == nil {
 		return nil
 	}
-	return m.db.Close()
+	err := m.db.Close()
+	m.db = nil
+	return err
 }
 
 func (m *Manager) Status() Status {
