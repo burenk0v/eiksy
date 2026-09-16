@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"eiksy/internal/securestorage"
 )
 
 const cloudAuthSessionTimeout = 5 * time.Minute
@@ -175,6 +177,18 @@ func writeCloudProviderAuthCORSHeaders(w http.ResponseWriter, allowedOrigin stri
 func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, message string, stopServer bool) bool {
 	var session *cloudAuthSession
 
+	// Browser authorization tokens are secrets. Persist them directly into
+	// secure storage and never place the value in the Wails-facing auth DTO.
+	if status == "completed" && strings.TrimSpace(token) != "" {
+		if s == nil || s.store == nil {
+			return false
+		}
+		if err := s.store.StoreSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud"), token); err != nil {
+			return false
+		}
+		token = ""
+	}
+
 	s.authMu.Lock()
 	if s.cloudAuth == nil || s.cloudAuth.state.ID != sessionID {
 		s.authMu.Unlock()
@@ -182,13 +196,16 @@ func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, messa
 	}
 
 	session = s.cloudAuth
-	if status == "completed" && s.cloudAuth.state.Status == "completed" && s.cloudAuth.state.Token != "" {
+	if status == "completed" && s.cloudAuth.state.Status == "completed" {
 		s.authMu.Unlock()
 		return true
 	}
 
 	s.cloudAuth.state.Status = status
 	s.cloudAuth.state.Message = message
+	// Intentionally do not copy completed tokens into the Wails-facing state.
+	// Non-completed internal transitions may still use the field in the future,
+	// but browser authorization must never expose credential material to UI code.
 	if token != "" {
 		s.cloudAuth.state.Token = token
 	}
