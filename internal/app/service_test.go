@@ -185,7 +185,8 @@ func TestStartCloudProviderAuthRejectsUnsupportedEndpoint(t *testing.T) {
 }
 
 func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil); defer stopCloudAuthSessionForTest(service)
+	store := memory.NewStore()
+	service := NewService(store, nil, nil); defer stopCloudAuthSessionForTest(service)
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1"); if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
 	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
 	requestFrom := authURL.Query().Get("requestFrom"); port := strings.TrimPrefix(requestFrom, "CODY_CLI-"); if port == requestFrom || port == "" { t.Fatalf("unexpected requestFrom value: %q", requestFrom) }
@@ -193,11 +194,14 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "browser-token" { t.Fatalf("expected received token to be returned, got %q", completed.Token) }
+	if completed.Token != "" { t.Fatalf("expected browser token to stay out of auth DTO, got %q", completed.Token) }
+	token, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load callback token from secure storage: %v", err) }
+	if token != "browser-token" { t.Fatalf("expected callback token in secure storage, got %q", token) }
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil); defer stopCloudAuthSessionForTest(service)
+	store := memory.NewStore()
+	service := NewService(store, nil, nil); defer stopCloudAuthSessionForTest(service)
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1"); if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
 	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
 	requestFrom := authURL.Query().Get("requestFrom"); port := strings.TrimPrefix(requestFrom, "CODY_CLI-"); if port == requestFrom || port == "" { t.Fatalf("unexpected requestFrom value: %q", requestFrom) }
@@ -205,7 +209,9 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "posted-token" { t.Fatalf("expected posted token to be returned, got %q", completed.Token) }
+	if completed.Token != "" { t.Fatalf("expected posted token to stay out of auth DTO, got %q", completed.Token) }
+	token, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load posted token from secure storage: %v", err) }
+	if token != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", token) }
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
