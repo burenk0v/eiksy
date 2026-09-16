@@ -13,7 +13,6 @@ const (
 
 // PortForwardRule describes a single SSH local-port-forwarding rule.
 type PortForwardRule struct {
-	Ports      string `json:"ports"` // legacy field for backward compatibility
 	LocalPort  string `json:"localPort"`
 	RemoteHost string `json:"remoteHost"`
 	RemotePort string `json:"remotePort"`
