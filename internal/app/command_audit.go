@@ -45,11 +45,11 @@ func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecis
 		Command:        redactAuditValue(command),
 		PolicyDecision: redactAuditValue(policyDecision),
 		Approval:       redactAuditValue(approval),
-		Result:         redactAuditValue(result),
+		Result:         redactAuditOutput(result),
 		ExitCode:       exitCode,
 		DurationMs:     durationMs,
 		ErrorType:      redactAuditValue(extra.ErrorType),
-		Error:          redactAuditValue(extra.Error),
+		Error:          redactAuditOutput(extra.Error),
 	}
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
@@ -78,9 +78,8 @@ func (s *Service) GetCommandAuditTrail() []ai.CommandAuditEvent {
 	return result
 }
 
-// redactAuditValue is the final audit-boundary sanitizer. Audit fields must
-// never retain raw command/error/result text supplied by an execution path.
-// Keep the sanitizer centralized so new recordCommandAudit callers inherit it.
+// redactAuditValue is the final audit-boundary sanitizer for structured text
+// that can be safely retained after removing known sensitive values.
 func redactAuditValue(value string) string {
 	redacted := redactCommand(strings.TrimSpace(value))
 	redacted = strings.Map(func(r rune) rune {
@@ -98,6 +97,16 @@ func redactAuditValue(value string) string {
 		redacted = redacted[:maxCommandAuditText] + "...[TRUNCATED]"
 	}
 	return redacted
+}
+
+// redactAuditOutput treats command output and execution errors as sensitive by
+// default. They are arbitrary external text and may contain credentials that
+// cannot be reliably identified by pattern matching.
+func redactAuditOutput(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "[REDACTED]"
 }
 
 func redactCommand(command string) string {
