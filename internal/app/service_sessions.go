@@ -338,7 +338,11 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if err != nil {
 		return err
 	}
-	credential, err := s.profileCredential(profile)\n\tif err != nil { return err }\n\treturn s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options)
+	credential, err := s.profileCredential(profile)
+	if err != nil {
+		return err
+	}
+	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
