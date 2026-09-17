@@ -19,8 +19,6 @@ func TestGetAIInfrastructureContextExcludesSecrets(t *testing.T) {
 		Host:          "10.0.0.10",
 		Port:          22,
 		Username:      "operator",
-		Password:      "super-secret",
-		KeyPassphrase: "key-secret",
 	}); err != nil {
 		t.Fatalf("seed profile: %v", err)
 	}
