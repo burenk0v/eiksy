@@ -3786,7 +3786,7 @@ class EiksyShell {
                 <div class="screen-card">
                     <div class="eyebrow">RDP session</div>
                     <h2>${escapeHtml(activeTab.title)}</h2>
-                    <p class="screen-copy">Screen view is opened automatically for this RDP session.</p>
+                    <p class="screen-copy">The native RDP client is opened for this session. Eiksy keeps the session lifecycle and profile, while the desktop is rendered by the platform RDP client.</p>
                     <div class="screen-meta">
                         <span>${escapeHtml(profile?.username || "user")}@${escapeHtml(profile?.host || activeTab.title)}:${escapeHtml(String(profile?.port ?? 3389))}</span>
                         <span>Status: ${escapeHtml(activeTab.status)}</span>
