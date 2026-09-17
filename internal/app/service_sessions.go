@@ -22,11 +22,12 @@ import (
 
 func (s *Service) CreateSessionProfileInput(input sessions.ProfileInput) error {
 	profile := sessions.Profile{
-		ID: input.ID, Name: input.Name, Group: input.Group, Tags: input.Tags,
+		ID: strings.TrimSpace(input.ID), Name: input.Name, Group: input.Group, Tags: input.Tags,
 		Favorite: input.Favorite, ProtocolID: input.ProtocolID, Host: input.Host,
 		Port: input.Port, Username: input.Username, SecretRef: input.SecretRef,
 		Options: input.Options, LastLaunchedAt: input.LastLaunchedAt,
 	}
+	if profile.ID == "" { profile.ID = s.nextProfileID(profile.Name) }
 	if err := s.CreateSessionProfile(profile); err != nil {
 		return err
 	}
