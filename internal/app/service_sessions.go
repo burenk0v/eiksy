@@ -386,8 +386,6 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID))
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
-	profile.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
-	profile.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	if profile.Port <= 0 {
 		profile.Port = 22
