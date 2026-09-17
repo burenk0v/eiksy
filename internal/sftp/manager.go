@@ -156,6 +156,9 @@ func (m *Manager) UploadFile(tabID, localPath, remotePath string) error {
 	if err != nil {
 		return fmt.Errorf("inspect opened local file %q: %w", localPath, err)
 	}
+	if openedInfo.Size() > maxSFTPTransferSize {
+		return fmt.Errorf("upload file %q exceeds %d byte limit", localPath, maxSFTPTransferSize)
+	}
 	pathInfo, err := os.Lstat(localPath)
 	if err != nil || pathInfo.Mode()&os.ModeSymlink != 0 || !os.SameFile(openedInfo, pathInfo) {
 		return fmt.Errorf("local upload path %q changed while opening", localPath)
