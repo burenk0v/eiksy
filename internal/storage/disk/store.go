@@ -335,13 +335,7 @@ func (s *Store) RecordLaunch(profileID string) {
 func (s *Store) UpsertSessionProfile(profile sessions.Profile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	profile = cloneProfile(profile)
-	if err := s.persistProfileSecrets(profile); err != nil {
-		return err
-	}
-	profile.Password = ""
-	profile.KeyPassphrase = ""
-	profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
 	profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID))
 	if _, ok := s.sessionProfiles[profile.ID]; !ok {
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
