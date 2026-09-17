@@ -80,7 +80,7 @@ func (s *Service) GetCommandAuditTrail() []ai.CommandAuditEvent {
 func redactAuditValue(value string) string {
 	redacted := redactCommand(strings.TrimSpace(value))
 	redacted = strings.Map(func(r rune) rune {
-		switch r { case '\\n', '\\r', '\\t': return ' '; default: if r < 0x20 || r == 0x7f { return -1 }; return r }
+		switch r { case '\n', '\r', '\t': return ' '; default: if r < 0x20 || r == 0x7f { return -1 }; return r }
 	}, redacted)
 	if len(redacted) > maxCommandAuditText { redacted = redacted[:maxCommandAuditText] + "...[TRUNCATED]" }
 	return redacted
