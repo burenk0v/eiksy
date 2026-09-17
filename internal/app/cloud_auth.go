@@ -15,10 +15,12 @@ import (
 )
 
 const cloudAuthSessionTimeout = 5 * time.Minute
+const maxCloudAuthCallbackBody = 8 << 10
 
 type cloudAuthSession struct {
 	state         CloudProviderAuthSession
 	allowedOrigin string
+	callbackState string
 	listener      net.Listener
 	server        *http.Server
 	timer         *time.Timer
@@ -41,6 +43,7 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
 
+	callbackState := newCloudProviderAuthSessionID()
 	session := &cloudAuthSession{
 		state: CloudProviderAuthSession{
 			ID:       newCloudProviderAuthSessionID(),
@@ -50,6 +53,7 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 			Endpoint: endpoint,
 		},
 		allowedOrigin: origin,
+		callbackState: callbackState,
 		listener:      listener,
 	}
 
@@ -60,6 +64,8 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 	session.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
 	}
 
 	s.authMu.Lock()
@@ -77,6 +83,15 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 		}
 	}(session.server, listener, session.state.ID)
 
+	callbackURL, err := url.Parse(session.state.AuthURL)
+	if err != nil {
+		s.stopCloudAuthServer(session)
+		return CloudProviderAuthSession{}, fmt.Errorf("build browser authorization url: %w", err)
+	}
+	query := callbackURL.Query()
+	query.Set("state", callbackState)
+	callbackURL.RawQuery = query.Encode()
+	session.state.AuthURL = callbackURL.String()
 	return session.state, nil
 }
 
@@ -104,9 +119,17 @@ func (s *Service) handleCloudProviderAuthCallback(sessionID, allowedOrigin strin
 		return
 	case http.MethodPost:
 		writeCloudProviderAuthCORSHeaders(w, allowedOrigin)
-	case http.MethodGet:
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.authMu.Lock()
+	session := s.cloudAuth
+	validState := session != nil && session.state.ID == sessionID && session.callbackState != "" && r.URL.Query().Get("state") == session.callbackState
+	s.authMu.Unlock()
+	if !validState {
+		http.Error(w, "invalid authorization callback state", http.StatusForbidden)
 		return
 	}
 
@@ -128,17 +151,9 @@ func (s *Service) handleCloudProviderAuthCallback(sessionID, allowedOrigin strin
 
 func readCloudProviderAuthToken(r *http.Request) (string, error) {
 	switch r.Method {
-	case http.MethodGet:
-		token := strings.TrimSpace(r.URL.Query().Get("token"))
-		if token == "" {
-			token = strings.TrimSpace(r.URL.Query().Get("code"))
-		}
-		if token == "" {
-			return "", fmt.Errorf("token is missing in callback request")
-		}
-		return token, nil
 	case http.MethodPost:
 		defer r.Body.Close()
+		r.Body = http.MaxBytesReader(httpResponseWriterDiscarder{}, r.Body, maxCloudAuthCallbackBody)
 		var payload struct {
 			AccessToken string `json:"accessToken"`
 			Token       string `json:"token"`
@@ -162,6 +177,12 @@ func readCloudProviderAuthToken(r *http.Request) (string, error) {
 		return "", fmt.Errorf("unsupported callback method")
 	}
 }
+
+type httpResponseWriterDiscarder struct{}
+
+func (httpResponseWriterDiscarder) Header() http.Header       { return http.Header{} }
+func (httpResponseWriterDiscarder) Write([]byte) (int, error) { return 0, nil }
+func (httpResponseWriterDiscarder) WriteHeader(int)           {}
 
 func writeCloudProviderAuthCORSHeaders(w http.ResponseWriter, allowedOrigin string) {
 	if allowedOrigin == "" {
