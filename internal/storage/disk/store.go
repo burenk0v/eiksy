@@ -816,3 +816,35 @@ func providerIndexByID(providers []ai.ProviderDescriptor, providerID string) int
 	}
 	return -1
 }
+
+
+const maxPersistentAuditEvents = 500
+
+func (s *Store) auditPath() string { return filepath.Join(s.baseDir, "audit.json") }
+
+func (s *Store) AppendCommandAudit(event ai.CommandAuditEvent) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	events, err := s.loadAuditLocked(); if err != nil { return err }
+	events = append(events, event)
+	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
+	data, err := json.MarshalIndent(events, "", "  "); if err != nil { return fmt.Errorf("encode audit file: %w", err) }
+	if err := os.WriteFile(s.auditPath(), append(data, '\\n'), 0o600); err != nil { return fmt.Errorf("write audit file: %w", err) }
+	return nil
+}
+
+func (s *Store) CommandAuditTrail() []ai.CommandAuditEvent {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	events, err := s.loadAuditLocked(); if err != nil { return []ai.CommandAuditEvent{} }
+	return events
+}
+
+func (s *Store) loadAuditLocked() ([]ai.CommandAuditEvent, error) {
+	raw, err := os.ReadFile(s.auditPath())
+	if os.IsNotExist(err) { return []ai.CommandAuditEvent{}, nil }
+	if err != nil { return nil, fmt.Errorf("read audit file: %w", err) }
+	if len(raw) == 0 { return []ai.CommandAuditEvent{}, nil }
+	var events []ai.CommandAuditEvent
+	if err := json.Unmarshal(raw, &events); err != nil { return nil, fmt.Errorf("decode audit file: %w", err) }
+	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
+	return events, nil
+}
