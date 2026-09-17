@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path"
 	"path/filepath"
@@ -11,11 +12,12 @@ import (
 	"time"
 
 	"eiksy/internal/domain/sessions"
-	sftpdomain "eiksy/internal/domain/sftp"
 	"eiksy/internal/domain/settings"
+	sftpdomain "eiksy/internal/domain/sftp"
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
 )
+
 func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	mutator, ok := s.store.(sessionProfileMutator)
 	if !ok {
@@ -541,6 +543,7 @@ func normalizeTags(tags []string) []string {
 	}
 	return result
 }
+
 // AcceptSSHHostKey trusts the pending unknown host key for the given tab and
 // adds it to the known_hosts file, so that a subsequent ConnectSSH succeeds.
 func (s *Service) AcceptSSHHostKey(tabID string) error {
