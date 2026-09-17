@@ -586,33 +586,6 @@ func (s *Store) DeleteSecret(key string) error {
 	return s.secretManager.DeleteSecret(key)
 }
 
-func (s *Store) persistProfileSecrets(profile sessions.Profile) error {
-	authMethod := "password"
-	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
-		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
-	}
-	if strings.TrimSpace(string(profile.Password)) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.SessionPasswordKey(profile.ID), strings.TrimSpace(string(profile.Password))); err != nil {
-			return err
-		}
-	}
-	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.SessionKeyPassphraseKey(profile.ID), strings.TrimSpace(string(profile.KeyPassphrase))); err != nil {
-			return err
-		}
-	}
-	if authMethod == "key" {
-		if err := s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil {
-			return err
-		}
-	} else {
-		if err := s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
