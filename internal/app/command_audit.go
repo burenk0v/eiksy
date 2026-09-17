@@ -25,9 +25,9 @@ type persistentCommandAuditStore interface {
 }
 
 var sensitiveCommandPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key|authorization)\\s*=\\s*[^\\s]+`),
-	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key)\\s+[^\\s]+`),
-	regexp.MustCompile(`(?i)(authorization\\s*:\\s*(?:bearer|basic)\\s+)[^\\s'\\"]+`),
+	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key|authorization)\s*=\s*[^\s]+`),
+	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key)\s+[^\s]+`),
+	regexp.MustCompile(`(?i)(authorization\s*:\s*(?:bearer|basic)\s+)[^\s'\"]+`),
 }
 
 func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecision, approval, result string, exitCode int, durationMs int64, extra ai.CommandAuditEvent) {
