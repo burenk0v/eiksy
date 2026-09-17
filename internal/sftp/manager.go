@@ -31,7 +31,10 @@ type connection struct {
 	sftpClient *pkgsftp.Client
 }
 
-const maxSFTPReadSize = 16 << 20
+const (
+	maxSFTPReadSize = 16 << 20
+	maxSFTPTransferSize = 256 << 20
+)
 
 func NewManager() *Manager {
 	return &Manager{connections: map[string]*connection{}}
@@ -162,8 +165,13 @@ func (m *Manager) UploadFile(tabID, localPath, remotePath string) error {
 		return fmt.Errorf("open remote file %q for write: %w", remotePath, err)
 	}
 	defer target.Close()
-	if _, err := io.Copy(target, source); err != nil {
+	limited := io.LimitReader(source, maxSFTPTransferSize+1)
+	written, err := io.Copy(target, limited)
+	if err != nil {
 		return fmt.Errorf("upload file %q to %q: %w", localPath, remotePath, err)
+	}
+	if written > maxSFTPTransferSize {
+		return fmt.Errorf("upload file %q exceeds %d byte limit", localPath, maxSFTPTransferSize)
 	}
 	return nil
 }
@@ -194,9 +202,15 @@ func (m *Manager) DownloadFile(tabID, remotePath, localPath string) error {
 		_ = target.Close()
 		return fmt.Errorf("set temporary download permissions: %w", err)
 	}
-	if _, err := io.Copy(target, source); err != nil {
+	limited := io.LimitReader(source, maxSFTPTransferSize+1)
+	written, err := io.Copy(target, limited)
+	if err != nil {
 		_ = target.Close()
 		return fmt.Errorf("download file %q to %q: %w", remotePath, localPath, err)
+	}
+	if written > maxSFTPTransferSize {
+		_ = target.Close()
+		return fmt.Errorf("download file %q exceeds %d byte limit", remotePath, maxSFTPTransferSize)
 	}
 	if err := target.Close(); err != nil {
 		return fmt.Errorf("close temporary download file: %w", err)
