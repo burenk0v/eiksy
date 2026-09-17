@@ -62,12 +62,6 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 		if profile.LastLaunchedAt == "" {
 			profile.LastLaunchedAt = existing.LastLaunchedAt
 		}
-		if strings.TrimSpace(string(profile.Password)) == "" {
-			profile.Password = existing.Password
-		}
-		if strings.TrimSpace(string(profile.KeyPassphrase)) == "" {
-			profile.KeyPassphrase = existing.KeyPassphrase
-		}
 	}
 
 	if err := mutator.UpsertSessionProfile(profile); err != nil {
@@ -146,7 +140,7 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	}
 	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
-	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options); err != nil {
+	if err := credential, err := s.profileCredential(profile)\n\tif err != nil { return err }\n\tif err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options); err != nil; err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
 		return err
@@ -314,7 +308,7 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if err != nil {
 		return err
 	}
-	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options)
+	credential, err := s.profileCredential(profile)\n\tif err != nil { return err }\n\treturn s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
@@ -579,42 +573,37 @@ func (s *Service) AcceptSSHHostKey(tabID string) error {
 	return s.sshManager.AcceptHostKey(tabID)
 }
 func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile, error) {
-	password, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID))
-	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+	if _, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
-	keyPassphrase, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID))
-	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+	if _, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
-	cloned := cloneSessionProfile(profile)
-	if strings.TrimSpace(password) != "" {
-		cloned.Password = sessions.EncryptedString(password)
-	}
-	if strings.TrimSpace(keyPassphrase) != "" {
-		cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
-	}
-	cloned.Options = cloneProfileOptionsWithoutCredentialSecrets(cloned.Options)
-	return cloned, nil
+	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
+	return profile, nil
 }
 
 func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.Profile {
 	scrubbed := make([]sessions.Profile, 0, len(profiles))
 	for _, profile := range profiles {
 		clone := cloneSessionProfile(profile)
-		clone.Password = ""
-		clone.KeyPassphrase = ""
 		clone.HasPassword = s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID))
 		clone.HasKeyPassphrase = s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID))
 		scrubbed = append(scrubbed, clone)
 	}
 	return scrubbed
 }
-func profileCredential(profile sessions.Profile) string {
+
+func (s *Service) profileCredential(profile sessions.Profile) (string, error) {
+	key := securestorage.SessionPasswordKey(profile.ID)
 	if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]), "key") {
-		return string(profile.KeyPassphrase)
+		key = securestorage.SessionKeyPassphraseKey(profile.ID)
 	}
-	return string(profile.Password)
+	value, err := s.store.LoadSecret(key)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func cloneProfileOptionsWithoutCredentialSecrets(options map[string]string) map[string]string {
