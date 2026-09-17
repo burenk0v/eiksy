@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"os/exec"
+	"runtime"
 	"regexp"
 	"strconv"
 	"strings"
@@ -151,16 +153,41 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 
 func (s *Service) OpenRDP(tabID, profileID string) (string, error) {
 	profile, ok := s.store.SessionProfile(profileID)
-	if !ok {
-		return "", fmt.Errorf("session profile %q not found", profileID)
+	if !ok { return "", fmt.Errorf("session profile %q not found", profileID) }
+	if profile.ProtocolID != "rdp" { return "", fmt.Errorf("session profile %q does not use rdp", profileID) }
+	if err := s.updateTabStatus(tabID, "connecting"); err != nil { return "", err }
+
+	address := fmt.Sprintf("%s:%d", profile.Host, profile.Port)
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.CommandContext(s.resolveContext(nil), "mstsc.exe", "/v:"+address, "/prompt")
+	case "linux":
+		binary := "xfreerdp3"
+		if _, err := exec.LookPath(binary); err != nil { binary = "xfreerdp" }
+		if _, err := exec.LookPath(binary); err != nil {
+			_ = s.updateTabStatus(tabID, "error")
+			return "", fmt.Errorf("no FreeRDP client found (install xfreerdp3 or xfreerdp)")
+		}
+		cmd = exec.CommandContext(s.resolveContext(nil), binary, "/v:"+address, "/u:"+profile.Username)
+	default:
+		_ = s.updateTabStatus(tabID, "error")
+		return "", fmt.Errorf("RDP client integration is unsupported on %s", runtime.GOOS)
 	}
-	if profile.ProtocolID != "rdp" {
-		return "", fmt.Errorf("session profile %q does not use rdp", profileID)
+	if err := cmd.Start(); err != nil {
+		_ = s.updateTabStatus(tabID, "error")
+		return "", fmt.Errorf("start RDP client: %w", err)
 	}
-	if err := s.updateTabStatus(tabID, "connected"); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("rdp://%s:%d", profile.Host, profile.Port), nil
+	if err := s.updateTabStatus(tabID, "connected"); err != nil { return "", err }
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			s.EmitLog("warn", fmt.Sprintf("RDP session %q ended: %v", profile.Name, err))
+		} else {
+			s.EmitLog("info", fmt.Sprintf("RDP session %q ended", profile.Name))
+		}
+		_ = s.updateTabStatus(tabID, "disconnected")
+	}()
+	return "rdp://" + address, nil
 }
 
 func (s *Service) SendSSHInput(tabID, data string) error {
