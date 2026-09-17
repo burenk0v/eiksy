@@ -43,7 +43,7 @@ func (s *Service) CreateSessionProfileInput(input sessions.ProfileInput) error {
 			_ = s.store.DeleteSecret(securestorage.SessionKeyPassphraseKey(existing.ID))
 		}
 	}
-	return nil
+	return s.CreateSessionProfile(profile)
 }
 
 func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
