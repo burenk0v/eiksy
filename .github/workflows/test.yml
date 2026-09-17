@@ -22,6 +22,11 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Normalize Go module files
+        run: |
+          go mod tidy
+          git diff -- go.mod go.sum
+
       - name: Run backend tests
         run: go test ./...
 
