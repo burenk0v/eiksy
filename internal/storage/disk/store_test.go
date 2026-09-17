@@ -78,19 +78,10 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "ai-secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
 	}
-	if err := service.CreateSessionProfile(sessions.Profile{
-		ID:            "prod-ssh",
-		Name:          "prod-ssh",
-		ProtocolID:    "ssh",
-		Host:          "prod.internal",
-		Port:          22,
-		Username:      "ops",
-		Password:      sessions.EncryptedString("session-password"),
-		KeyPassphrase: sessions.EncryptedString("ssh-key-passphrase"),
-		Options: map[string]string{
-			"auth_method":          "key",
-			"ssh_private_key_path": "~/.ssh/id_ed25519",
-		},
+	if err := service.CreateSessionProfileInput(sessions.ProfileInput{
+		ID: "prod-ssh", Name: "prod-ssh", ProtocolID: "ssh", Host: "prod.internal", Port: 22, Username: "ops",
+		Password: "session-password", KeyPassphrase: "ssh-key-passphrase",
+		Options: map[string]string{"auth_method": "key", "ssh_private_key_path": "~/.ssh/id_ed25519"},
 	}); err != nil {
 		t.Fatalf("create session profile: %v", err)
 	}
