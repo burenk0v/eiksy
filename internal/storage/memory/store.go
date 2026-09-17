@@ -31,6 +31,7 @@ type Store struct {
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
 	eventCounter        int64
+	auditEvents         []ai.CommandAuditEvent
 	secrets             map[string]string
 	secureStatus        securestorage.Status
 }
@@ -471,4 +472,18 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 		}
 	}
 	return cloned
+}
+
+const maxPersistentAuditEvents = 500
+
+func (s *Store) AppendCommandAudit(event ai.CommandAuditEvent) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	s.auditEvents = append(s.auditEvents, event)
+	if len(s.auditEvents) > maxPersistentAuditEvents { s.auditEvents = append([]ai.CommandAuditEvent(nil), s.auditEvents[len(s.auditEvents)-maxPersistentAuditEvents:]...) }
+	return nil
+}
+
+func (s *Store) CommandAuditTrail() []ai.CommandAuditEvent {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	return append([]ai.CommandAuditEvent(nil), s.auditEvents...)
 }
