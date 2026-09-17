@@ -279,3 +279,40 @@ func (m *recordingSSHManager) Disconnect(string) error { return nil }
 func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
+
+
+func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
+	store := memory.NewStore()
+	service := NewService(store, nil, nil)
+	if err := store.StoreSecret(securestorage.SessionPasswordKey("profile-1"), "secret"); err != nil {
+		t.Fatalf("store password: %v", err)
+	}
+	if err := store.UpsertSessionProfile(sessions.Profile{ID: "profile-1", Name: "test", ProtocolID: "ssh", Host: "example", Port: 22, Username: "user"}); err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+	if err := service.DeleteSessionProfile("profile-1"); err != nil {
+		t.Fatalf("delete profile: %v", err)
+	}
+	if store.SecretExists(securestorage.SessionPasswordKey("profile-1")) {
+		t.Fatal("deleted profile must not retain its password")
+	}
+}
+
+func TestLockSecureStorageClearsPendingAIApproval(t *testing.T) {
+	store := memory.NewStore()
+	state := store.AIState()
+	state.PendingNativeToolCall = &ai.PendingNativeToolCall{RequestID: "request-1", ProviderID: "provider-1"}
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-1", Command: "id"}}
+	store.UpdateAIState(state)
+	service := NewService(store, nil, nil)
+
+	service.LockSecureStorage()
+
+	state = store.AIState()
+	if state.PendingNativeToolCall != nil {
+		t.Fatal("pending native tool call must be cleared when storage locks")
+	}
+	if len(state.CommandPolicy.PendingRequests) != 0 {
+		t.Fatal("pending command approvals must be cleared when storage locks")
+	}
+}
