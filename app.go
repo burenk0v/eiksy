@@ -72,7 +72,6 @@ func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) er
 func (a *App) OpenRDP(tabID, profileID string) error { _, err := a.currentService().OpenRDP(tabID, profileID); return err }
 func (a *App) ValidateCredentialPath(provider, secretPath string) error { return a.currentService().ValidateCredentialPath(provider, secretPath) }
 func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) { return a.currentService().ImportSSHConfig(raw) }
-func (a *App) OpenSessionWindow() error { return nil }
 func (a *App) GetSecureStorageStatus() securestorage.Status { return a.currentService().GetSecureStorageStatus() }
 func (a *App) EnsureMasterPassword(password string) error { return a.currentService().EnsureMasterPassword(password) }
 func (a *App) LockSecureStorage() { a.currentService().LockSecureStorage() }
