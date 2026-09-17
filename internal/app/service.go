@@ -159,6 +159,12 @@ func (s *Service) EmitLog(level, message string) {
 
 func (s *Service) LockSecureStorage() {
 	s.store.LockSecureStorage()
+	// Locking credentials also invalidates any approval continuation that could
+	// otherwise retain authenticated workflow state across a lock boundary.
+	state := s.store.AIState()
+	state.PendingNativeToolCall = nil
+	state.CommandPolicy.PendingRequests = nil
+	s.store.UpdateAIState(state)
 	s.emitFn("secure-storage:status", map[string]bool{"unlocked": false})
 }
 
