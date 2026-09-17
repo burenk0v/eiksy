@@ -55,11 +55,6 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 			return err
 		}
 	}
-	if strings.TrimSpace(updated.KeePassPassword) != "" {
-		if err := s.store.StoreSecret(securestorage.KeePassPasswordKey(), strings.TrimSpace(updated.KeePassPassword)); err != nil {
-			return err
-		}
-	}
 	if strings.TrimSpace(updated.VaultPassword) != "" {
 		if err := s.store.StoreSecret(securestorage.VaultPasswordKey(), strings.TrimSpace(updated.VaultPassword)); err != nil {
 			return err
