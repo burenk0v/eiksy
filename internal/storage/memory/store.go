@@ -345,24 +345,6 @@ func (s *Store) secretExistsLocked(key string) bool {
 	return ok
 }
 
-func (s *Store) persistProfileSecretsLocked(profile sessions.Profile) {
-	authMethod := "password"
-	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
-		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
-	}
-	if strings.TrimSpace(string(profile.Password)) != "" {
-		s.secrets[securestorage.SessionPasswordKey(profile.ID)] = strings.TrimSpace(string(profile.Password))
-	}
-	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
-		s.secrets[securestorage.SessionKeyPassphraseKey(profile.ID)] = strings.TrimSpace(string(profile.KeyPassphrase))
-	}
-	if authMethod == "key" {
-		delete(s.secrets, securestorage.SessionPasswordKey(profile.ID))
-	} else {
-		delete(s.secrets, securestorage.SessionKeyPassphraseKey(profile.ID))
-	}
-}
-
 func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
