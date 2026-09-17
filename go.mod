@@ -7,7 +7,7 @@ require (
 	github.com/tobischo/gokeepasslib/v3 v3.7.0
 	github.com/wailsapp/wails/v2 v2.14.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/crypto v0.56.0
+	golang.org/x/crypto v0.55.0
 	modernc.org/sqlite v1.58.0
 )
 
