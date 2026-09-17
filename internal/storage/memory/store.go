@@ -470,7 +470,5 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 			cloned.Options[key] = value
 		}
 	}
-	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
-	cloned.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	return cloned
 }
