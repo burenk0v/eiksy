@@ -18,6 +18,32 @@ import (
 	"eiksy/internal/securestorage"
 )
 
+func (s *Service) CreateSessionProfileInput(input sessions.ProfileInput) error {
+	profile := sessions.Profile{
+		ID: input.ID, Name: input.Name, Group: input.Group, Tags: input.Tags,
+		Favorite: input.Favorite, ProtocolID: input.ProtocolID, Host: input.Host,
+		Port: input.Port, Username: input.Username, SecretRef: input.SecretRef,
+		Options: input.Options, LastLaunchedAt: input.LastLaunchedAt,
+	}
+	if err := s.CreateSessionProfile(profile); err != nil {
+		return err
+	}
+	if existing, ok := s.store.SessionProfile(profile.ID); ok {
+		if strings.TrimSpace(input.Password) != "" {
+			if err := s.store.StoreSecret(securestorage.SessionPasswordKey(existing.ID), strings.TrimSpace(input.Password)); err != nil { return err }
+		}
+		if strings.TrimSpace(input.KeyPassphrase) != "" {
+			if err := s.store.StoreSecret(securestorage.SessionKeyPassphraseKey(existing.ID), strings.TrimSpace(input.KeyPassphrase)); err != nil { return err }
+		}
+		if strings.EqualFold(strings.TrimSpace(input.Options["auth_method"]), "key") {
+			_ = s.store.DeleteSecret(securestorage.SessionPasswordKey(existing.ID))
+		} else if strings.EqualFold(strings.TrimSpace(input.Options["auth_method"]), "password") {
+			_ = s.store.DeleteSecret(securestorage.SessionKeyPassphraseKey(existing.ID))
+		}
+	}
+	return nil
+}
+
 func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	mutator, ok := s.store.(sessionProfileMutator)
 	if !ok {
