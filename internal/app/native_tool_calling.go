@@ -18,6 +18,7 @@ import (
 const nativeSSHExecToolName = "ssh.exec"
 const nativeSSHExecPolicyToolID = "shell"
 const nativeSSHDiagnosticsToolName = "ssh.diagnostics"
+const maxNativeCompletionResponse = 2 << 20
 
 type nativeChatMessage struct {
 	Role       string           `json:"role"`
@@ -131,9 +132,12 @@ func (s *Service) callNativeToolCompletion(ctx context.Context, provider *ai.Pro
 		return nativeChatMessage{}, err
 	}
 	defer response.Body.Close()
-	responseBody, err := io.ReadAll(response.Body)
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, maxNativeCompletionResponse+1))
 	if err != nil {
 		return nativeChatMessage{}, err
+	}
+	if len(responseBody) > maxNativeCompletionResponse {
+		return nativeChatMessage{}, fmt.Errorf("AI API response exceeds %d byte limit", maxNativeCompletionResponse)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nativeChatMessage{}, fmt.Errorf("AI API returned %s: %s", response.Status, strings.TrimSpace(string(responseBody)))

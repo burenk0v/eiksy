@@ -356,9 +356,13 @@ func (s *Store) DeleteSessionProfile(profileID string) error {
 	if _, ok := s.sessionProfiles[profileID]; !ok {
 		return fmt.Errorf("session profile %q not found", profileID)
 	}
+	if err := s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profileID)); err != nil {
+		return err
+	}
+	if err := s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profileID)); err != nil {
+		return err
+	}
 	delete(s.sessionProfiles, profileID)
-	_ = s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profileID))
-	_ = s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profileID))
 	filtered := make([]string, 0, len(s.sessionOrder))
 	for _, id := range s.sessionOrder {
 		if id != profileID {
@@ -472,7 +476,7 @@ func (s *Store) saveSessionProfilesLocked() error {
 		return fmt.Errorf("encode sessions file: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(s.sessionsPath, data, 0o600); err != nil {
+	if err := writeFileAtomically(s.sessionsPath, data); err != nil {
 		return fmt.Errorf("write sessions file: %w", err)
 	}
 	return nil
@@ -484,10 +488,35 @@ func (s *Store) saveSettings() error {
 		return fmt.Errorf("encode settings file: %w", err)
 	}
 	data = append(data, '\n')
-	if err := os.WriteFile(s.settingsPath, data, 0o600); err != nil {
+	if err := writeFileAtomically(s.settingsPath, data); err != nil {
 		return fmt.Errorf("write settings file: %w", err)
 	}
 	return nil
+}
+
+func writeFileAtomically(target string, data []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(target), ".eiksy-*")
+	if err != nil {
+		return err
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporaryName, target)
 }
 
 func (s *Store) nextEventIDLocked() string {
