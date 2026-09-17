@@ -58,19 +58,17 @@ func TestLaunchHistoryIsCapped(t *testing.T) {
 	if len(state.SessionHistory) != 100 { t.Fatalf("expected capped launch history of 100 entries, got %d", len(state.SessionHistory)) }
 }
 
-func TestCreateSessionProfilePreservesPasswordWhenUpdatingWithoutPassword(t *testing.T) {
+func TestCreateSessionProfileStoresPasswordOutsideProfile(t *testing.T) {
 	store := memory.NewStore()
-	original := sessions.Profile{ID: "prod-ssh", Name: "prod-ssh", ProtocolID: "ssh", Host: "prod.internal", Port: 22, Username: "ops", Password: sessions.EncryptedString("keep-me")}
-	if err := store.UpsertSessionProfile(original); err != nil { t.Fatalf("seed session profile: %v", err) }
 	service := NewService(store, nil, nil)
-	updated := original; updated.Name = "prod-ssh-renamed"; updated.Password = ""
-	if err := service.CreateSessionProfile(updated); err != nil { t.Fatalf("update session profile: %v", err) }
+	input := sessions.ProfileInput{ID: "prod-ssh", Name: "prod-ssh", ProtocolID: "ssh", Host: "prod.internal", Port: 22, Username: "ops", Password: "keep-me", Options: map[string]string{"auth_method": "password"}}
+	if err := service.CreateSessionProfileInput(input); err != nil { t.Fatalf("create session profile: %v", err) }
 	profile, ok := store.SessionProfile("prod-ssh")
-	if !ok { t.Fatal("updated profile not found") }
-	if !profile.HasPassword { t.Fatal("expected password flag to be preserved") }
+	if !ok { t.Fatal("session profile not found") }
+	if !profile.HasPassword { t.Fatal("profile must expose password presence without carrying the secret value") }
 	password, err := store.LoadSecret(securestorage.SessionPasswordKey("prod-ssh"))
-	if err != nil { t.Fatalf("load preserved password: %v", err) }
-	if password != "keep-me" { t.Fatalf("expected password to be preserved, got %q", password) }
+	if err != nil { t.Fatalf("load password: %v", err) }
+	if password != "keep-me" { t.Fatalf("expected password in secure storage, got %q", password) }
 }
 
 func TestSelectAIProviderMarksCloudProviderSelected(t *testing.T) {

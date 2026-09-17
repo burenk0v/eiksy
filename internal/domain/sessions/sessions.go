@@ -1,8 +1,5 @@
 package sessions
 
-// ts_type string
-type EncryptedString string
-
 type Profile struct {
 	ID               string            `json:"id"`
 	Name             string            `json:"name"`
@@ -13,8 +10,6 @@ type Profile struct {
 	Host             string            `json:"host"`
 	Port             int               `json:"port"`
 	Username         string            `json:"username"`
-	Password         EncryptedString   `json:"-"`
-	KeyPassphrase    EncryptedString   `json:"-"`
 	HasPassword      bool              `json:"hasPassword"`
 	HasKeyPassphrase bool              `json:"hasKeyPassphrase"`
 	SecretRef        string            `json:"secretRef,omitempty"`
@@ -54,8 +49,6 @@ func (p ProfileInput) ToProfile() Profile {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
-		Password:       EncryptedString(p.Password),
-		KeyPassphrase:  EncryptedString(p.KeyPassphrase),
 		SecretRef:      p.SecretRef,
 		Options:        p.Options,
 		LastLaunchedAt: p.LastLaunchedAt,

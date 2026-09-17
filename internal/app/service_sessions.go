@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,33 @@ import (
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
 )
+
+func (s *Service) CreateSessionProfileInput(input sessions.ProfileInput) error {
+	profile := sessions.Profile{
+		ID: strings.TrimSpace(input.ID), Name: input.Name, Group: input.Group, Tags: input.Tags,
+		Favorite: input.Favorite, ProtocolID: input.ProtocolID, Host: input.Host,
+		Port: input.Port, Username: input.Username, SecretRef: input.SecretRef,
+		Options: input.Options, LastLaunchedAt: input.LastLaunchedAt,
+	}
+	if profile.ID == "" { profile.ID = s.nextProfileID(profile.Name) }
+	if err := s.CreateSessionProfile(profile); err != nil {
+		return err
+	}
+	if existing, ok := s.store.SessionProfile(profile.ID); ok {
+		if strings.TrimSpace(input.Password) != "" {
+			if err := s.store.StoreSecret(securestorage.SessionPasswordKey(existing.ID), strings.TrimSpace(input.Password)); err != nil { return err }
+		}
+		if strings.TrimSpace(input.KeyPassphrase) != "" {
+			if err := s.store.StoreSecret(securestorage.SessionKeyPassphraseKey(existing.ID), strings.TrimSpace(input.KeyPassphrase)); err != nil { return err }
+		}
+		if strings.EqualFold(strings.TrimSpace(input.Options["auth_method"]), "key") {
+			_ = s.store.DeleteSecret(securestorage.SessionPasswordKey(existing.ID))
+		} else if strings.EqualFold(strings.TrimSpace(input.Options["auth_method"]), "password") {
+			_ = s.store.DeleteSecret(securestorage.SessionKeyPassphraseKey(existing.ID))
+		}
+	}
+	return s.CreateSessionProfile(profile)
+}
 
 func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	mutator, ok := s.store.(sessionProfileMutator)
@@ -35,12 +64,6 @@ func (s *Service) CreateSessionProfile(profile sessions.Profile) error {
 	if existing, found := s.store.SessionProfile(profile.ID); found {
 		if profile.LastLaunchedAt == "" {
 			profile.LastLaunchedAt = existing.LastLaunchedAt
-		}
-		if strings.TrimSpace(string(profile.Password)) == "" {
-			profile.Password = existing.Password
-		}
-		if strings.TrimSpace(string(profile.KeyPassphrase)) == "" {
-			profile.KeyPassphrase = existing.KeyPassphrase
 		}
 	}
 
@@ -120,7 +143,9 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	}
 	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
-	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options); err != nil {
+	credential, err := s.profileCredential(profile)
+	if err != nil { return err }
+	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options); err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
 		return err
@@ -131,16 +156,41 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 
 func (s *Service) OpenRDP(tabID, profileID string) (string, error) {
 	profile, ok := s.store.SessionProfile(profileID)
-	if !ok {
-		return "", fmt.Errorf("session profile %q not found", profileID)
+	if !ok { return "", fmt.Errorf("session profile %q not found", profileID) }
+	if profile.ProtocolID != "rdp" { return "", fmt.Errorf("session profile %q does not use rdp", profileID) }
+	if err := s.updateTabStatus(tabID, "connecting"); err != nil { return "", err }
+
+	address := fmt.Sprintf("%s:%d", profile.Host, profile.Port)
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.CommandContext(s.resolveContext(nil), "mstsc.exe", "/v:"+address, "/prompt")
+	case "linux":
+		binary := "xfreerdp3"
+		if _, err := exec.LookPath(binary); err != nil { binary = "xfreerdp" }
+		if _, err := exec.LookPath(binary); err != nil {
+			_ = s.updateTabStatus(tabID, "error")
+			return "", fmt.Errorf("no FreeRDP client found (install xfreerdp3 or xfreerdp)")
+		}
+		cmd = exec.CommandContext(s.resolveContext(nil), binary, "/v:"+address, "/u:"+profile.Username)
+	default:
+		_ = s.updateTabStatus(tabID, "error")
+		return "", fmt.Errorf("RDP client integration is unsupported on %s", runtime.GOOS)
 	}
-	if profile.ProtocolID != "rdp" {
-		return "", fmt.Errorf("session profile %q does not use rdp", profileID)
+	if err := cmd.Start(); err != nil {
+		_ = s.updateTabStatus(tabID, "error")
+		return "", fmt.Errorf("start RDP client: %w", err)
 	}
-	if err := s.updateTabStatus(tabID, "connected"); err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("rdp://%s:%d", profile.Host, profile.Port), nil
+	if err := s.updateTabStatus(tabID, "connected"); err != nil { return "", err }
+	go func() {
+		if err := cmd.Wait(); err != nil {
+			s.EmitLog("warn", fmt.Sprintf("RDP session %q ended: %v", profile.Name, err))
+		} else {
+			s.EmitLog("info", fmt.Sprintf("RDP session %q ended", profile.Name))
+		}
+		_ = s.updateTabStatus(tabID, "disconnected")
+	}()
+	return "rdp://" + address, nil
 }
 
 func (s *Service) SendSSHInput(tabID, data string) error {
@@ -288,7 +338,11 @@ func (s *Service) ensureSFTPConnection(tabID string) error {
 	if err != nil {
 		return err
 	}
-	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, profileCredential(profile), profile.Options)
+	credential, err := s.profileCredential(profile)
+	if err != nil {
+		return err
+	}
+	return s.sftpManager.Connect(s.resolveContext(nil), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options)
 }
 
 func (s *Service) runtimeTab(tabID string) (workspace.Tab, bool) {
@@ -366,8 +420,6 @@ func normalizeProfile(profile sessions.Profile) sessions.Profile {
 	profile.ProtocolID = strings.TrimSpace(strings.ToLower(profile.ProtocolID))
 	profile.Host = strings.TrimSpace(profile.Host)
 	profile.Username = strings.TrimSpace(profile.Username)
-	profile.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
-	profile.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	if profile.Port <= 0 {
 		profile.Port = 22
@@ -553,42 +605,37 @@ func (s *Service) AcceptSSHHostKey(tabID string) error {
 	return s.sshManager.AcceptHostKey(tabID)
 }
 func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile, error) {
-	password, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID))
-	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+	if _, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
-	keyPassphrase, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID))
-	if err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+	if _, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
 		return sessions.Profile{}, err
 	}
-	cloned := cloneSessionProfile(profile)
-	if strings.TrimSpace(password) != "" {
-		cloned.Password = sessions.EncryptedString(password)
-	}
-	if strings.TrimSpace(keyPassphrase) != "" {
-		cloned.KeyPassphrase = sessions.EncryptedString(keyPassphrase)
-	}
-	cloned.Options = cloneProfileOptionsWithoutCredentialSecrets(cloned.Options)
-	return cloned, nil
+	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
+	return profile, nil
 }
 
 func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.Profile {
 	scrubbed := make([]sessions.Profile, 0, len(profiles))
 	for _, profile := range profiles {
 		clone := cloneSessionProfile(profile)
-		clone.Password = ""
-		clone.KeyPassphrase = ""
 		clone.HasPassword = s.store.SecretExists(securestorage.SessionPasswordKey(clone.ID))
 		clone.HasKeyPassphrase = s.store.SecretExists(securestorage.SessionKeyPassphraseKey(clone.ID))
 		scrubbed = append(scrubbed, clone)
 	}
 	return scrubbed
 }
-func profileCredential(profile sessions.Profile) string {
+
+func (s *Service) profileCredential(profile sessions.Profile) (string, error) {
+	key := securestorage.SessionPasswordKey(profile.ID)
 	if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]), "key") {
-		return string(profile.KeyPassphrase)
+		key = securestorage.SessionKeyPassphraseKey(profile.ID)
 	}
-	return string(profile.Password)
+	value, err := s.store.LoadSecret(key)
+	if err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func cloneProfileOptionsWithoutCredentialSecrets(options map[string]string) map[string]string {

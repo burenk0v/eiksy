@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"eiksy/internal/app"
+	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
 	"eiksy/internal/securestorage"
@@ -78,19 +79,10 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	if err := service.SaveCloudProvider("gpt-5.6", "https://models.example.com/v1", "ai-secret-token"); err != nil {
 		t.Fatalf("save cloud provider: %v", err)
 	}
-	if err := service.CreateSessionProfile(sessions.Profile{
-		ID:            "prod-ssh",
-		Name:          "prod-ssh",
-		ProtocolID:    "ssh",
-		Host:          "prod.internal",
-		Port:          22,
-		Username:      "ops",
-		Password:      sessions.EncryptedString("session-password"),
-		KeyPassphrase: sessions.EncryptedString("ssh-key-passphrase"),
-		Options: map[string]string{
-			"auth_method":          "key",
-			"ssh_private_key_path": "~/.ssh/id_ed25519",
-		},
+	if err := service.CreateSessionProfileInput(sessions.ProfileInput{
+		ID: "prod-ssh", Name: "prod-ssh", ProtocolID: "ssh", Host: "prod.internal", Port: 22, Username: "ops",
+		Password: "session-password", KeyPassphrase: "ssh-key-passphrase",
+		Options: map[string]string{"auth_method": "key", "ssh_private_key_path": "~/.ssh/id_ed25519"},
 	}); err != nil {
 		t.Fatalf("create session profile: %v", err)
 	}
@@ -418,4 +410,17 @@ func TestLegacySerializedSecretsAreIgnored(t *testing.T) {
 	if secret, err := store.LoadSecret(securestorage.SessionKeyPassphraseKey("legacy-key")); err != nil || secret != "" {
 		t.Fatalf("expected legacy key passphrase to stay absent, got %q err=%v", secret, err)
 	}
+}
+
+func TestCommandAuditPersistsAcrossStoreReload(t *testing.T) {
+	baseDir := t.TempDir()
+	keyring := newMemoryKeyring()
+	store, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("create disk store: %v", err) }
+	event := ai.CommandAuditEvent{ID: "audit-1", At: "2026-09-18T00:00:00Z", ToolID: "ssh.exec", SessionID: "tab-1", Command: "hostname", Result: "success"}
+	if err := store.AppendCommandAudit(event); err != nil { t.Fatalf("append audit: %v", err) }
+	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("reload disk store: %v", err) }
+	trail := reloaded.CommandAuditTrail()
+	if len(trail) != 1 || trail[0].ID != "audit-1" { t.Fatalf("unexpected persisted audit trail: %+v", trail) }
 }

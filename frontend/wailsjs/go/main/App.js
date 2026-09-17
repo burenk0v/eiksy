@@ -66,10 +66,6 @@ export function NavigateSFTP(arg1, arg2) {
   return window['go']['main']['App']['NavigateSFTP'](arg1, arg2);
 }
 
-export function OpenSessionWindow() {
-  return window['go']['main']['App']['OpenSessionWindow']();
-}
-
 export function OpenRDP(arg1, arg2) {
   return window['go']['main']['App']['OpenRDP'](arg1, arg2);
 }

@@ -31,6 +31,7 @@ type Store struct {
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
 	eventCounter        int64
+	auditEvents         []ai.CommandAuditEvent
 	secrets             map[string]string
 	secureStatus        securestorage.Status
 }
@@ -84,11 +85,7 @@ func (s *Store) UpsertSessionProfile(profile sessions.Profile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	profile = cloneProfile(profile)
-	s.persistProfileSecretsLocked(profile)
-	profile.Password = ""
-	profile.KeyPassphrase = ""
-	profile.HasPassword = s.secretExistsLocked(securestorage.SessionPasswordKey(profile.ID))
+		profile.HasPassword = s.secretExistsLocked(securestorage.SessionPasswordKey(profile.ID))
 	profile.HasKeyPassphrase = s.secretExistsLocked(securestorage.SessionKeyPassphraseKey(profile.ID))
 	if _, ok := s.sessionProfiles[profile.ID]; !ok {
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
@@ -348,24 +345,6 @@ func (s *Store) secretExistsLocked(key string) bool {
 	return ok
 }
 
-func (s *Store) persistProfileSecretsLocked(profile sessions.Profile) {
-	authMethod := "password"
-	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
-		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
-	}
-	if strings.TrimSpace(string(profile.Password)) != "" {
-		s.secrets[securestorage.SessionPasswordKey(profile.ID)] = strings.TrimSpace(string(profile.Password))
-	}
-	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
-		s.secrets[securestorage.SessionKeyPassphraseKey(profile.ID)] = strings.TrimSpace(string(profile.KeyPassphrase))
-	}
-	if authMethod == "key" {
-		delete(s.secrets, securestorage.SessionPasswordKey(profile.ID))
-	} else {
-		delete(s.secrets, securestorage.SessionKeyPassphraseKey(profile.ID))
-	}
-}
-
 func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
@@ -470,7 +449,19 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 			cloned.Options[key] = value
 		}
 	}
-	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
-	cloned.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	return cloned
+}
+
+const maxPersistentAuditEvents = 500
+
+func (s *Store) AppendCommandAudit(event ai.CommandAuditEvent) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	s.auditEvents = append(s.auditEvents, event)
+	if len(s.auditEvents) > maxPersistentAuditEvents { s.auditEvents = append([]ai.CommandAuditEvent(nil), s.auditEvents[len(s.auditEvents)-maxPersistentAuditEvents:]...) }
+	return nil
+}
+
+func (s *Store) CommandAuditTrail() []ai.CommandAuditEvent {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	return append([]ai.CommandAuditEvent(nil), s.auditEvents...)
 }

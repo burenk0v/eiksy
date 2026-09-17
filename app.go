@@ -55,7 +55,7 @@ func (a *App) GetShellState() app.ShellState { return a.currentService().GetShel
 func (a *App) GetReleaseVersion() string { return resolveReleaseVersion() }
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) { return a.currentService().LaunchSession(profileID) }
 func (a *App) CloseSession(sessionID string) error { return a.currentService().CloseSession(sessionID) }
-func (a *App) CreateSessionProfile(input sessions.ProfileInput) error { return a.currentService().CreateSessionProfile(input.ToProfile()) }
+func (a *App) CreateSessionProfile(input sessions.ProfileInput) error { return a.currentService().CreateSessionProfileInput(input) }
 func (a *App) DeleteSessionProfile(id string) error { return a.currentService().DeleteSessionProfile(id) }
 func (a *App) ConnectSSH(tabID, profileID string) error { return a.currentService().ConnectSSH(a.ctx, tabID, profileID) }
 func (a *App) SendSSHInput(tabID, data string) error { return a.currentService().SendSSHInput(tabID, data) }
@@ -72,7 +72,6 @@ func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) er
 func (a *App) OpenRDP(tabID, profileID string) error { _, err := a.currentService().OpenRDP(tabID, profileID); return err }
 func (a *App) ValidateCredentialPath(provider, secretPath string) error { return a.currentService().ValidateCredentialPath(provider, secretPath) }
 func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) { return a.currentService().ImportSSHConfig(raw) }
-func (a *App) OpenSessionWindow() error { return nil }
 func (a *App) GetSecureStorageStatus() securestorage.Status { return a.currentService().GetSecureStorageStatus() }
 func (a *App) EnsureMasterPassword(password string) error { return a.currentService().EnsureMasterPassword(password) }
 func (a *App) LockSecureStorage() { a.currentService().LockSecureStorage() }

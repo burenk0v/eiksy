@@ -335,13 +335,7 @@ func (s *Store) RecordLaunch(profileID string) {
 func (s *Store) UpsertSessionProfile(profile sessions.Profile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	profile = cloneProfile(profile)
-	if err := s.persistProfileSecrets(profile); err != nil {
-		return err
-	}
-	profile.Password = ""
-	profile.KeyPassphrase = ""
-	profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
+		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(profile.ID))
 	profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(profile.ID))
 	if _, ok := s.sessionProfiles[profile.ID]; !ok {
 		s.sessionOrder = append(s.sessionOrder, profile.ID)
@@ -592,33 +586,6 @@ func (s *Store) DeleteSecret(key string) error {
 	return s.secretManager.DeleteSecret(key)
 }
 
-func (s *Store) persistProfileSecrets(profile sessions.Profile) error {
-	authMethod := "password"
-	if profile.Options != nil && strings.TrimSpace(profile.Options["auth_method"]) != "" {
-		authMethod = strings.ToLower(strings.TrimSpace(profile.Options["auth_method"]))
-	}
-	if strings.TrimSpace(string(profile.Password)) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.SessionPasswordKey(profile.ID), strings.TrimSpace(string(profile.Password))); err != nil {
-			return err
-		}
-	}
-	if strings.TrimSpace(string(profile.KeyPassphrase)) != "" {
-		if err := s.secretManager.StoreSecret(securestorage.SessionKeyPassphraseKey(profile.ID), strings.TrimSpace(string(profile.KeyPassphrase))); err != nil {
-			return err
-		}
-	}
-	if authMethod == "key" {
-		if err := s.secretManager.DeleteSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil {
-			return err
-		}
-	} else {
-		if err := s.secretManager.DeleteSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
@@ -711,8 +678,6 @@ func cloneProfile(profile sessions.Profile) sessions.Profile {
 			cloned.Options[key] = value
 		}
 	}
-	cloned.Password = sessions.EncryptedString(strings.TrimSpace(string(profile.Password)))
-	cloned.KeyPassphrase = sessions.EncryptedString(strings.TrimSpace(string(profile.KeyPassphrase)))
 	return cloned
 }
 
@@ -817,4 +782,36 @@ func providerIndexByID(providers []ai.ProviderDescriptor, providerID string) int
 		}
 	}
 	return -1
+}
+
+
+const maxPersistentAuditEvents = 500
+
+func (s *Store) auditPath() string { return filepath.Join(s.baseDir, "audit.json") }
+
+func (s *Store) AppendCommandAudit(event ai.CommandAuditEvent) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	events, err := s.loadAuditLocked(); if err != nil { return err }
+	events = append(events, event)
+	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
+	data, err := json.MarshalIndent(events, "", "  "); if err != nil { return fmt.Errorf("encode audit file: %w", err) }
+	if err := os.WriteFile(s.auditPath(), append(data, '\n'), 0o600); err != nil { return fmt.Errorf("write audit file: %w", err) }
+	return nil
+}
+
+func (s *Store) CommandAuditTrail() []ai.CommandAuditEvent {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	events, err := s.loadAuditLocked(); if err != nil { return []ai.CommandAuditEvent{} }
+	return events
+}
+
+func (s *Store) loadAuditLocked() ([]ai.CommandAuditEvent, error) {
+	raw, err := os.ReadFile(s.auditPath())
+	if os.IsNotExist(err) { return []ai.CommandAuditEvent{}, nil }
+	if err != nil { return nil, fmt.Errorf("read audit file: %w", err) }
+	if len(raw) == 0 { return []ai.CommandAuditEvent{}, nil }
+	var events []ai.CommandAuditEvent
+	if err := json.Unmarshal(raw, &events); err != nil { return nil, fmt.Errorf("decode audit file: %w", err) }
+	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
+	return events, nil
 }
