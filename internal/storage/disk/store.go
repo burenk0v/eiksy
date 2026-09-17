@@ -822,7 +822,7 @@ func (s *Store) AppendCommandAudit(event ai.CommandAuditEvent) error {
 	events = append(events, event)
 	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
 	data, err := json.MarshalIndent(events, "", "  "); if err != nil { return fmt.Errorf("encode audit file: %w", err) }
-	if err := os.WriteFile(s.auditPath(), append(data, '\\n'), 0o600); err != nil { return fmt.Errorf("write audit file: %w", err) }
+	if err := os.WriteFile(s.auditPath(), append(data, '\n'), 0o600); err != nil { return fmt.Errorf("write audit file: %w", err) }
 	return nil
 }
 
