@@ -65,7 +65,7 @@ func TestCreateSessionProfileStoresPasswordOutsideProfile(t *testing.T) {
 	if err := service.CreateSessionProfileInput(input); err != nil { t.Fatalf("create session profile: %v", err) }
 	profile, ok := store.SessionProfile("prod-ssh")
 	if !ok { t.Fatal("session profile not found") }
-	if profile.HasPassword { t.Fatal("profile domain object must not carry secret state") }
+	if !profile.HasPassword { t.Fatal("profile must expose password presence without carrying the secret value") }
 	password, err := store.LoadSecret(securestorage.SessionPasswordKey("prod-ssh"))
 	if err != nil { t.Fatalf("load password: %v", err) }
 	if password != "keep-me" { t.Fatalf("expected password in secure storage, got %q", password) }
