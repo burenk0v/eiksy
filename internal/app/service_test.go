@@ -189,7 +189,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	session, err := service.StartCloudProviderAuth("https://sourcegraph.example.com/.api/llm/openai/v1"); if err != nil { t.Fatalf("start cloud provider auth: %v", err) }
 	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
 	requestFrom := authURL.Query().Get("requestFrom"); port := strings.TrimPrefix(requestFrom, "CODY_CLI-"); if port == requestFrom || port == "" { t.Fatalf("unexpected requestFrom value: %q", requestFrom) }
-	resp, err := http.Get("http://localhost:" + port + "/api/sourcegraph/token?token=browser-token&state=" + url.QueryEscape(authURL.Query().Get("state"))); if err != nil { t.Fatalf("invoke callback: %v", err) }; resp.Body.Close()
+	resp, err := http.Post("http://localhost:" + port + "/api/sourcegraph/token?state=" + url.QueryEscape(authURL.Query().Get("state")), "application/json", bytes.NewBufferString(`{"token":"browser-token"}`)); if err != nil { t.Fatalf("invoke callback: %v", err) }; resp.Body.Close()
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
