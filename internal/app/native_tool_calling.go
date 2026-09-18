@@ -159,6 +159,37 @@ func (s *Service) callNativeToolCompletion(ctx context.Context, provider *ai.Pro
 	return payload.Choices[0].Message, nil
 }
 
+func (s *Service) emitNativeOperation(status, sessionID, command string, result sessions.CommandExecutionResult, approval, message string) {
+	payload := map[string]any{
+		"status": status,
+		"sessionId": redactAuditValue(sessionID),
+		"command": redactAuditValue(command),
+		"approval": approval,
+		"exitCode": result.ExitCode,
+		"durationMs": result.DurationMs,
+		"stdout": truncateNativeOperationOutput(redactAuditValue(result.Stdout)),
+		"stderr": truncateNativeOperationOutput(redactAuditValue(result.Stderr)),
+		"errorType": string(result.ErrorType),
+		"error": redactAuditValue(result.Error),
+		"message": redactAuditValue(message),
+	}
+	s.emitFn("ai:operate", payload)
+}
+
+func truncateNativeOperationOutput(value string) string {
+	if len(value) <= maxNativeOperationOutput {
+		return value
+	}
+	return value[:maxNativeOperationOutput] + "\n[output truncated]"
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
 	if call.Type != "function" && call.Type != "" {
 		return "", false, fmt.Errorf("unsupported tool call type %q", call.Type)
