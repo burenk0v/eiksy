@@ -256,6 +256,61 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 }
 
 
+func TestAIChatHistoryIsEncryptedAndReloaded(t *testing.T) {
+	baseDir := t.TempDir()
+	keyring := newMemoryKeyring()
+	store, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil {
+		t.Fatalf("create disk store: %v", err)
+	}
+	if err := store.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock secure storage: %v", err)
+	}
+
+	state := store.AIState()
+	state.Messages = []ai.ChatMessage{
+		{Role: "user", Content: "private terminal output"},
+		{Role: "assistant", Content: "private AI response"},
+	}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("persist AI state: %v", err)
+	}
+
+	rawSettings, err := os.ReadFile(filepath.Join(baseDir, "settings.json"))
+	if err != nil {
+		t.Fatalf("read settings: %v", err)
+	}
+	if strings.Contains(string(rawSettings), "private terminal output") || strings.Contains(string(rawSettings), "private AI response") {
+		t.Fatal("settings.json must not contain AI chat history")
+	}
+
+	db, err := sql.Open("sqlite", filepath.Join(baseDir, "secrets.db"))
+	if err != nil {
+		t.Fatalf("open secrets db: %v", err)
+	}
+	defer db.Close()
+	var storedHistory string
+	if err := db.QueryRow("SELECT value FROM secrets WHERE name = ?", securestorage.AIChatHistoryKey()).Scan(&storedHistory); err != nil {
+		t.Fatalf("read encrypted chat history: %v", err)
+	}
+	if strings.Contains(storedHistory, "private terminal output") || strings.Contains(storedHistory, "private AI response") {
+		t.Fatal("secrets.db must not contain plaintext AI chat history")
+	}
+
+	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil {
+		t.Fatalf("reload disk store: %v", err)
+	}
+	if err := reloaded.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock reloaded secure storage: %v", err)
+	}
+	reloadedState := reloaded.AIState()
+	if len(reloadedState.Messages) != 2 || reloadedState.Messages[0].Content != "private terminal output" || reloadedState.Messages[1].Content != "private AI response" {
+		t.Fatalf("unexpected reloaded AI history: %+v", reloadedState.Messages)
+	}
+}
+
+
 func TestUpdateAIStateReturnsPersistenceErrorAndRollsBack(t *testing.T) {
 	baseDir := t.TempDir()
 	store, err := NewStoreAtWithKeyring(baseDir, newMemoryKeyring())
