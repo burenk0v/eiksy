@@ -159,3 +159,38 @@ func TestNativeToolApprovalResumesConversation(t *testing.T) {
 }
 
 var _ sessions.Profile
+
+func TestEmitNativeOperationRedactsAndBoundsOutput(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	var eventName string
+	var eventData any
+	service.SetRuntimeContext(context.Background(), func(name string, data ...interface{}) {
+		eventName = name
+		if len(data) > 0 {
+			eventData = data[0]
+		}
+	})
+	service.emitNativeOperation("executed", "session-1", "curl --token supersecret", sessions.CommandExecutionResult{
+		Success: true,
+		ExitCode: 0,
+		Stdout: strings.Repeat("x", maxNativeOperationOutput+10),
+		Stderr: "Authorization: Bearer super-secret",
+		DurationMs: 42,
+	}, "not_required", "")
+	if eventName != "ai:operate" {
+		t.Fatalf("expected ai:operate event, got %q", eventName)
+	}
+	payload, ok := eventData.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected event payload type %T", eventData)
+	}
+	if strings.Contains(payload["command"].(string), "supersecret") {
+		t.Fatal("event command contains secret")
+	}
+	if len(payload["stdout"].(string)) > maxNativeOperationOutput+len("\n[output truncated]") {
+		t.Fatal("event stdout was not bounded")
+	}
+	if strings.Contains(payload["stderr"].(string), "super-secret") {
+		t.Fatal("event stderr contains secret")
+	}
+}

@@ -139,6 +139,22 @@ type NotificationItem = {
   time: string;
 };
 
+type AIActivity = {
+  id: string;
+  status: string;
+  sessionId: string;
+  command: string;
+  approval: string;
+  exitCode: number;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+  errorType: string;
+  error: string;
+  message: string;
+  time: string;
+};
+
 type MasterPasswordDialogMode = "create" | "unlock";
 
 type MasterPasswordDialogState = {
@@ -283,6 +299,7 @@ class EiksyShell {
   private vaultDraftKeePassDatabasePath = "";
   private vaultDraftKeePassPassword = "";
   private notifications: NotificationItem[] = [];
+  private aiActivities: AIActivity[] = [];
   private toastQueue: NotificationItem[] = [];
   private showNotificationCenter = false;
   private showSidebarActionsMenu = false;
@@ -364,6 +381,27 @@ class EiksyShell {
     });
     EventsOn("ai:message", () => {
       void this.refresh("");
+    });
+    EventsOn("ai:operate", (...payload: unknown[]) => {
+      const data = payload[0] as Partial<AIActivity> | undefined;
+      if (!data) return;
+      const activity: AIActivity = {
+        id: crypto.randomUUID(),
+        status: String(data.status ?? "unknown"),
+        sessionId: String(data.sessionId ?? ""),
+        command: String(data.command ?? ""),
+        approval: String(data.approval ?? ""),
+        exitCode: Number(data.exitCode ?? -1),
+        durationMs: Number(data.durationMs ?? 0),
+        stdout: String(data.stdout ?? ""),
+        stderr: String(data.stderr ?? ""),
+        errorType: String(data.errorType ?? ""),
+        error: String(data.error ?? ""),
+        message: String(data.message ?? ""),
+        time: new Date().toISOString(),
+      };
+      this.aiActivities = [...this.aiActivities.slice(-19), activity];
+      this.render();
     });
   }
 
@@ -2594,15 +2632,42 @@ class EiksyShell {
     if (!this.hasConfiguredProvider()) {
       return '<div class="empty-state">Configure a provider in Settings to start chatting.</div>';
     }
-    return (this.shellState.ai.messages ?? [])
+    const messages = (this.shellState.ai.messages ?? [])
       .map(
         (message) => `
             <div class="message ${escapeClassName(message.role)}">${message.role === "assistant" ? renderMarkdown(message.content) : escapeHtml(message.content)}</div>
         `,
       )
       .join("");
+    return this.renderAIActivities() + messages;
   }
 
+  private renderAIActivities(): string {
+    return this.aiActivities
+      .map((activity) => {
+        const status = escapeHtml(activity.status.replaceAll("_", " "));
+        const approval = activity.approval ? ` · ${escapeHtml(activity.approval)}` : "";
+        const details = [
+          activity.exitCode >= 0 ? `exit ${activity.exitCode}` : "",
+          activity.durationMs > 0 ? `${activity.durationMs} ms` : "",
+          activity.errorType ? activity.errorType : "",
+        ].filter(Boolean).join(" · ");
+        const output = activity.stdout || activity.stderr
+          ? `<details class="ai-operation-output"><summary>Output</summary>${activity.stdout ? `<pre>${escapeHtml(activity.stdout)}</pre>` : ""}${activity.stderr ? `<pre>${escapeHtml(activity.stderr)}</pre>` : ""}</details>`
+          : "";
+        return `
+          <div class="ai-operation ai-operation-${escapeClassName(activity.status)}">
+            <div class="ai-operation-header"><strong>Operate · ${status}</strong><span>${approval}</span></div>
+            <div class="ai-operation-command"><code>${escapeHtml(activity.command)}</code></div>
+            <div class="ai-operation-meta">Session: ${escapeHtml(activity.sessionId || "unknown")}${details ? ` · ${escapeHtml(details)}` : ""}</div>
+            ${activity.error ? `<div class="ai-operation-error">${escapeHtml(activity.error)}</div>` : ""}
+            ${activity.message ? `<div class="ai-operation-message">${escapeHtml(activity.message)}</div>` : ""}
+            ${output}
+          </div>
+        `;
+      })
+      .join("");
+  }
   private renderCommandPolicyPanel(): string {
     const policy = this.commandPolicy();
     const pendingRows =

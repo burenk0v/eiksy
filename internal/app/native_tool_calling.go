@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/sessions"
 	"eiksy/internal/securestorage"
 )
 
@@ -21,6 +22,7 @@ const nativeSSHDiagnosticsToolName = "ssh.diagnostics"
 const nativeSFTPListToolName = "sftp.list"
 const maxNativeSFTPListEntries = 256
 const maxNativeCompletionResponse = 2 << 20
+const maxNativeOperationOutput = 16 << 10
 
 type nativeChatMessage struct {
 	Role       string           `json:"role"`
@@ -157,6 +159,37 @@ func (s *Service) callNativeToolCompletion(ctx context.Context, provider *ai.Pro
 	return payload.Choices[0].Message, nil
 }
 
+func (s *Service) emitNativeOperation(status, sessionID, command string, result sessions.CommandExecutionResult, approval, message string) {
+	payload := map[string]any{
+		"status": status,
+		"sessionId": redactAuditValue(sessionID),
+		"command": redactAuditValue(command),
+		"approval": approval,
+		"exitCode": result.ExitCode,
+		"durationMs": result.DurationMs,
+		"stdout": truncateNativeOperationOutput(redactAuditValue(result.Stdout)),
+		"stderr": truncateNativeOperationOutput(redactAuditValue(result.Stderr)),
+		"errorType": string(result.ErrorType),
+		"error": redactAuditValue(result.Error),
+		"message": redactAuditValue(message),
+	}
+	s.emitFn("ai:operate", payload)
+}
+
+func truncateNativeOperationOutput(value string) string {
+	if len(value) <= maxNativeOperationOutput {
+		return value
+	}
+	return value[:maxNativeOperationOutput] + "\n[output truncated]"
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
 	if call.Type != "function" && call.Type != "" {
 		return "", false, fmt.Errorf("unsupported tool call type %q", call.Type)
@@ -199,6 +232,7 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 	switch decision {
 	case commandPolicyDecisionDeny:
 		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "denied", "policy_denied", 0, 0, ai.CommandAuditEvent{ErrorType: "policy_denied", Error: strings.TrimSpace(reason)})
+		s.emitNativeOperation("denied", args.SessionID, args.Command, sessions.CommandExecutionResult{ExitCode: -1}, "not_required", reason)
 		if strings.TrimSpace(reason) == "" {
 			return `{"error":{"type":"policy_denied","message":"command denied by Command Policy"}}`, false, nil
 		}
@@ -210,6 +244,7 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 			status = "execution_failed"
 		}
 		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "not_required", status, result.ExitCode, result.DurationMs, ai.CommandAuditEvent{ErrorType: string(result.ErrorType), Error: result.Error})
+		s.emitNativeOperation(status, args.SessionID, args.Command, result, "not_required", errString(err))
 		payload := map[string]any{
 			"status":    status,
 			"sessionId": args.SessionID,
@@ -251,6 +286,7 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 			return "", false, fmt.Errorf("persist pending native tool call: %w", err)
 		}
 		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "required", "approval_required", 0, 0, ai.CommandAuditEvent{ErrorType: "approval_required"})
+		s.emitNativeOperation("approval_required", args.SessionID, args.Command, sessions.CommandExecutionResult{ExitCode: -1}, "required", reason)
 		message := fmt.Sprintf("Command permission required for session %s.\nCommand: `%s`\nReason: %s", request.SessionID, request.Command, request.Reason)
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
 		return fmt.Sprintf(`{"status":"approval_required","requestId":%q}`, request.ID), true, nil
