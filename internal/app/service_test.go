@@ -169,7 +169,7 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 func TestListCloudModelsRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(bytes.Repeat([]byte("x"), maxAIModelListResponseSize+1))
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxAIModelListResponseSize+1)))
 	}))
 	defer server.Close()
 
@@ -204,8 +204,8 @@ func TestDownloadLocalModelPreservesExistingConfigurationOnOversizedDownload(t *
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(maxAIModelDownloadSize+1, 10))
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(bytes.Repeat([]byte("x"), maxAIModelDownloadSize+1))
 	}))
 	defer server.Close()
 
