@@ -265,7 +265,7 @@ func (s *Store) CloseRuntimeTab(sessionID string) bool {
 	return true
 }
 
-func (s *Store) RecordLaunch(profileID string) {
+func (s *Store) RecordLaunch(profileID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -286,6 +286,7 @@ func (s *Store) RecordLaunch(profileID string) {
 	if len(s.launchHistory) > maxLaunchHistoryEntries {
 		s.launchHistory = append([]sessions.HistoryEntry(nil), s.launchHistory[len(s.launchHistory)-maxLaunchHistoryEntries:]...)
 	}
+	return nil
 }
 
 func (s *Store) nextEventIDLocked() string {
