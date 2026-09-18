@@ -185,29 +185,6 @@ func normalizeCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	return policy
 }
 
-func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {
-	normalized := normalizeCommandPolicy(policy)
-	toolID = strings.ToLower(strings.TrimSpace(toolID))
-	sessionID = strings.TrimSpace(sessionID)
-	if toolID == "" {
-		return false
-	}
-	if !commandToolEnabled(normalized, toolID) {
-		return false
-	}
-	for _, allowed := range normalized.AllowedTools {
-		if allowed == toolID {
-			return true
-		}
-	}
-	for _, allowed := range normalized.SessionAllowedTools[sessionID] {
-		if allowed == toolID {
-			return true
-		}
-	}
-	return false
-}
-
 func commandToolEnabled(policy ai.CommandPolicy, toolID string) bool {
 	toolID = strings.ToLower(strings.TrimSpace(toolID))
 	if toolID == "" {
