@@ -70,6 +70,26 @@ export namespace ai {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class CommandRule {
+	    toolId?: string;
+	    sessionId?: string;
+	    pattern: string;
+	    action: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.toolId = source["toolId"];
+	        this.sessionId = source["sessionId"];
+	        this.pattern = source["pattern"];
+	        this.action = source["action"];
+	        this.description = source["description"];
+	    }
+	}
 	export class CommandPolicy {
 	    tools: CommandTool[];
 	    commandRules: CommandRule[];
