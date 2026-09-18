@@ -13,6 +13,8 @@ export function ConnectSSH(arg1:string,arg2:string):Promise<void>;
 
 export function ReconnectSession(arg1:string):Promise<void>;
 
+export function ExecuteCommand(arg1:string,arg2:string):Promise<sessions.CommandExecutionResult>;
+
 export function CreateSessionProfile(arg1:sessions.ProfileInput):Promise<void>;
 
 export function DeleteSessionProfile(arg1:string):Promise<void>;
