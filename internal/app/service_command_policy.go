@@ -33,155 +33,105 @@ func (s *Service) UpdateCommandPolicy(policy ai.CommandPolicy) error {
 
 func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandPermissionMode) error {
 	requestID = strings.TrimSpace(requestID)
-	if requestID == "" {
-		return fmt.Errorf("request id is required")
-	}
+	if requestID == "" { return fmt.Errorf("request id is required") }
 	state := s.store.AIState()
 	policy := normalizeCommandPolicy(state.CommandPolicy)
 	index := -1
 	var request ai.CommandRequest
 	for i, entry := range policy.PendingRequests {
-		if entry.ID == requestID {
-			index = i
-			request = entry
-			break
-		}
+		if entry.ID == requestID { index = i; request = entry; break }
 	}
-	if index < 0 {
-		return fmt.Errorf("command request %q not found", requestID)
-	}
-	removePending := func() {
-		policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...)
-	}
+	if index < 0 { return fmt.Errorf("command request %q not found", requestID) }
+	removePending := func() { policy.PendingRequests = append(policy.PendingRequests[:index], policy.PendingRequests[index+1:]...) }
+
 	if mode == ai.CommandPermissionModeDeny {
 		removePending()
 		state.CommandPolicy = policy
-	
+		if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+			pending := state.PendingNativeToolCall
+			state.PendingNativeToolCall = nil
+			if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist denied command request: %w", err) }
+			if request.ToolID == nativeSFTPWriteToolName {
+				s.emitNativeSFTPOperation("denied", request.SessionID, request.Command, 0, "required", "user denied the SFTP write", 0)
+			} else {
+				s.emitNativeOperation("denied", request.SessionID, request.Command, sessions.CommandExecutionResult{ExitCode: -1}, "required", "user denied the command")
+			}
+			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, `{"status":"approval_denied","reason":"user denied the operation"}`)
+		}
+		message := fmt.Sprintf("Denied command request for `%s`.", request.Command)
+		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
+		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist denied command request: %w", err) }
+		s.emitFn("ai:message", map[string]string{"role":"assistant","content":message})
+		return nil
+	}
+	switch mode { case ai.CommandPermissionModeAlways, ai.CommandPermissionModeSession, ai.CommandPermissionModeNow: default: return fmt.Errorf("unsupported permission mode %q", mode) }
+	if request.ToolID != nativeSFTPWriteToolName && !commandToolEnabled(policy, request.ToolID) { return fmt.Errorf("tool %q is disabled in command policy", request.ToolID) }
+	if _, ok := s.runtimeTab(request.SessionID); !ok {
+		removePending(); state.CommandPolicy = policy
+		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist stale command request cleanup: %w", err) }
+		return fmt.Errorf("active session %q not found", request.SessionID)
+	}
 	if request.ToolID == nativeSFTPWriteToolName {
 		if state.PendingNativeToolCall == nil || state.PendingNativeToolCall.RequestID != requestID || state.PendingNativeToolCall.ToolName != nativeSFTPWriteToolName { return fmt.Errorf("pending SFTP write call %q not found", requestID) }
 		pending := state.PendingNativeToolCall
 		state.PendingNativeToolCall = nil
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved SFTP write request: %w", err) }
-		var args struct {
-			SessionID string `json:"sessionId"`
-			Path string `json:"path"`
-			Content string `json:"content"`
-		}
+		var args struct { SessionID string `json:"sessionId"`; Path string `json:"path"`; Content string `json:"content"` }
 		decoder := json.NewDecoder(strings.NewReader(pending.ToolArguments)); decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&args); err != nil { return fmt.Errorf("decode pending SFTP write: %w", err) }
 		args.SessionID = strings.TrimSpace(args.SessionID); args.Path = strings.TrimSpace(args.Path)
+		if args.SessionID != request.SessionID || args.Path == "" { return fmt.Errorf("pending SFTP write no longer matches approved request") }
 		if len([]byte(args.Content)) > maxNativeSFTPWriteSize { return fmt.Errorf("SFTP write content exceeds %d byte limit", maxNativeSFTPWriteSize) }
 		tab, ok := s.runtimeTab(args.SessionID)
 		if !ok || tab.ProtocolID != "ssh" || tab.Status != "connected" { return fmt.Errorf("sftp.write requires a connected active SSH session") }
 		start := time.Now(); err := s.SaveSFTPFile(args.SessionID, args.Path, args.Content); duration := time.Since(start).Milliseconds()
 		status := "executed"; if err != nil { status = "execution_failed" }
 		s.emitNativeSFTPOperation(status, args.SessionID, args.Path, len([]byte(args.Content)), string(mode), errString(err), duration)
-		result := map[string]any{"status": status, "sessionId": args.SessionID, "path": args.Path, "bytes": len([]byte(args.Content))}
+		result := map[string]any{"status":status,"sessionId":args.SessionID,"path":args.Path,"bytes":len([]byte(args.Content))}
 		if err != nil { result["error"] = err.Error() }
-		encoded, marshalErr := json.Marshal(result); if marshalErr != nil { return marshalErr }
+		encoded, err := json.Marshal(result); if err != nil { return err }
 		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, string(encoded))
-	}
-	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
-			pending := state.PendingNativeToolCall
-			state.PendingNativeToolCall = nil
-			s.emitNativeOperation("denied", request.SessionID, request.Command, sessions.CommandExecutionResult{ExitCode: -1}, "required", "user denied the command")
-			if err := s.store.UpdateAIState(state); err != nil {
-				return fmt.Errorf("persist denied command request: %w", err)
-			}
-			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, `{"status":"approval_denied","reason":"user denied the command"}`)
-		}
-		message := fmt.Sprintf("Denied command request for `%s`.", request.Command)
-		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
-		if err := s.store.UpdateAIState(state); err != nil {
-			return fmt.Errorf("persist denied command request: %w", err)
-		}
-		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
-		return nil
-	}
-	switch mode {
-	case ai.CommandPermissionModeAlways, ai.CommandPermissionModeSession, ai.CommandPermissionModeNow:
-	default:
-		return fmt.Errorf("unsupported permission mode %q", mode)
-	}
-	if request.ToolID != nativeSFTPWriteToolName && !commandToolEnabled(policy, request.ToolID) {
-		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
-	}
-	if _, ok := s.runtimeTab(request.SessionID); !ok {
-		removePending()
-		state.CommandPolicy = policy
-		if err := s.store.UpdateAIState(state); err != nil {
-			return fmt.Errorf("persist stale command request cleanup: %w", err)
-		}
-		return fmt.Errorf("active session %q not found", request.SessionID)
 	}
 	decision, reason := evaluateCommandPolicy(policy, request.ToolID, request.SessionID, request.Command)
 	if decision == commandPolicyDecisionDeny {
-		removePending()
-		state.CommandPolicy = policy
+		removePending(); state.CommandPolicy = policy
 		message := fmt.Sprintf("Command denied by Command Policy: `%s`", request.Command)
-		if strings.TrimSpace(reason) != "" {
-			message += fmt.Sprintf(" (%s)", reason)
-		}
-		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
-		if err := s.store.UpdateAIState(state); err != nil {
-			return fmt.Errorf("persist policy-denied command request: %w", err)
-		}
-		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+		if strings.TrimSpace(reason) != "" { message += fmt.Sprintf(" (%s)", reason) }
+		state.Messages = append(state.Messages, ai.ChatMessage{Role:"assistant",Content:message})
+		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist policy-denied command request: %w", err) }
+		s.emitFn("ai:message", map[string]string{"role":"assistant","content":message})
 		return nil
 	}
 	removePending()
 	if request.ToolID != nativeSFTPWriteToolName {
-	switch mode {
-	case ai.CommandPermissionModeAlways:
-		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: always allow this exact command"})
-	case ai.CommandPermissionModeSession:
-		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: allow this exact command for this session"})
+		switch mode {
+		case ai.CommandPermissionModeAlways:
+			policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID:request.ToolID,Pattern:request.Command,Action:ai.CommandPermissionAllow,Description:"Approved by user: always allow this exact command"})
+		case ai.CommandPermissionModeSession:
+			policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID:request.ToolID,SessionID:request.SessionID,Pattern:request.Command,Action:ai.CommandPermissionAllow,Description:"Approved by user: allow this exact command for this session"})
+		}
 	}
-	}
-	policy.CommandRules = normalizeCommandRules(policy.CommandRules)
-	state.CommandPolicy = policy
+	policy.CommandRules = normalizeCommandRules(policy.CommandRules); state.CommandPolicy = policy
 	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
-		pending := state.PendingNativeToolCall
-		state.PendingNativeToolCall = nil
-		if err := s.store.UpdateAIState(state); err != nil {
-			return fmt.Errorf("persist approved command request: %w", err)
-		}
+		pending := state.PendingNativeToolCall; state.PendingNativeToolCall = nil
+		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved command request: %w", err) }
 		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
-		status := "executed"
-		if err != nil {
-			status = "execution_failed"
-		}
+		status := "executed"; if err != nil { status = "execution_failed" }
 		s.emitNativeOperation(status, request.SessionID, request.Command, result, string(mode), errString(err))
-		payload := map[string]any{
-			"status":    "executed",
-			"sessionId": request.SessionID,
-			"command":   request.Command,
-			"result":    result,
-		}
-		if err != nil {
-			payload["status"] = "execution_failed"
-			payload["message"] = err.Error()
-		}
-		encoded, marshalErr := json.Marshal(payload)
-		if marshalErr != nil {
-			return marshalErr
-		}
+		payload := map[string]any{"status":status,"sessionId":request.SessionID,"command":request.Command,"result":result}
+		if err != nil { payload["message"] = err.Error() }
+		encoded, err := json.Marshal(payload); if err != nil { return err }
 		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, string(encoded))
 	}
 	result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
 	message := fmt.Sprintf("Approved command in session %s: `%s`", request.SessionID, request.Command)
-	if err != nil {
-		message = fmt.Sprintf("Command execution failed: %v", err)
-	} else if !result.Success {
-		message = fmt.Sprintf("Command completed with exit code %d in session %s: `%s`", result.ExitCode, request.SessionID, request.Command)
-	}
-	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
-	if err := s.store.UpdateAIState(state); err != nil {
-		return fmt.Errorf("persist command result: %w", err)
-	}
-	s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
+	if err != nil { message = fmt.Sprintf("Command execution failed: %v", err) } else if !result.Success { message = fmt.Sprintf("Command completed with exit code %d in session %s: `%s`", result.ExitCode, request.SessionID, request.Command) }
+	state.Messages = append(state.Messages, ai.ChatMessage{Role:"assistant",Content:message})
+	if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist command result: %w", err) }
+	s.emitFn("ai:message", map[string]string{"role":"assistant","content":message})
 	return nil
 }
+
 func normalizeCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	defaults := []ai.CommandTool{
 		{ID: "shell", Name: "Shell command", Description: "Run command in active SSH session", Enabled: true},
