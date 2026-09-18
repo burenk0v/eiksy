@@ -22,6 +22,7 @@ import (
 	"eiksy/internal/storage/memory"
 )
 
+
 func TestLoginVaultRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -144,7 +145,7 @@ func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
 	if err != nil { t.Fatalf("load preserved cloud token: %v", err) }
 	if token != "secret-token" { t.Fatalf("expected cloud token to be preserved, got %q", token) }
 	if cloudProvider.Model != "gpt-5.7" { t.Fatalf("expected updated model to be saved, got %q", cloudProvider.Model) }
-	if cloudProvider.Endpoint != "https://models.example.com/v2" { t.Fatalf("expected cloud endpoint to be saved, got %q", cloudProvider.Endpoint) }
+	if cloudProvider.Endpoint != "https://models.example.com/v2" { t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint) }
 }
 
 func TestSaveLocalProviderStoresCustomURLAndSelectsLocalProvider(t *testing.T) {
@@ -203,6 +204,7 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	if _, err := service.ListCloudModels(server.URL+"/v1", ""); err != nil { t.Fatalf("list cloud models: %v", err) }
 	if !strings.HasPrefix(authHeader, "Bearer ") { t.Fatalf("expected bearer authorization header, got %q", authHeader) }
 }
+
 
 func TestListCloudModelsRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +270,7 @@ func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
 	if session.Status != "pending" { t.Fatalf("expected pending auth session, got %q", session.Status) }
 	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
 	if authURL.Scheme != "https" || authURL.Host != "sourcegraph.example.com" { t.Fatalf("unexpected auth url origin: %s", session.AuthURL) }
-	if authURL.Path != "/user/settings/tokens/new/callback" { t.Fatalf("unexpected auth url path: %s", session.AuthURL) }
+	if authURL.Path != "/user/settings/tokens/new/callback" { t.Fatalf("unexpected auth url path: %s", authURL.Path) }
 	if !strings.HasPrefix(authURL.Query().Get("requestFrom"), "CODY_CLI-") { t.Fatalf("unexpected requestFrom value: %q", authURL.Query().Get("requestFrom")) }
 }
 
@@ -364,12 +366,13 @@ type sshInputCall struct { tabID string; payload string }
 type recordingSSHManager struct { inputs []sshInputCall; sendInputErr error }
 func (m *recordingSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
 func (m *recordingSSHManager) SendInput(tabID, data string) error { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: data}); return m.sendInputErr }
-func (m *recordingSSHManager) ResizeTerminal(string, int, int) error {}
+func (m *recordingSSHManager) ResizeTerminal(string, int, int) error { return nil }
 func (m *recordingSSHManager) Disconnect(string) error { return nil }
 func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
 func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
+
 
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
 	store := memory.NewStore()
