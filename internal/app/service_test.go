@@ -273,7 +273,7 @@ func (m *recordingSSHManager) Disconnect(string) error { return nil }
 func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
-func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
+func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
 
 
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
