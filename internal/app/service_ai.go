@@ -176,10 +176,17 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	if err != nil {
 		return fmt.Errorf("create model file: %w", err)
 	}
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	limitedBody := io.LimitReader(resp.Body, maxAIModelDownloadSize+1)
+	written, err := io.Copy(file, limitedBody)
+	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("write model file: %w", err)
+	}
+	if written > maxAIModelDownloadSize {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("model download exceeds %d bytes", maxAIModelDownloadSize)
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tempPath)
@@ -250,9 +257,12 @@ func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxAIModelListResponseSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(respBody)) > maxAIModelListResponseSize {
+		return nil, fmt.Errorf("AI API model list response exceeds %d bytes", maxAIModelListResponseSize)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AI API returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
