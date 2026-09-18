@@ -29,6 +29,21 @@ func commandToolRegistry() []AITool {
 			},
 		},
 		{
+			Name: "sftp.write",
+			Description: "Write UTF-8 content to a file in the selected active SSH session through SFTP. Always requires explicit user approval; request size is bounded.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sessionId": map[string]any{"type": "string", "description": "Active Eiksy SSH session ID."},
+					"path":      map[string]any{"type": "string", "description": "Remote file path to overwrite or create."},
+					"content":   map[string]any{"type": "string", "description": "Complete UTF-8 file content to write."},
+					"reason":    map[string]any{"type": "string", "description": "Short explanation of why the file needs to be changed."},
+				},
+				"required": []string{"sessionId", "path", "content"},
+				"additionalProperties": false,
+			},
+		},
+		{
 			Name: "sftp.list",
 			Description: "List files and directories in the selected active SSH session through SFTP. Read-only; the path is requested by the model and the result is bounded.",
 			Parameters: map[string]any{
