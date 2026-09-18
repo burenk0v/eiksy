@@ -91,11 +91,9 @@ The Wails input DTO may temporarily carry credential material because credential
 
 ### 3.3 Connection boundary
 
-`internal/domain/connections` provides the transport-neutral connection contract. Transport-specific details remain below the domain boundary.
+SSH, SFTP and RDP are currently implemented as concrete application capabilities behind the application service. Transport-specific details remain in their dedicated managers.
 
-Current and planned transports can include SSH, SFTP and RDP.
-
-**Rule:** adding a transport means implementing the appropriate connection or capability contract; it does not mean adding transport-specific branches throughout the application.
+**Rule:** adding a transport must first have a concrete product requirement and should reuse the existing application/service boundaries rather than introducing an unused abstraction.
 
 ### 3.4 Command execution boundary
 
@@ -220,8 +218,8 @@ Command output and errors are bounded before downstream AI processing.
 ## 7. Extension rules
 
 1. **UI → application service only.**
-2. **New transports → connection/operation contracts.**
-3. **New AI backends → AI provider contract.**
+2. **New transports → concrete service/manager implementation.**
+3. **New AI backends → the existing provider-selection and request boundary; introduce an interface only when a second concrete implementation requires it.**
 4. **Commands → existing policy/capability/executor pipeline.**
 5. **Credentials → secure storage.**
 6. **AI context → runtime operational facts without secrets.**
