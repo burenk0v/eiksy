@@ -148,7 +148,7 @@ File content may be sensitive even when it is not a credential, so file reads/se
 
 Security-relevant operations use the centralized audit path rather than feature-specific logs that can bypass redaction or lifecycle tracking.
 
-The current command audit implementation is a **bounded in-memory operational trail**. It is not yet a durable compliance/SIEM audit store. The current implementation keeps a bounded number of events and applies centralized redaction and size limits.
+The current command audit implementation is a **bounded local operational trail**. It is persisted by the disk store when available and remains bounded by count and field size. It is not a compliance/SIEM audit backend.
 
 Audit data must not contain raw passwords, API tokens, private keys, secret values or other authentication material.
 

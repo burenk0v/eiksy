@@ -84,7 +84,13 @@ func (s *Service) DeleteSessionProfile(id string) error {
 	if id == "" {
 		return fmt.Errorf("session profile id is required")
 	}
-	return mutator.DeleteSessionProfile(id)
+	if err := mutator.DeleteSessionProfile(id); err != nil {
+		return err
+	}
+	// A deleted profile must not leave orphaned credentials behind.
+	_ = s.store.DeleteSecret(securestorage.SessionPasswordKey(id))
+	_ = s.store.DeleteSecret(securestorage.SessionKeyPassphraseKey(id))
+	return nil
 }
 
 func (s *Service) LaunchSession(profileID string) (RuntimeSessionView, error) {

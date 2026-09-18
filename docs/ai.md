@@ -187,7 +187,7 @@ Future remediation capabilities require explicit validation, policy coverage, ap
 
 AI operations participate in the centralized audit lifecycle. Command operations distinguish states such as `approval_required`, `policy_denied`, `executed` and `execution_failed`.
 
-The current command audit is a **bounded in-memory operational trail**, not durable compliance storage or a SIEM backend. Audit records are limited in count and field size, and command/error/result values pass through centralized redaction.
+The current command audit is a **bounded local operational trail**, not a compliance storage or SIEM backend. Disk-backed application state persists the bounded trail across restarts; command/error/result values pass through centralized redaction.
 
 Audit records must not contain passwords, provider tokens, private keys, decrypted credential values or raw authentication material.
 
