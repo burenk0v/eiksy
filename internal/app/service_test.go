@@ -22,6 +22,45 @@ import (
 	"eiksy/internal/storage/memory"
 )
 
+
+func TestLoginVaultRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxVaultResponseSize+1)))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+
+	_, err = service.loginVault(baseURL, vaultAuthMethodDomain, "ops", "password")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
+}
+
+func TestRenewVaultTokenRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxVaultResponseSize+1)))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+
+	err = service.renewVaultToken(baseURL, "vault-token")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
+}
+
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	state := service.GetShellState()
