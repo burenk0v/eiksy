@@ -2600,16 +2600,6 @@ class EiksyShell {
 
   private renderCommandPolicyPanel(): string {
     const policy = this.commandPolicy();
-    const activeSessionID = this.activeTab()?.id ?? "";
-    const selectedSessionID =
-      this.commandPolicySessionId ||
-      activeSessionID ||
-      this.shellState?.activeSessions[0]?.id ||
-      "";
-    const selectedSessionName =
-      (this.shellState?.activeSessions ?? []).find(
-        (session) => session.id === selectedSessionID,
-      )?.title ?? selectedSessionID;
     const pendingRows =
       policy.pendingRequests.length === 0
         ? '<div class="empty-state" style="padding:0.75rem 0;">No pending permission requests.</div>'
@@ -2641,7 +2631,6 @@ class EiksyShell {
                 </div>
                 <div class="provider-form-actions">
                     <label class="inline-check"><span>Enabled</span><input type="checkbox" data-command-tool-enabled="${escapeHtml(tool.id)}" ${tool.enabled ? "checked" : ""} /></label>
-
                 </div>
             </div>
         `,
@@ -2650,18 +2639,8 @@ class EiksyShell {
     const panelByTab: Record<CommandPolicyTab, string> = {
       access: `
                 <div class="section-title">Access control</div>
-                <div class="section-copy">Pending model requests and manual permissions.</div>
+                <div class="section-copy">Pending model requests are resolved explicitly and become command rules.</div>
                 ${pendingRows}
-                <div class="section-title">Session scope</div>
-                <label>
-                    <span>Session</span>
-                    <select data-command-policy-session>
-                        <option value="">Select active session</option>
-                        ${(this.shellState?.activeSessions ?? []).map((session) => `<option value="${escapeHtml(session.id)}" ${session.id === selectedSessionID ? "selected" : ""}>${escapeHtml(session.title)}</option>`).join("")}
-                    </select>
-                </label>
-                <div class="section-copy">${selectedSessionID ? `Selected session: ${escapeHtml(selectedSessionName)}` : "Open an SSH session to use per-session permissions."}</div>
-                <div>${toolRows || '<div class="empty-state" style="padding:0.75rem 0;">No tools configured.</div>'}</div>
             `,
       tools: `
                 <div class="section-title">Tools</div>
@@ -3058,10 +3037,7 @@ class EiksyShell {
 
   private loadStoredSessionInnerTabs(): Map<string, SessionInnerTab> {
     try {
-      const stored = this.readStoredValue(
-        SESSION_INNER_TABS_KEY,
-        ,
-      );
+      const stored = localStorage.getItem(SESSION_INNER_TABS_KEY);
       if (!stored) {
         return new Map<string, SessionInnerTab>();
       }
@@ -3191,13 +3167,12 @@ class EiksyShell {
     const raw = this.shellState?.ai.commandPolicy as
       aiModels.CommandPolicy | undefined;
     const tools = Array.isArray(raw?.tools) ? raw.tools : [];
-    const allowedTools = Array.isArray(raw?.allowedTools)
-      ? raw.allowedTools
+    const commandRules = Array.isArray(raw?.commandRules)
+      ? raw.commandRules
       : [];
     const pendingRequests = Array.isArray(raw?.pendingRequests)
       ? raw.pendingRequests
       : [];
-    const sessionAllowedTools = raw?.sessionAllowedTools ?? {};
     return {
       tools: tools.map((tool) => ({
         id: tool.id ?? "",
@@ -3205,13 +3180,13 @@ class EiksyShell {
         description: tool.description ?? "",
         enabled: Boolean(tool.enabled),
       })),
-      allowedTools: [...allowedTools],
-      sessionAllowedTools: Object.fromEntries(
-        Object.entries(sessionAllowedTools).map(([key, value]) => [
-          key,
-          Array.isArray(value) ? [...value] : [],
-        ]),
-      ),
+      commandRules: commandRules.map((rule) => ({
+        toolId: rule.toolId ?? "",
+        sessionId: rule.sessionId ?? "",
+        pattern: rule.pattern ?? "",
+        action: rule.action ?? "ask",
+        description: rule.description ?? "",
+      })),
       pendingRequests: pendingRequests.map((request) => ({
         id: request.id ?? "",
         toolId: request.toolId ?? "",
