@@ -454,6 +454,12 @@ func parseLocalForwardSpec(spec string) (string, string, error) {
 	return net.JoinHostPort("127.0.0.1", localPort), net.JoinHostPort(remoteHost, remotePort), nil
 }
 
+func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
+	clone := *config
+	clone.Auth = append([]xssh.AuthMethod(nil), config.Auth...)
+	return &clone
+}
+
 func optionValue(options map[string]string, key string) string {
 	if options == nil { return "" }
 	return options[key]
