@@ -100,8 +100,12 @@ func TestResolveNativeSFTPWriteExecutesOnlyAfterApproval(t *testing.T) {
 	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
 	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
 	sftp := &nativeTestSFTPManager{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"SFTP write completed."}}]}`))
+	}))
+	defer server.Close()
 	state := ai.WorkspaceState{
-		Providers: []ai.ProviderDescriptor{{ID: "provider-1", Class: ai.ProviderClassOpenAICompatible, Configured: true}},
+		Providers: []ai.ProviderDescriptor{{ID: "provider-1", Model: "test", Endpoint: server.URL + "/v1", Class: ai.ProviderClassOpenAICompatible, Configured: true}},
 		CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}},
 	}
 	store.UpdateAIState(state)
