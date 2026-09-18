@@ -107,7 +107,10 @@ func (s *Service) LaunchSession(profileID string) (RuntimeSessionView, error) {
 	}
 
 	s.store.OpenRuntimeTab(tab)
-	s.store.RecordLaunch(profile.ID)
+	if err := s.store.RecordLaunch(profile.ID); err != nil {
+		_ = s.store.CloseRuntimeTab(tab.ID)
+		return RuntimeSessionView{}, fmt.Errorf("record session launch: %w", err)
+	}
 
 	return RuntimeSessionView(tab), nil
 }
