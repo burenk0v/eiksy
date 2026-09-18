@@ -21,7 +21,6 @@ import (
 const (
 	maxLaunchHistoryEntries = 100
 	defaultEiksyDir         = ".eiksy"
-	legacyOpsyDir           = ".opsy"
 )
 
 type Store struct {
@@ -83,25 +82,7 @@ func eiksyDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user home dir: %w", err)
 	}
-	currentDir := filepath.Join(homeDir, defaultEiksyDir)
-	legacyDir := filepath.Join(homeDir, legacyOpsyDir)
-
-	if _, err := os.Stat(currentDir); err == nil {
-		return currentDir, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat eiksy directory: %w", err)
-	}
-
-	if _, err := os.Stat(legacyDir); err == nil {
-		if err := os.Rename(legacyDir, currentDir); err == nil {
-			return currentDir, nil
-		}
-		return legacyDir, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat legacy opsy directory: %w", err)
-	}
-
-	return currentDir, nil
+	return filepath.Join(homeDir, defaultEiksyDir), nil
 }
 
 func NewStoreAt(baseDir string) (*Store, error) {
