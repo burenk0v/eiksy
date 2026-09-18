@@ -1556,6 +1556,7 @@ class EiksyShell {
           this.fitActiveTerminal();
           await this.ensureActiveSFTPLoaded(true);
         }
+      }
 
     } catch (error) {
       this.setErrorMessage(formatError("Unable to open session", error));
