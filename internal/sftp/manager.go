@@ -398,6 +398,12 @@ func parseProxyJumps(value, defaultUser string) []proxyJump {
 	return result
 }
 
+func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
+	clone := *config
+	clone.Auth = append([]xssh.AuthMethod(nil), config.Auth...)
+	return &clone
+}
+
 func optionValue(options map[string]string, key string) string {
 	if options == nil { return "" }
 	return options[key]
