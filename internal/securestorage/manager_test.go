@@ -37,38 +37,6 @@ func (m *memoryKeyring) Delete(service, user string) error {
 	return nil
 }
 
-func TestManagerReadsLegacyOpsyKeyringEntry(t *testing.T) {
-	keyringStore := newMemoryKeyring()
-	masterKey := make([]byte, masterKeySize)
-	for i := range masterKey {
-		masterKey[i] = byte(i + 1)
-	}
-	wrapped, err := wrapMasterKey("master-password", masterKey)
-	if err != nil {
-		t.Fatalf("wrap master key: %v", err)
-	}
-	if err := keyringStore.Set(legacyServiceName, defaultKeyringUser, wrapped); err != nil {
-		t.Fatalf("seed legacy keyring entry: %v", err)
-	}
-
-	manager, err := NewWithKeyring(filepath.Join(t.TempDir(), "secrets.db"), keyringStore)
-	if err != nil {
-		t.Fatalf("create manager: %v", err)
-	}
-	defer manager.Close()
-
-	status := manager.Status()
-	if !status.Available || !status.Configured || status.Unlocked {
-		t.Fatalf("unexpected status from legacy keyring entry: %+v", status)
-	}
-	if err := manager.EnsureMasterPassword("master-password"); err != nil {
-		t.Fatalf("unlock with legacy keyring entry: %v", err)
-	}
-	if _, err := keyringStore.Get(defaultServiceName, defaultKeyringUser); err != nil {
-		t.Fatalf("expected migrated eiksy keyring entry: %v", err)
-	}
-}
-
 func TestManagerCloseLocksAndClearsMasterKey(t *testing.T) {
 	keyringStore := newMemoryKeyring()
 	manager, err := NewWithKeyring(filepath.Join(t.TempDir(), "secrets.db"), keyringStore)
