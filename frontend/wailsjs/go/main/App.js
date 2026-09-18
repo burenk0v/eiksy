@@ -10,6 +10,10 @@ export function ReconnectSession(arg1) {
   return window['go']['main']['App']['ReconnectSession'](arg1);
 }
 
+export function ExecuteCommand(arg1,arg2) {
+  return window['go']['main']['App']['ExecuteCommand'](arg1,arg2);
+}
+
 export function ConnectSSH(arg1, arg2) {
   return window['go']['main']['App']['ConnectSSH'](arg1, arg2);
 }
