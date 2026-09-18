@@ -614,8 +614,6 @@ func defaultCommandPolicy() ai.CommandPolicy {
 			{ID: "sftp", Name: "SFTP operations", Description: "Browse and edit files over SFTP", Enabled: true},
 			{ID: "search", Name: "Search", Description: "Run grep/find-like queries on host", Enabled: true},
 		},
-		AllowedTools:        []string{},
-		SessionAllowedTools: map[string][]string{},
 		PendingRequests:     []ai.CommandRequest{},
 	}
 }
@@ -650,16 +648,8 @@ func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 func cloneCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	cloned := policy
 	cloned.Tools = append([]ai.CommandTool(nil), policy.Tools...)
-	cloned.AllowedTools = append([]string(nil), policy.AllowedTools...)
 	cloned.PendingRequests = append([]ai.CommandRequest(nil), policy.PendingRequests...)
-	if policy.SessionAllowedTools != nil {
-		cloned.SessionAllowedTools = make(map[string][]string, len(policy.SessionAllowedTools))
-		for sessionID, tools := range policy.SessionAllowedTools {
-			cloned.SessionAllowedTools[sessionID] = append([]string(nil), tools...)
-		}
-	} else {
-		cloned.SessionAllowedTools = map[string][]string{}
-	}
+
 	return cloned
 }
 
