@@ -461,13 +461,6 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 		}
 	}
 	if len(rules) == 0 {
-		legacyPorts := strings.TrimSpace(cfg.SSHForwardPorts)
-		legacyHostID := strings.TrimSpace(cfg.SSHForwardHostID)
-		if legacyPorts != "" && legacyHostID != "" {
-			rules = append(rules, ruleEntry{localPorts: legacyPorts, remoteHost: "", remotePort: "", hostID: legacyHostID})
-		}
-	}
-	if len(rules) == 0 {
 		return profile
 	}
 
