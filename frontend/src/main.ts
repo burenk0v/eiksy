@@ -3008,7 +3008,7 @@ class EiksyShell {
       const parsed = JSON.parse(stored) as Record<string, unknown>;
       return new Map<string, SessionInnerTab>(
         Object.entries(parsed).flatMap(([tabID, tabValue]) =>
-          tabValue === "console" || tabValue === "sftp" || tabValue === "screen"
+          tabValue === "console" || tabValue === "sftp"
             ? [[tabID, tabValue]]
             : [],
         ),
@@ -3090,9 +3090,6 @@ class EiksyShell {
   }
 
   private sessionInnerTabLabel(tab: SessionInnerTab): string {
-    if (tab === "screen") {
-      return "Screen";
-    }
     return tab === "sftp" ? "SFTP" : "Console";
   }
 
