@@ -141,9 +141,6 @@ func evaluateCommandPolicy(policy ai.CommandPolicy, toolID, sessionID, command s
 
 	rules := normalizeCommandRules(policy.CommandRules)
 	if len(rules) == 0 {
-		if commandAllowedByPolicy(policy, toolID, sessionID) {
-			return commandPolicyDecisionAllow, "legacy tool permission"
-		}
 		return commandPolicyDecisionAsk, "no command rule matched"
 	}
 
