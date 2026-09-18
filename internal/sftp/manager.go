@@ -125,6 +125,13 @@ func (m *Manager) WriteFile(tabID, targetPath, content string) error {
 	if conn == nil {
 		return fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return fmt.Errorf("sftp target path is required")
+	}
+	if len(content) > maxSFTPTransferSize {
+		return fmt.Errorf("sftp file %q exceeds %d byte limit", targetPath, maxSFTPTransferSize)
+	}
 	file, err := conn.sftpClient.OpenFile(targetPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE)
 	if err != nil {
 		return fmt.Errorf("open sftp file %q for write: %w", targetPath, err)
