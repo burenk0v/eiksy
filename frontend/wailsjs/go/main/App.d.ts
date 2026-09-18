@@ -39,8 +39,6 @@ export function ListSFTPFiles(arg1:string,arg2:string):Promise<Array<sftp.FileEn
 
 export function NavigateSFTP(arg1:string,arg2:string):Promise<Array<sftp.FileEntry>>;
 
-export function OpenRDP(arg1:string,arg2:string):Promise<void>;
-
 export function ReadSFTPFile(arg1:string,arg2:string):Promise<string>;
 
 export function ResizeTerminal(arg1:string,arg2:number,arg3:number):Promise<void>;
