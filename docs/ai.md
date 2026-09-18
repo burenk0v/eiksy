@@ -33,13 +33,9 @@ The model has no direct reference to SSH, filesystem or credential implementatio
 
 ## 2. AI provider boundary
 
-Eiksy uses an application-level AI provider contract so cloud and local models can participate in the same workflow.
-
-The provider boundary hides HTTP/API protocol details, authentication implementation and provider-specific request/response formats.
+Eiksy keeps AI provider selection and request handling inside the application service. Cloud and local providers expose the same OpenAI-compatible request workflow without an unused provider interface.
 
 Supported provider types include OpenAI-compatible cloud providers and local/self-hosted OpenAI-compatible providers. Provider tokens are credentials and must remain in secure storage.
-
-Some provider-neutral domain contracts currently exist ahead of broad concrete runtime adoption. They define the extension boundary; they should be wired into implementations when a real second provider or transport requires it rather than adding abstraction-only plumbing.
 
 ## 3. Conversation state
 
