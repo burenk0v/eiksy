@@ -476,22 +476,3 @@ func (c *proxyConn) Close() error {
 	return connErr
 }
 
-func optionValue(options map[string]string, key string) string {
-	if options == nil {
-		return ""
-	}
-	return options[key]
-}
-
-type proxyConn struct {
-	net.Conn
-	jumpClient *xssh.Client
-}
-
-func (c *proxyConn) Close() error {
-	_ = c.Conn.Close()
-	if c.jumpClient != nil {
-		return c.jumpClient.Close()
-	}
-	return nil
-}
