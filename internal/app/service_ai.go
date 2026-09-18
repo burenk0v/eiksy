@@ -23,6 +23,12 @@ import (
 	"eiksy/internal/securestorage"
 )
 
+const (
+	maxAIModelDownloadSize   int64 = 16 << 30
+	maxAIModelListResponseSize int64 = 1 << 20
+	maxVaultResponseSize       int64 = 1 << 20
+)
+
 func (s *Service) SelectAIProvider(providerID string) error {
 	state := s.store.AIState()
 	index := providerIndexByID(state.Providers, providerID)
@@ -149,7 +155,6 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	if index < 0 {
 		return fmt.Errorf("local ai provider is not available")
 	}
-	provider := state.Providers[index]
 
 	modelsDir, err := localModelsDir()
 	if err != nil {
