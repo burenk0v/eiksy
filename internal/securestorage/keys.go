@@ -23,3 +23,7 @@ func VaultPasswordKey() string {
 func AIProviderTokenKey(providerID string) string {
 	return "ai-provider-token:" + providerID
 }
+
+func AIChatHistoryKey() string {
+	return "ai-chat-history"
+}
