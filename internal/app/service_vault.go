@@ -90,7 +90,7 @@ func (s *Service) loginVault(baseURL *url.URL, authMethod, login, password strin
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxVaultResponseSize+1))
 	if err != nil {
 		return "", fmt.Errorf("read vault login response: %w", err)
 	}
@@ -115,6 +115,7 @@ func (s *Service) loginVault(baseURL *url.URL, authMethod, login, password strin
 	}
 	return token, nil
 }
+
 func vaultPathJoin(parts ...string) string {
 	filtered := make([]string, 0, len(parts))
 	for _, part := range parts {
