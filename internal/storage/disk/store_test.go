@@ -255,6 +255,35 @@ func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	}
 }
 
+
+func TestUpdateAIStateReturnsPersistenceErrorAndRollsBack(t *testing.T) {
+	baseDir := t.TempDir()
+	store, err := NewStoreAtWithKeyring(baseDir, newMemoryKeyring())
+	if err != nil {
+		t.Fatalf("create disk store: %v", err)
+	}
+
+	before := store.AIState()
+	settingsPath := filepath.Join(baseDir, "settings.json")
+	if err := os.Remove(settingsPath); err != nil {
+		t.Fatalf("remove settings file: %v", err)
+	}
+	if err := os.Mkdir(settingsPath, 0o700); err != nil {
+		t.Fatalf("create settings directory: %v", err)
+	}
+
+	after := before
+	after.ChatSessionID = "changed"
+	if err := store.UpdateAIState(after); err == nil {
+		t.Fatal("expected AI state persistence error")
+	}
+
+	current := store.AIState()
+	if current.ChatSessionID != before.ChatSessionID {
+		t.Fatalf("AI state changed after failed persistence: got %q, want %q", current.ChatSessionID, before.ChatSessionID)
+	}
+}
+
 func TestCommandAuditPersistsAcrossStoreReload(t *testing.T) {
 	baseDir := t.TempDir()
 	keyring := newMemoryKeyring()

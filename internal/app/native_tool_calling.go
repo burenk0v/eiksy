@@ -72,7 +72,9 @@ func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDe
 			latest.PendingNativeToolCall = nil
 			latest.Messages = append(latest.Messages, ai.ChatMessage{Role: "user", Content: userMessage})
 			latest.Messages = append(latest.Messages, ai.ChatMessage{Role: "assistant", Content: reply})
-			s.store.UpdateAIState(latest)
+			if err := s.store.UpdateAIState(latest); err != nil {
+				return "", true, fmt.Errorf("persist AI chat response: %w", err)
+			}
 			s.emitFn("ai:message", map[string]string{"role": "assistant", "content": reply})
 			return reply, true, nil
 		}
@@ -236,7 +238,9 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 			SessionID:     args.SessionID,
 			MessagesJSON:  string(encodedMessages),
 		}
-		s.store.UpdateAIState(state)
+		if err := s.store.UpdateAIState(state); err != nil {
+			return "", false, fmt.Errorf("persist pending native tool call: %w", err)
+		}
 		s.recordCommandAudit(providerID, args.SessionID, args.Command, string(decision), "required", "approval_required", 0, 0, ai.CommandAuditEvent{ErrorType: "approval_required"})
 		message := fmt.Sprintf("Command permission required for session %s.\nCommand: `%s`\nReason: %s", request.SessionID, request.Command, request.Reason)
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
@@ -262,7 +266,9 @@ func (s *Service) resumePendingNativeToolCall(ctx context.Context, pending *ai.P
 		return err
 	}
 	state.PendingNativeToolCall = nil
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("clear pending native tool call: %w", err)
+	}
 	tools := []map[string]any(nil)
 	if commandToolEnabled(state.CommandPolicy, nativeSSHExecPolicyToolID) {
 		tools = openAIToolDefinitions()

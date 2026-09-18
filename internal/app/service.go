@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"fmt"
 	"context"
 	"net/http"
 	"os/exec"
@@ -89,7 +90,7 @@ type stateStore interface {
 	WorkspaceLayout() workspace.Layout
 	RuntimeTabs() []workspace.Tab
 	Events() []workspace.Event
-	UpdateAIState(ai.WorkspaceState)
+	UpdateAIState(ai.WorkspaceState) error
 	UpdateSettings(settings.AppSettings) error
 	SecureStorageStatus() securestorage.Status
 	EnsureMasterPassword(string) error
@@ -163,7 +164,9 @@ func (s *Service) LockSecureStorage() {
 	state := s.store.AIState()
 	state.PendingNativeToolCall = nil
 	state.CommandPolicy.PendingRequests = nil
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		s.emitFn("app:log", map[string]string{"level": "error", "message": fmt.Sprintf("persist AI state after secure-storage lock: %v", err)})
+	}
 	s.emitFn("secure-storage:status", map[string]bool{"unlocked": false})
 }
 
