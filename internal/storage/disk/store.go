@@ -219,14 +219,20 @@ func (s *Store) Events() []workspace.Event {
 	return result
 }
 
-func (s *Store) UpdateAIState(state ai.WorkspaceState) {
+func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	previous := s.aiState
 	s.aiState = cloneAIState(state)
 	for i := range s.aiState.Providers {
 		s.aiState.Providers[i].Token = ""
 	}
-	_ = s.saveSettings()
+	if err := s.saveSettings(); err != nil {
+		s.aiState = previous
+		return err
+	}
+	return nil
 }
 
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
