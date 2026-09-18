@@ -10,7 +10,7 @@ This document is the permanent architecture reference for the project. It descri
 
 ## 1. Architectural goals
 
-Eiksy combines remote connections and sessions, interactive terminal access, SFTP and remote file operations, RDP where supported, AI assistance and diagnostics, controlled AI-assisted command execution, multiple AI providers and credential providers.
+Eiksy combines remote connections and sessions, interactive terminal access, SFTP and remote file operations, AI assistance and diagnostics, controlled AI-assisted command execution, multiple AI providers and credential providers.
 
 The primary goals are:
 
@@ -26,45 +26,45 @@ The primary goals are:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│                         Eiksy UI                             │
-│              Wails / frontend / user interaction             │
+│ Eiksy UI │
+│ Wails / frontend / user interaction │
 └──────────────────────────────┬───────────────────────────────┘
-                               │ service API
-                               ▼
+ │ service API
+ ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                    Application Services                     │
-│       orchestration / session / AI / file / auth flows       │
+│ Application Services │
+│ orchestration / session / AI / file / auth flows │
 └───────────────┬───────────────────┬──────────────────────────┘
-                │                   │
-                ▼                   ▼
-┌───────────────────────┐   ┌─────────────────────────────────┐
-│   Domain Contracts    │   │     Security / Policy Layer     │
-│ Connection / AI       │   │ capabilities / policy /        │
-│ Provider / operations │   │ approval / human-in-the-loop    │
-└───────────┬───────────┘   └───────────────┬─────────────────┘
-            │                               │
-            └───────────────┬───────────────┘
-                            ▼
-                 ┌──────────────────────┐
-                 │      Executors       │
-                 │ command / file /    │
-                 │ connection actions  │
-                 └──────────┬───────────┘
-                            │
-          ┌─────────────────┼──────────────────┐
-          ▼                 ▼                  ▼
-     SSH / SFTP            RDP              Filesystem
+ │ │
+ ▼ ▼
+┌───────────────────────┐ ┌─────────────────────────────────┐
+│ Domain Contracts │ │ Security / Policy Layer │
+│ Connection / AI │ │ capabilities / policy / │
+│ Provider / operations │ │ approval / human-in-the-loop │
+└───────────┬───────────┘ └───────────────┬─────────────────┘
+ │ │
+ └───────────────┬───────────────┘
+ ▼
+ ┌──────────────────────┐
+ │ Executors │
+ │ command / file / │
+ │ connection actions │
+ └──────────┬───────────┘
+ │
+ ┌─────────────────┼──────────────────┐
+ ▼ ▼ ▼
+ SSH / SFTP Filesystem
 
-                 ┌──────────────────────┐
-                 │    Secure Storage    │
-                 │ credentials / tokens │
-                 └──────────────────────┘
+ ┌──────────────────────┐
+ │ Secure Storage │
+ │ credentials / tokens │
+ └──────────────────────┘
 
-                 ┌──────────────────────┐
-                 │       Audit          │
-                 │ security-relevant    │
-                 │ operations/events    │
-                 └──────────────────────┘
+ ┌──────────────────────┐
+ │ Audit │
+ │ security-relevant │
+ │ operations/events │
+ └──────────────────────┘
 ```
 
 The diagram is logical rather than a strict package dependency graph. Some domain contracts intentionally exist ahead of broad concrete runtime adoption. They define stable extension boundaries; they should not be forced into every implementation until a real second implementation or capability requires them.
@@ -91,7 +91,7 @@ The Wails input DTO may temporarily carry credential material because credential
 
 ### 3.3 Connection boundary
 
-SSH, SFTP and RDP are currently implemented as concrete application capabilities behind the application service. Transport-specific details remain in their dedicated managers.
+SSH and SFTP are currently implemented as concrete application capabilities behind the application service. Transport-specific details remain in their dedicated managers.
 
 **Rule:** adding a transport must first have a concrete product requirement and should reuse the existing application/service boundaries rather than introducing an unused abstraction.
 
@@ -101,19 +101,19 @@ Command execution is a capability, not a convenience method exposed by every fea
 
 ```text
 AI / user operation
-        ↓
+ ↓
 Command Policy
-        ↓
+ ↓
 Capability / authorization checks
-        ↓
+ ↓
 Approval when required
-        ↓
+ ↓
 Command Executor
-        ↓
+ ↓
 Remote execution
-        ↓
+ ↓
 Bounded result
-        ↓
+ ↓
 Audit
 ```
 
@@ -131,7 +131,7 @@ Credentials are application-owned secrets. Secure storage is the normal persiste
 
 ```text
 configuration / metadata → ordinary application state
-secret value             → secure storage
+secret value → secure storage
 ```
 
 Credential providers must not become secret browsers for the UI or AI.
@@ -179,7 +179,7 @@ AI reasoning is separated from authorization. An AI provider can suggest an acti
 
 ### Provider and transport independence
 
-Cloud/local AI and SSH/SFTP/RDP can evolve behind explicit contracts without leaking implementation details into unrelated code.
+Cloud/local AI and SSH/SFTP can evolve behind explicit contracts without leaking implementation details into unrelated code.
 
 ### Testability
 
