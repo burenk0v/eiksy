@@ -278,12 +278,9 @@ func (m *Manager) GetPendingHostKey(tabID string) *PendingHostKey {
 // AcceptHostKey appends the pending host key for tabID to known_hosts and
 // removes it from the pending map.
 func (m *Manager) AcceptHostKey(tabID string) error {
-	m.mu.Lock()
+	m.mu.RLock()
 	pending := m.pendingKeys[tabID]
-	if pending != nil {
-		delete(m.pendingKeys, tabID)
-	}
-	m.mu.Unlock()
+	m.mu.RUnlock()
 
 	if pending == nil {
 		return fmt.Errorf("no pending host key for tab %q", tabID)
@@ -307,6 +304,11 @@ func (m *Manager) AcceptHostKey(tabID string) error {
 	if _, err := fmt.Fprintln(f, line); err != nil {
 		return fmt.Errorf("write known_hosts: %w", err)
 	}
+	m.mu.Lock()
+	if current := m.pendingKeys[tabID]; current == pending {
+		delete(m.pendingKeys, tabID)
+	}
+	m.mu.Unlock()
 	return nil
 }
 
