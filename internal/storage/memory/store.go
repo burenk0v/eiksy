@@ -271,7 +271,7 @@ func (s *Store) RecordLaunch(profileID string) error {
 
 	profile, ok := s.sessionProfiles[profileID]
 	if !ok {
-		return
+		return fmt.Errorf("session profile %q not found", profileID)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
