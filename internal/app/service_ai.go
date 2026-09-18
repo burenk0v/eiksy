@@ -34,7 +34,9 @@ func (s *Service) SelectAIProvider(providerID string) error {
 		state.Providers[i].Selected = state.Providers[i].ID == providerID
 	}
 
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("persist AI provider selection: %w", err)
+	}
 	s.EmitLog("info", fmt.Sprintf("Switched AI provider to %s.", state.Providers[index].Name))
 	return nil
 }
@@ -87,7 +89,9 @@ func (s *Service) SaveCloudProvider(model, endpoint, token string) error {
 	state.Providers[index].HasToken = s.store.SecretExists(securestorage.AIProviderTokenKey(state.Providers[index].ID))
 	state.Providers[index].Status = "ready"
 	state.Providers[index].Configured = true
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("persist cloud AI provider: %w", err)
+	}
 	s.EmitLog("info", fmt.Sprintf("Saved cloud AI provider %s (%s).", state.Providers[index].Name, model))
 	return nil
 }
@@ -123,7 +127,9 @@ func (s *Service) SaveLocalProvider(downloadURL string) error {
 		state.Providers[index].LocalPath = ""
 		state.Providers[index].Status = "download required"
 	}
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("persist local AI provider: %w", err)
+	}
 	s.EmitLog("info", "Saved local AI model URL.")
 	return nil
 }
@@ -197,7 +203,9 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	state.Providers[index].Model = localModelNameFromURL(provider.DownloadURL)
 	state.Providers[index].Configured = true
 	state.Providers[index].Status = "stopped"
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("persist downloaded local AI model state: %w", err)
+	}
 	s.EmitLog("info", fmt.Sprintf("Downloaded local AI model to %s.", targetPath))
 	return nil
 }
@@ -343,7 +351,9 @@ func (s *Service) StartLocalModel() error {
 	state.Providers[index].Configured = true
 	state.Providers[index].Status = "running"
 	state.Providers[index].Endpoint = localAIEndpoint
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("persist local AI model running state: %w", err)
+	}
 	s.EmitLog("info", "Local AI model started.")
 	return nil
 }
@@ -382,7 +392,9 @@ func (s *Service) StopLocalModel() error {
 			state.Providers[index].Configured = false
 			state.Providers[index].Status = "download required"
 		}
-		s.store.UpdateAIState(state)
+		if err := s.store.UpdateAIState(state); err != nil {
+			return fmt.Errorf("persist local AI model stopped state: %w", err)
+		}
 	}
 	s.EmitLog("info", "Local AI model stopped.")
 	return nil
@@ -438,7 +450,9 @@ func (s *Service) watchLocalModelProcess(cmd *exec.Cmd, done chan error, stderr 
 			state.Providers[index].Configured = false
 			state.Providers[index].Status = "download required"
 		}
-		s.store.UpdateAIState(state)
+		if err := s.store.UpdateAIState(state); err != nil {
+			s.EmitLog("error", fmt.Sprintf("persist local AI process state: %v", err))
+		}
 	}
 	if wasActive && !stopping && err != nil && !errors.Is(err, os.ErrProcessDone) {
 		s.EmitLog("warn", s.localAIErrorWithDetails(fmt.Errorf("local AI model stopped: %w", err), stderr).Error())
