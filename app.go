@@ -68,9 +68,7 @@ func (a *App) SaveSFTPFile(tabID, path, content string) error { return a.current
 func (a *App) SelectUploadFiles() ([]string, error) { return runtime.OpenMultipleFilesDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select file(s) to upload"}) }
 func (a *App) SelectDownloadDirectory() (string, error) { return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "Select folder for downloaded files"}) }
 func (a *App) UploadSFTPFiles(tabID, remoteDir string, localPaths []string) error { return a.currentService().UploadSFTPFiles(tabID, remoteDir, localPaths) }
-func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) error { return a.currentService().DownloadSFTPFiles(tabID, localDir, remotePaths) }
-func (a *App) OpenRDP(tabID, profileID string) error { _, err := a.currentService().OpenRDP(tabID, profileID); return err }
-func (a *App) ValidateCredentialPath(provider, secretPath string) error { return a.currentService().ValidateCredentialPath(provider, secretPath) }
+func (a *App) DownloadSFTPFiles(tabID, localDir string, remotePaths []string) error { return a.currentService().DownloadSFTPFiles(tabID, localDir, remotePaths) }func (a *App) ValidateCredentialPath(provider, secretPath string) error { return a.currentService().ValidateCredentialPath(provider, secretPath) }
 func (a *App) ImportSSHConfig(raw string) ([]sessions.Profile, error) { return a.currentService().ImportSSHConfig(raw) }
 func (a *App) GetSecureStorageStatus() securestorage.Status { return a.currentService().GetSecureStorageStatus() }
 func (a *App) EnsureMasterPassword(password string) error { return a.currentService().EnsureMasterPassword(password) }
