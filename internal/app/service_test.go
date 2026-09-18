@@ -314,7 +314,9 @@ func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 
 func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testing.T) {
 	store := memory.NewStore(); profile := sessions.Profile{ID: "ssh-host", Name: "ssh-host", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}; if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
-	ssh := &recordingSSHManager{}; service := NewService(store, ssh, nil); tab, err := service.LaunchSession(profile.ID); if err != nil { t.Fatalf("launch session: %v", err) }
+	ssh := &recordingSSHManager{}; service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
 	state := store.AIState(); state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-1", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}; store.UpdateAIState(state)
 	if err := service.ResolveCommandPolicyRequest("request-1", ai.CommandPermissionModeSession); err != nil { t.Fatalf("resolve request: %v", err) }
 	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending requests to be cleared, got %d", len(updated.CommandPolicy.PendingRequests)) }
