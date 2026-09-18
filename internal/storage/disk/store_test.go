@@ -284,12 +284,17 @@ func TestAIChatHistoryIsEncryptedAndReloaded(t *testing.T) {
 		t.Fatal("settings.json must not contain AI chat history")
 	}
 
-	storedHistory, err := store.LoadSecret(securestorage.AIChatHistoryKey())
+	db, err := sql.Open("sqlite", filepath.Join(baseDir, "secrets.db"))
 	if err != nil {
-		t.Fatalf("load encrypted chat history: %v", err)
+		t.Fatalf("open secrets db: %v", err)
+	}
+	defer db.Close()
+	var storedHistory string
+	if err := db.QueryRow("SELECT value FROM secrets WHERE name = ?", securestorage.AIChatHistoryKey()).Scan(&storedHistory); err != nil {
+		t.Fatalf("read encrypted chat history: %v", err)
 	}
 	if strings.Contains(storedHistory, "private terminal output") || strings.Contains(storedHistory, "private AI response") {
-		t.Fatal("encrypted chat history must not expose plaintext")
+		t.Fatal("secrets.db must not contain plaintext AI chat history")
 	}
 
 	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
