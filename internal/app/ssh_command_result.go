@@ -36,6 +36,9 @@ func (s *Service) executeSessionCommandResult(sessionID, command string) {
 		if strings.ToLower(strings.TrimSpace(tab.ProtocolID)) != "ssh" {
 			return sessions.CommandExecutionResult{ExitCode: -1}, fmt.Errorf("session %q is not an ssh session", sessionID)
 		}
+		if strings.ToLower(strings.TrimSpace(tab.Status)) != "connected" {
+			return sessions.CommandExecutionResult{ExitCode: -1, ErrorType: sessions.CommandExecutionErrorConnection}, fmt.Errorf("session %q is not connected", sessionID)
+		}
 		executor, ok := s.sshManager.(sshStructuredCommandExecutor)
 		if !ok {
 			return sessions.CommandExecutionResult{ExitCode: -1}, fmt.Errorf("ssh manager does not support structured command execution")
