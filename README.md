@@ -210,7 +210,7 @@ The roadmap intentionally contains future work only; implemented AI command exec
 
 Never commit sensitive information to the repository.
 
-Do not commit passwords, API tokens, Vault tokens, SSH private keys, private-key certificates.
+Do not commit passwords, API tokens, Vault tokens, SSH private keys or certificates.
 
 Use Eiksy's encrypted storage or an external credential provider for sensitive data.
 
