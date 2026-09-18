@@ -109,7 +109,7 @@ func (m *Manager) Close() error {
 
 func (m *Manager) Status() Status {
 	status := Status{Available: true}
-	record, _, err := m.loadWrappedMasterKey()
+	record, err := m.loadWrappedMasterKey()
 	switch {
 	case err == nil:
 		status.Configured = record != ""
