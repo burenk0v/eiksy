@@ -27,6 +27,7 @@ func (m *nativeTestSSHManager) Disconnect(string) error { return nil }
 func (m *nativeTestSSHManager) SetOutputHandler(string, func(string)) {}
 func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error) { return ".", nil }
 func (m *nativeTestSSHManager) AcceptHostKey(string) error { return nil }
+func (m *nativeTestSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.mu.Lock(); defer m.mu.Unlock(); m.commands = append(m.commands, tabID+":"+command+"\\n"); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
 
 func TestCallNativeToolCompletionParsesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
