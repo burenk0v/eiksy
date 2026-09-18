@@ -23,7 +23,6 @@ import {
   GetReleaseVersion,
   GetSecureStorageStatus,
   GetShellState,
-  OpenRDP,
   LaunchSession,
   ListSFTPFiles,
   NavigateSFTP,
@@ -118,7 +117,7 @@ type Theme = "dark" | "light" | "green";
 type SettingsTab =
   "ai" | "commandpolicy" | "sshconfig" | "portforward" | "theme" | "about";
 type SessionModalTab = "host" | "auth" | "network" | "other";
-type SessionInnerTab = "console" | "sftp" | "screen";
+type SessionInnerTab = "console" | "sftp";
 type VaultAuthMethod = "token" | "oidc" | "oidc-sec" | "domain";
 type CommandPolicyTab = "access" | "tools" | "settings";
 
@@ -432,9 +431,6 @@ class EiksyShell {
                             </div>
                             ${this.renderSFTPBrowser()}
                         </div>
-                        <div class="screen-workspace ${this.sessionInnerTab === "screen" ? "" : "hidden"}">
-                            ${this.renderScreenWorkspace()}
-                        </div>
                     </main>
 
                     ${this.renderAssistantPanel()}
@@ -649,24 +645,8 @@ class EiksyShell {
       ?.querySelector<HTMLSelectElement>('select[name="protocolId"]')
       ?.addEventListener("change", (event) => {
         const select = event.currentTarget as HTMLSelectElement;
-        const previousProtocolID = this.sessionForm.protocolId;
         this.syncSessionFormFromDOM();
         this.sessionForm.protocolId = select.value || "ssh";
-        if (this.sessionForm.protocolId === "rdp") {
-          this.sessionForm.authMethod = "password";
-          if (
-            !this.sessionForm.port ||
-            this.sessionForm.port === "22" ||
-            previousProtocolID !== "rdp"
-          ) {
-            this.sessionForm.port = "3389";
-          }
-        } else if (
-          previousProtocolID === "rdp" &&
-          (!this.sessionForm.port || this.sessionForm.port === "3389")
-        ) {
-          this.sessionForm.port = "22";
-        }
         this.render();
       });
     root
@@ -1369,11 +1349,9 @@ class EiksyShell {
         this.commitSessionTagDraft();
         const protocolId = String(formData.get("protocolId") ?? "ssh");
         const authMethod =
-          protocolId === "rdp"
-            ? "password"
-            : String(formData.get("authMethod") ?? "password") === "key"
-              ? "key"
-              : "password";
+          String(formData.get("authMethod") ?? "password") === "key"
+            ? "key"
+            : "password";
         const privateKeyPath = String(formData.get("privateKeyPath") ?? "");
         const host = String(formData.get("host") ?? "").trim();
         const name = String(formData.get("name") ?? "").trim() || host;
@@ -1383,7 +1361,7 @@ class EiksyShell {
           group: "",
           host,
           port: Number(
-            formData.get("port") ?? (protocolId === "rdp" ? 3389 : 22),
+            formData.get("port") ?? 22,
           ),
           username: String(formData.get("username") ?? ""),
           password: String(
@@ -1578,11 +1556,8 @@ class EiksyShell {
           this.fitActiveTerminal();
           await this.ensureActiveSFTPLoaded(true);
         }
-      } else if (profile.protocolId === "rdp") {
-        await OpenRDP(tab.id, profileID);
-        this.errorMessage = "";
-        this.render();
       }
+
     } catch (error) {
       this.setErrorMessage(formatError("Unable to open session", error));
       this.render();
@@ -2796,7 +2771,7 @@ class EiksyShell {
     return {
       name: profile.name || profile.host || "",
       host: profile.host || "",
-      port: String(profile.port || (profile.protocolId === "rdp" ? 3389 : 22)),
+      port: String(profile.port || 22),
       username: profile.username || "",
       password: "",
       keyPassphrase: "",
@@ -2847,7 +2822,6 @@ class EiksyShell {
                                     <select name="protocolId">
                                         <option value="ssh" ${this.sessionForm.protocolId === "ssh" ? "selected" : ""}>SSH</option>
                                         <option value="sftp" ${this.sessionForm.protocolId === "sftp" ? "selected" : ""}>SFTP</option>
-                                        <option value="rdp" ${this.sessionForm.protocolId === "rdp" ? "selected" : ""}>RDP</option>
                                     </select>
                                 </label>
                             </div>
@@ -3017,10 +2991,7 @@ class EiksyShell {
     return tabs[0]?.id ?? "";
   }
 
-  private availableSessionInnerTabs(protocolId: string): SessionInnerTab[] {
-    if (protocolId === "rdp") {
-      return ["screen"];
-    }
+  private availableSessionInnerTabs(_protocolId: string): SessionInnerTab[] {
     return ["console", "sftp"];
   }
 
@@ -3037,7 +3008,7 @@ class EiksyShell {
       const parsed = JSON.parse(stored) as Record<string, unknown>;
       return new Map<string, SessionInnerTab>(
         Object.entries(parsed).flatMap(([tabID, tabValue]) =>
-          tabValue === "console" || tabValue === "sftp" || tabValue === "screen"
+          tabValue === "console" || tabValue === "sftp"
             ? [[tabID, tabValue]]
             : [],
         ),
@@ -3119,9 +3090,6 @@ class EiksyShell {
   }
 
   private sessionInnerTabLabel(tab: SessionInnerTab): string {
-    if (tab === "screen") {
-      return "Screen";
-    }
     return tab === "sftp" ? "SFTP" : "Console";
   }
 
@@ -3298,8 +3266,8 @@ class EiksyShell {
         ?.checked ?? this.sessionForm.useSSHAgent;
   }
 
-  private supportsKeyAuth(protocolId: string): boolean {
-    return protocolId !== "rdp";
+  private supportsKeyAuth(_protocolId: string): boolean {
+    return true;
   }
 
   private supportsSSHAdvancedOptions(protocolId: string): boolean {
@@ -3663,32 +3631,6 @@ class EiksyShell {
       editorError: "",
       selectedFiles: [],
     };
-  }
-
-  private renderScreenWorkspace(): string {
-    const activeTab = this.activeTab();
-    if (!activeTab) {
-      return '<div class="empty-state">Open an RDP session to view the remote screen.</div>';
-    }
-    if (activeTab.protocolId !== "rdp") {
-      return '<div class="empty-state">Screen view is available only for RDP sessions.</div>';
-    }
-    const profile = this.shellState?.sessionProfiles.find(
-      (entry) => entry.id === activeTab.profileId,
-    );
-    return `
-            <div class="screen-panel">
-                <div class="screen-card">
-                    <div class="eyebrow">RDP session</div>
-                    <h2>${escapeHtml(activeTab.title)}</h2>
-                    <p class="screen-copy">The native RDP client is opened for this session. Eiksy keeps the session lifecycle and profile, while the desktop is rendered by the platform RDP client.</p>
-                    <div class="screen-meta">
-                        <span>${escapeHtml(profile?.username || "user")}@${escapeHtml(profile?.host || activeTab.title)}:${escapeHtml(String(profile?.port ?? 3389))}</span>
-                        <span>Status: ${escapeHtml(activeTab.status)}</span>
-                    </div>
-                </div>
-            </div>
-        `;
   }
 
   private allSessionTags(): string[] {

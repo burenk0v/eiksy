@@ -349,7 +349,6 @@ func defaultProtocols() []protocols.Descriptor {
 	return []protocols.Descriptor{
 		{ID: "ssh", Name: "Secure Shell", Scheme: "ssh", Capabilities: []protocols.Capability{protocols.CapabilityTerminal, protocols.CapabilityCredentialLink}},
 		{ID: "sftp", Name: "SSH File Transfer", Scheme: "sftp", Capabilities: []protocols.Capability{protocols.CapabilityFileBrowser, protocols.CapabilityCredentialLink}},
-		{ID: "rdp", Name: "Remote Desktop", Scheme: "rdp", Capabilities: []protocols.Capability{protocols.CapabilityDesktopDisplay, protocols.CapabilityCredentialLink}},
 	}
 }
 

@@ -10,7 +10,7 @@ This document is the permanent architecture reference for the project. It descri
 
 ## 1. Architectural goals
 
-Eiksy combines remote connections and sessions, interactive terminal access, SFTP and remote file operations, RDP where supported, AI assistance and diagnostics, controlled AI-assisted command execution, multiple AI providers and credential providers.
+Eiksy combines remote connections and sessions, interactive terminal access, SFTP and remote file operations, AI assistance and diagnostics, controlled AI-assisted command execution, multiple AI providers and credential providers.
 
 The primary goals are:
 
@@ -52,8 +52,8 @@ The primary goals are:
                  └──────────┬───────────┘
                             │
           ┌─────────────────┼──────────────────┐
-          ▼                 ▼                  ▼
-     SSH / SFTP            RDP              Filesystem
+          ▼                 ▼
+     SSH / SFTP          Filesystem
 
                  ┌──────────────────────┐
                  │    Secure Storage    │
@@ -91,7 +91,7 @@ The Wails input DTO may temporarily carry credential material because credential
 
 ### 3.3 Connection boundary
 
-SSH, SFTP and RDP are currently implemented as concrete application capabilities behind the application service. Transport-specific details remain in their dedicated managers.
+SSH and SFTP are currently implemented as concrete application capabilities behind the application service. Transport-specific details remain in their dedicated managers.
 
 **Rule:** adding a transport must first have a concrete product requirement and should reuse the existing application/service boundaries rather than introducing an unused abstraction.
 
@@ -179,7 +179,7 @@ AI reasoning is separated from authorization. An AI provider can suggest an acti
 
 ### Provider and transport independence
 
-Cloud/local AI and SSH/SFTP/RDP can evolve behind explicit contracts without leaking implementation details into unrelated code.
+Cloud/local AI and SSH/SFTP can evolve behind explicit contracts without leaking implementation details into unrelated code.
 
 ### Testability
 

@@ -5,7 +5,6 @@ type Capability string
 const (
 	CapabilityTerminal       Capability = "terminal"
 	CapabilityFileBrowser    Capability = "file_browser"
-	CapabilityDesktopDisplay Capability = "desktop_display"
 	CapabilityCredentialLink Capability = "credential_link"
 )
 
