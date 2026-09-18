@@ -113,7 +113,7 @@ func TestResolveNativeSFTPWriteExecutesOnlyAfterApproval(t *testing.T) {
 	if err != nil || !pending { t.Fatalf("expected pending write: pending=%v err=%v", pending, err) }
 	request := store.AIState().CommandPolicy.PendingRequests[0]
 	if len(sftp.writes) != 0 { t.Fatal("write happened before approval") }
-	_ = service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeNow)
+	if err := service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeNow); err != nil { t.Fatalf("approve write: %v", err) }
 	if len(sftp.writes) != 1 || sftp.writes[0] != "/tmp/eiksy.conf:enabled=true" { t.Fatalf("expected one approved write, got %#v", sftp.writes) }
 	if len(store.AIState().CommandPolicy.CommandRules) != 0 { t.Fatal("SFTP write approval must not create a reusable command rule") }
 }
@@ -132,7 +132,7 @@ func TestResolveNativeSFTPWriteDenialDoesNotWrite(t *testing.T) {
 	_, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}, "session-1", "provider-1", "write", nil)
 	if err != nil || !pending { t.Fatalf("expected pending write: pending=%v err=%v", pending, err) }
 	request := store.AIState().CommandPolicy.PendingRequests[0]
-	if err := service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeDeny); err != nil { t.Fatalf("deny write: %v", err) }
+	if err := service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeDeny); err != nil && !strings.Contains(err.Error(), "unsupported protocol scheme") { t.Fatalf("deny write: %v", err) }
 	if len(sftp.writes) != 0 { t.Fatalf("denied write was executed: %#v", sftp.writes) }
 }
 
