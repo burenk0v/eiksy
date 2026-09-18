@@ -18,6 +18,7 @@ import (
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
+	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
 	"eiksy/internal/storage/memory"
 )
@@ -313,7 +314,9 @@ func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
 
 func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testing.T) {
 	store := memory.NewStore(); profile := sessions.Profile{ID: "ssh-host", Name: "ssh-host", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}; if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
-	ssh := &recordingSSHManager{}; service := NewService(store, ssh, nil); tab, err := service.LaunchSession(profile.ID); if err != nil { t.Fatalf("launch session: %v", err) }
+	ssh := &recordingSSHManager{}; service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
 	state := store.AIState(); state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-1", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}; store.UpdateAIState(state)
 	if err := service.ResolveCommandPolicyRequest("request-1", ai.CommandPermissionModeSession); err != nil { t.Fatalf("resolve request: %v", err) }
 	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending requests to be cleared, got %d", len(updated.CommandPolicy.PendingRequests)) }
@@ -372,6 +375,44 @@ func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
 func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
+
+
+
+func TestExecuteCommandRequiresConnectedSession(t *testing.T) {
+	store := memory.NewStore()
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "disconnected"})
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	result, err := service.ExecuteCommand("session-1", "uname -a")
+	if err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("expected disconnected-session error, got %v", err)
+	}
+	if result.ErrorType != sessions.CommandExecutionErrorConnection {
+		t.Fatalf("expected connection error type, got %q", result.ErrorType)
+	}
+	if len(ssh.inputs) != 0 {
+		t.Fatalf("command must not be dispatched for disconnected session, got %+v", ssh.inputs)
+	}
+}
+
+func TestExecuteCommandUsesExistingConnectedSession(t *testing.T) {
+	store := memory.NewStore()
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	result, err := service.ExecuteCommand("session-1", "uname -a")
+	if err != nil {
+		t.Fatalf("execute command: %v", err)
+	}
+	if !result.Success || result.ExitCode != 0 {
+		t.Fatalf("unexpected command result: %+v", result)
+	}
+	if len(ssh.inputs) != 1 || ssh.inputs[0].tabID != "session-1" || ssh.inputs[0].payload != "uname -a\n" {
+		t.Fatalf("unexpected command dispatch: %+v", ssh.inputs)
+	}
+}
 
 
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {

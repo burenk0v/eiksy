@@ -12,6 +12,10 @@ type sshStructuredCommandExecutor interface {
 	ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error)
 }
 
+func (s *Service) ExecuteCommand(sessionID, command string) (sessions.CommandExecutionResult, error) {
+	return s.executeSessionCommandResult(sessionID, command)
+}
+
 func (s *Service) executeSessionCommandResult(sessionID, command string) (sessions.CommandExecutionResult, error) {
 	sessionID = strings.TrimSpace(sessionID)
 	command = strings.TrimSpace(command)
@@ -31,6 +35,9 @@ func (s *Service) executeSessionCommandResult(sessionID, command string) (sessio
 		}
 		if strings.ToLower(strings.TrimSpace(tab.ProtocolID)) != "ssh" {
 			return sessions.CommandExecutionResult{ExitCode: -1}, fmt.Errorf("session %q is not an ssh session", sessionID)
+		}
+		if strings.ToLower(strings.TrimSpace(tab.Status)) != "connected" {
+			return sessions.CommandExecutionResult{ExitCode: -1, ErrorType: sessions.CommandExecutionErrorConnection}, fmt.Errorf("session %q is not connected", sessionID)
 		}
 		executor, ok := s.sshManager.(sshStructuredCommandExecutor)
 		if !ok {

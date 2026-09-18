@@ -56,6 +56,7 @@ func (a *App) GetReleaseVersion() string { return resolveReleaseVersion() }
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) { return a.currentService().LaunchSession(profileID) }
 func (a *App) CloseSession(sessionID string) error { return a.currentService().CloseSession(sessionID) }
 func (a *App) ReconnectSession(sessionID string) error { return a.currentService().ReconnectSession(sessionID) }
+func (a *App) ExecuteCommand(sessionID, command string) (sessions.CommandExecutionResult, error) { return a.currentService().ExecuteCommand(sessionID, command) }
 func (a *App) CreateSessionProfile(input sessions.ProfileInput) error { return a.currentService().CreateSessionProfileInput(input) }
 func (a *App) DeleteSessionProfile(id string) error { return a.currentService().DeleteSessionProfile(id) }
 func (a *App) ConnectSSH(tabID, profileID string) error { return a.currentService().ConnectSSH(a.ctx, tabID, profileID) }
