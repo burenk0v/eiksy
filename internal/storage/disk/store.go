@@ -668,9 +668,6 @@ func normalizePortForwardRules(rules []settings.PortForwardRule) []settings.Port
 		entry.LocalPort = strings.TrimSpace(entry.LocalPort)
 		entry.RemoteHost = strings.TrimSpace(entry.RemoteHost)
 		entry.RemotePort = strings.TrimSpace(entry.RemotePort)
-		if entry.LocalPort == "" && strings.TrimSpace(entry.Ports) != "" {
-			entry.LocalPort = strings.TrimSpace(entry.Ports)
-		}
 		normalized = append(normalized, entry)
 	}
 	return normalized
