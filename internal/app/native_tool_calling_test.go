@@ -47,6 +47,17 @@ func TestCallNativeToolCompletionParsesToolCall(t *testing.T) {
 	if result.ToolCalls[0].Function.Name != nativeSSHExecToolName { t.Fatalf("expected ssh.exec, got %q", result.ToolCalls[0].Function.Name) }
 }
 
+func TestDispatchNativeToolCallRejectsDifferentSession(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	call := nativeToolCall{ID: "call-1", Type: "function"}
+	call.Function.Name = nativeSSHExecToolName
+	call.Function.Arguments = `{"sessionId":"session-2","command":"uname -a"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{Tools: []ai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}}, "session-1", "provider-1", "inspect", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if pending { t.Fatal("different session must not create an approval request") }
+	if !strings.Contains(result, "does not match the active Eiksy session") { t.Fatalf("expected active-session validation error, got %q", result) }
+}
+
 func TestDispatchNativeToolCallRejectsUnknownArguments(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	call := nativeToolCall{ID: "call-1", Type: "function"}
