@@ -26,45 +26,45 @@ The primary goals are:
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Eiksy UI │
-│ Wails / frontend / user interaction │
+│                         Eiksy UI                             │
+│              Wails / frontend / user interaction             │
 └──────────────────────────────┬───────────────────────────────┘
- │ service API
- ▼
+                               │ service API
+                               ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ Application Services │
-│ orchestration / session / AI / file / auth flows │
+│                    Application Services                     │
+│       orchestration / session / AI / file / auth flows       │
 └───────────────┬───────────────────┬──────────────────────────┘
- │ │
- ▼ ▼
-┌───────────────────────┐ ┌─────────────────────────────────┐
-│ Domain Contracts │ │ Security / Policy Layer │
-│ Connection / AI │ │ capabilities / policy / │
-│ Provider / operations │ │ approval / human-in-the-loop │
-└───────────┬───────────┘ └───────────────┬─────────────────┘
- │ │
- └───────────────┬───────────────┘
- ▼
- ┌──────────────────────┐
- │ Executors │
- │ command / file / │
- │ connection actions │
- └──────────┬───────────┘
- │
- ┌─────────────────┼──────────────────┐
- ▼ ▼ ▼
- SSH / SFTP Filesystem
+                │                   │
+                ▼                   ▼
+┌───────────────────────┐   ┌─────────────────────────────────┐
+│   Domain Contracts    │   │     Security / Policy Layer     │
+│ Connection / AI       │   │ capabilities / policy /        │
+│ Provider / operations │   │ approval / human-in-the-loop    │
+└───────────┬───────────┘   └───────────────┬─────────────────┘
+            │                               │
+            └───────────────┬───────────────┘
+                            ▼
+                 ┌──────────────────────┐
+                 │      Executors       │
+                 │ command / file /    │
+                 │ connection actions  │
+                 └──────────┬───────────┘
+                            │
+          ┌─────────────────┼──────────────────┐
+          ▼                 ▼
+     SSH / SFTP          Filesystem
 
- ┌──────────────────────┐
- │ Secure Storage │
- │ credentials / tokens │
- └──────────────────────┘
+                 ┌──────────────────────┐
+                 │    Secure Storage    │
+                 │ credentials / tokens │
+                 └──────────────────────┘
 
- ┌──────────────────────┐
- │ Audit │
- │ security-relevant │
- │ operations/events │
- └──────────────────────┘
+                 ┌──────────────────────┐
+                 │       Audit          │
+                 │ security-relevant    │
+                 │ operations/events    │
+                 └──────────────────────┘
 ```
 
 The diagram is logical rather than a strict package dependency graph. Some domain contracts intentionally exist ahead of broad concrete runtime adoption. They define stable extension boundaries; they should not be forced into every implementation until a real second implementation or capability requires them.
@@ -101,19 +101,19 @@ Command execution is a capability, not a convenience method exposed by every fea
 
 ```text
 AI / user operation
- ↓
+        ↓
 Command Policy
- ↓
+        ↓
 Capability / authorization checks
- ↓
+        ↓
 Approval when required
- ↓
+        ↓
 Command Executor
- ↓
+        ↓
 Remote execution
- ↓
+        ↓
 Bounded result
- ↓
+        ↓
 Audit
 ```
 
@@ -131,7 +131,7 @@ Credentials are application-owned secrets. Secure storage is the normal persiste
 
 ```text
 configuration / metadata → ordinary application state
-secret value → secure storage
+secret value             → secure storage
 ```
 
 Credential providers must not become secret browsers for the UI or AI.
