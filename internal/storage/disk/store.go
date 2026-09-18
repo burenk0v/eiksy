@@ -1,11 +1,13 @@
 package disk
 
 import (
+	"errors"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"slices"
 	"sync"
 	"time"
 
@@ -52,7 +54,6 @@ type persistedAIWorkspaceState struct {
 	Providers     []persistedAIProviderDescriptor `json:"providers"`
 	ContextPolicy ai.ContextPolicy                `json:"contextPolicy"`
 	CommandPolicy ai.CommandPolicy                `json:"commandPolicy"`
-	Messages      []ai.ChatMessage                `json:"messages"`
 	ChatSessionID string                          `json:"chatSessionId"`
 }
 
@@ -227,6 +228,12 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	s.aiState = cloneAIState(state)
 	for i := range s.aiState.Providers {
 		s.aiState.Providers[i].Token = ""
+	}
+	if !chatMessagesEqual(previous.Messages, s.aiState.Messages) {
+		if err := s.persistAIChatHistoryLocked(s.aiState.Messages); err != nil {
+			s.aiState = previous
+			return err
+		}
 	}
 	if err := s.saveSettings(); err != nil {
 		s.aiState = previous
@@ -444,7 +451,45 @@ func (s *Store) loadSettings() error {
 	if persisted.AIState != nil {
 		s.aiState = aiStateFromPersisted(*persisted.AIState)
 	}
+	if history, err := s.loadAIChatHistory(); err != nil {
+		return err
+	} else if history != nil {
+		s.aiState.Messages = history
+	}
 	return nil
+}
+
+func (s *Store) persistAIChatHistoryLocked(messages []ai.ChatMessage) error {
+	payload, err := json.Marshal(messages)
+	if err != nil {
+		return fmt.Errorf("encode AI chat history: %w", err)
+	}
+	if err := s.secretManager.StoreSecret(securestorage.AIChatHistoryKey(), string(payload)); err != nil {
+		return fmt.Errorf("store encrypted AI chat history: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) loadAIChatHistory() ([]ai.ChatMessage, error) {
+	if s.secretManager == nil || !s.secretManager.SecretExists(securestorage.AIChatHistoryKey()) {
+		return nil, nil
+	}
+	payload, err := s.secretManager.LoadSecret(securestorage.AIChatHistoryKey())
+	if err != nil {
+		if errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("load encrypted AI chat history: %w", err)
+	}
+	var messages []ai.ChatMessage
+	if err := json.Unmarshal([]byte(payload), &messages); err != nil {
+		return nil, fmt.Errorf("decode encrypted AI chat history: %w", err)
+	}
+	return messages, nil
+}
+
+func chatMessagesEqual(left, right []ai.ChatMessage) bool {
+	return slices.Equal(left, right)
 }
 
 func (s *Store) saveSessionProfilesLocked() error {
@@ -682,7 +727,6 @@ func aiStateToPersisted(state ai.WorkspaceState) *persistedAIWorkspaceState {
 	persisted := &persistedAIWorkspaceState{
 		ContextPolicy: state.ContextPolicy,
 		CommandPolicy: cloneCommandPolicy(state.CommandPolicy),
-		Messages:      append([]ai.ChatMessage(nil), state.Messages...),
 		ChatSessionID: state.ChatSessionID,
 		Providers:     make([]persistedAIProviderDescriptor, 0, len(state.Providers)),
 	}
@@ -707,7 +751,6 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 	state := ai.WorkspaceState{
 		ContextPolicy: persisted.ContextPolicy,
 		CommandPolicy: cloneCommandPolicy(persisted.CommandPolicy),
-		Messages:      append([]ai.ChatMessage(nil), persisted.Messages...),
 		ChatSessionID: persisted.ChatSessionID,
 		Providers:     make([]ai.ProviderDescriptor, 0, len(persisted.Providers)),
 	}
