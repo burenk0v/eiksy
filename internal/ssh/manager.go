@@ -334,19 +334,59 @@ func dialTarget(ctx context.Context, address string, config *xssh.ClientConfig, 
 		}
 		return netConn, nil
 	}
-	jumpAddress, jumpUser := parseProxyJump(proxyJump, config.User)
-	jumpConfig := cloneClientConfig(config)
-	jumpConfig.User = jumpUser
-	jumpClient, err := xssh.Dial("tcp", jumpAddress, jumpConfig)
-	if err != nil {
-		return nil, fmt.Errorf("dial proxy jump %s: %w", jumpAddress, err)
+	jumps := parseProxyJumps(proxyJump, config.User)
+	if len(jumps) == 0 {
+		return nil, fmt.Errorf("proxy_jump contains no valid hosts")
 	}
-	netConn, err := jumpClient.Dial("tcp", address)
-	if err != nil {
-		_ = jumpClient.Close()
-		return nil, fmt.Errorf("dial target via proxy jump: %w", err)
+	clients := make([]*xssh.Client, 0, len(jumps))
+	closeClients := func() {
+		for i := len(clients)-1; i >= 0; i-- { _ = clients[i].Close() }
 	}
-	return &proxyConn{Conn: netConn, jumpClient: jumpClient}, nil
+	firstCfg := cloneClientConfig(config)
+	firstCfg.User = jumps[0].User
+	client, err := xssh.Dial("tcp", jumps[0].Address, firstCfg)
+	if err != nil { return nil, fmt.Errorf("dial proxy jump %s: %w", jumps[0].Address, err) }
+	clients = append(clients, client)
+	for _, jump := range jumps[1:] {
+		conn, err := clients[len(clients)-1].Dial("tcp", jump.Address)
+		if err != nil { closeClients(); return nil, fmt.Errorf("connect proxy jump %s: %w", jump.Address, err) }
+		jumpCfg := cloneClientConfig(config)
+		jumpCfg.User = jump.User
+		sshConn, chans, reqs, err := xssh.NewClientConn(conn, jump.Address, jumpCfg)
+		if err != nil { _ = conn.Close(); closeClients(); return nil, fmt.Errorf("authenticate proxy jump %s: %w", jump.Address, err) }
+		clients = append(clients, xssh.NewClient(sshConn, chans, reqs))
+	}
+	netConn, err := clients[len(clients)-1].Dial("tcp", address)
+	if err != nil { closeClients(); return nil, fmt.Errorf("dial target via proxy jump: %w", err) }
+	return &proxyConn{Conn: netConn, jumpClients: clients}, nil
+}
+
+type proxyJump struct {
+	Address string
+	User    string
+}
+
+func parseProxyJumps(value, defaultUser string) []proxyJump {
+	parts := strings.Split(value, ",")
+	result := make([]proxyJump, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" { continue }
+		user := defaultUser
+		hostPort := part
+		if at := strings.Index(part, "@"); at > 0 {
+			user = strings.TrimSpace(part[:at])
+			hostPort = strings.TrimSpace(part[at+1:])
+		}
+		host, port, err := net.SplitHostPort(hostPort)
+		if err != nil || host == "" {
+			host = hostPort
+			port = "22"
+		}
+		if host == "" { continue }
+		result = append(result, proxyJump{Address: net.JoinHostPort(host, port), User: user})
+	}
+	return result
 }
 
 func startLocalForwards(client *xssh.Client, options map[string]string) ([]net.Listener, error) {
@@ -414,27 +454,20 @@ func parseLocalForwardSpec(spec string) (string, string, error) {
 	return net.JoinHostPort("127.0.0.1", localPort), net.JoinHostPort(remoteHost, remotePort), nil
 }
 
-func parseProxyJump(value, defaultUser string) (string, string) {
-	value = strings.TrimSpace(value)
-	value = strings.Split(value, ",")[0]
-	user := defaultUser
-	hostPort := value
-	if at := strings.Index(value, "@"); at > 0 {
-		user = value[:at]
-		hostPort = value[at+1:]
-	}
-	host, port, err := net.SplitHostPort(hostPort)
-	if err != nil || host == "" {
-		host = hostPort
-		port = "22"
-	}
-	return net.JoinHostPort(host, port), user
+func optionValue(options map[string]string, key string) string {
+	if options == nil { return "" }
+	return options[key]
 }
 
-func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
-	clone := *config
-	clone.Auth = append([]xssh.AuthMethod(nil), config.Auth...)
-	return &clone
+type proxyConn struct {
+	net.Conn
+	jumpClients []*xssh.Client
+}
+
+func (c *proxyConn) Close() error {
+	connErr := c.Conn.Close()
+	for i := len(c.jumpClients)-1; i >= 0; i-- { _ = c.jumpClients[i].Close() }
+	return connErr
 }
 
 func optionValue(options map[string]string, key string) string {
