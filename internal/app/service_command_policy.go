@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
+	"eiksy/internal/domain/sessions"
 )
 
 // ClearChat removes all messages from the AI chat history.
@@ -58,6 +59,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
 			pending := state.PendingNativeToolCall
 			state.PendingNativeToolCall = nil
+			s.emitNativeOperation("denied", request.SessionID, request.Command, sessions.CommandExecutionResult{ExitCode: -1}, "required", "user denied the command")
 			if err := s.store.UpdateAIState(state); err != nil {
 				return fmt.Errorf("persist denied command request: %w", err)
 			}
@@ -118,6 +120,11 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 			return fmt.Errorf("persist approved command request: %w", err)
 		}
 		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
+		status := "executed"
+		if err != nil {
+			status = "execution_failed"
+		}
+		s.emitNativeOperation(status, request.SessionID, request.Command, result, string(mode), errString(err))
 		payload := map[string]any{
 			"status":    "executed",
 			"sessionId": request.SessionID,
