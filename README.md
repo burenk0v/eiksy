@@ -21,7 +21,7 @@
 
 **Eiksy is an AI-powered remote operations workstation for infrastructure engineers, DevOps engineers and system administrators.**
 
-It combines AI assistance, terminal access, SSH, SFTP, RDP, remote file management and secure credential storage in one cross-platform desktop application.
+It combines AI assistance, terminal access, SSH, SFTP, , remote file management and secure credential storage in one cross-platform desktop application.
 
 The key design principle is simple:
 
@@ -62,9 +62,9 @@ The key design principle is simple:
 - Upload and download operations.
 - SFTP alongside SSH sessions.
 
-### RDP
+### 
 
-RDP is part of the remote-session architecture and is actively being developed.
+ is part of the remote-session architecture and is actively being developed.
 
 ### Credentials
 
@@ -113,7 +113,7 @@ Application Services
           ↓
        Executors
        ├── SSH / SFTP
-       ├── RDP
+       ├── 
        └── Filesystem
 
 Secure Storage and Audit are cross-cutting boundaries.
@@ -200,7 +200,7 @@ Eiksy is an actively developed open-source project. The current focus is feature
 
 Planned areas include:
 
-- [ ] Improved RDP experience
+- [ ] 
 - [ ] Expanded AI-assisted operations
 - [ ] Advanced Vault integration
 - [ ] Additional credential providers
@@ -216,7 +216,7 @@ The roadmap intentionally contains future work only; implemented AI command exec
 
 Never commit sensitive information to the repository.
 
-Do not commit passwords, API tokens, Vault tokens, SSH private keys, RDP credentials or private-key certificates.
+Do not commit passwords, API tokens, Vault tokens, SSH private keys, credentials or private-key certificates.
 
 Use Eiksy's encrypted storage or an external credential provider for sensitive data.
 
