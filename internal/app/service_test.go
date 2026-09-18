@@ -18,6 +18,7 @@ import (
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
+	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
 	"eiksy/internal/storage/memory"
 )
