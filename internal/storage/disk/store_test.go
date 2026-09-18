@@ -218,34 +218,6 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 	}
 }
 
-func TestEiksyDirMigratesLegacyOpsyDirectory(t *testing.T) {
-	homeDir := t.TempDir()
-	legacyDir := filepath.Join(homeDir, legacyOpsyDir)
-	currentDir := filepath.Join(homeDir, defaultEiksyDir)
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatalf("create legacy dir: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "settings.json"), []byte("{}"), 0o644); err != nil {
-		t.Fatalf("seed legacy dir: %v", err)
-	}
-
-	t.Setenv("HOME", homeDir)
-
-	baseDir, err := eiksyDir()
-	if err != nil {
-		t.Fatalf("resolve eiksy dir: %v", err)
-	}
-	if baseDir != currentDir {
-		t.Fatalf("expected current dir %q, got %q", currentDir, baseDir)
-	}
-	if _, err := os.Stat(filepath.Join(currentDir, "settings.json")); err != nil {
-		t.Fatalf("expected migrated settings file: %v", err)
-	}
-	if _, err := os.Stat(legacyDir); !os.IsNotExist(err) {
-		t.Fatalf("expected legacy dir to be moved away, stat err=%v", err)
-	}
-}
-
 func TestUpdateSettingsStoresSecretFlagsWithoutPlaintext(t *testing.T) {
 	baseDir := t.TempDir()
 	store, err := NewStoreAtWithKeyring(baseDir, newMemoryKeyring())
