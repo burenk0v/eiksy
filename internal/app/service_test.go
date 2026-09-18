@@ -24,7 +24,7 @@ import (
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	state := service.GetShellState()
-	if len(state.Protocols) != 3 { t.Fatalf("expected 3 protocols, got %d", len(state.Protocols)) }
+	if len(state.Protocols) != 2 { t.Fatalf("expected 2 protocols, got %d", len(state.Protocols)) }
 	if state.SessionProfiles == nil { t.Fatal("expected session profiles slice") }
 	if len(state.CredentialProviders) != 0 { t.Fatalf("expected 0 credential providers, got %d", len(state.CredentialProviders)) }
 	if len(state.AI.Providers) != 2 { t.Fatalf("expected 2 ai providers, got %d", len(state.AI.Providers)) }
