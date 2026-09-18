@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"strconv"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -163,6 +164,64 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	if err := service.SaveCloudProvider("gpt-5.6", server.URL+"/v1", "saved-token"); err != nil { t.Fatalf("save cloud provider: %v", err) }
 	if _, err := service.ListCloudModels(server.URL+"/v1", ""); err != nil { t.Fatalf("list cloud models: %v", err) }
 	if !strings.HasPrefix(authHeader, "Bearer ") { t.Fatalf("expected bearer authorization header, got %q", authHeader) }
+}
+
+
+func TestListCloudModelsRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxAIModelListResponseSize+1)))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	_, err := service.ListCloudModels(server.URL, "")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
+}
+
+func TestDownloadLocalModelPreservesExistingConfigurationOnOversizedDownload(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	oldPath := filepath.Join(homeDir, ".eiksy", "models", "existing.gguf")
+	if err := os.MkdirAll(filepath.Dir(oldPath), 0o755); err != nil {
+		t.Fatalf("create model directory: %v", err)
+	}
+	if err := os.WriteFile(oldPath, []byte("existing-model"), 0o600); err != nil {
+		t.Fatalf("write existing model: %v", err)
+	}
+
+	service := NewService(memory.NewStore(), nil, nil)
+	state := service.store.AIState()
+	index := providerIndexByID(state.Providers, localAIProviderID)
+	state.Providers[index].DownloadURL = "https://old.example/existing.gguf"
+	state.Providers[index].Model = "existing"
+	state.Providers[index].LocalPath = oldPath
+	state.Providers[index].Configured = true
+	state.Providers[index].Status = "stopped"
+	if err := service.store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed local provider: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(maxAIModelDownloadSize+1, 10))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if err := service.DownloadLocalModel(server.URL + "/new-model.gguf"); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized download error, got %v", err)
+	}
+
+	after := service.store.AIState()
+	provider := after.Providers[index]
+	if provider.DownloadURL != "https://old.example/existing.gguf" || provider.LocalPath != oldPath || provider.Model != "existing" {
+		t.Fatalf("existing local model configuration changed after failed download: %+v", provider)
+	}
+	if !fileExists(oldPath) {
+		t.Fatal("existing local model was removed")
+	}
 }
 
 func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {

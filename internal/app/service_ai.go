@@ -23,6 +23,12 @@ import (
 	"eiksy/internal/securestorage"
 )
 
+const (
+	maxAIModelDownloadSize   int64 = 16 << 30
+	maxAIModelListResponseSize int64 = 1 << 20
+	maxVaultResponseSize       int64 = 1 << 20
+)
+
 func (s *Service) SelectAIProvider(providerID string) error {
 	state := s.store.AIState()
 	index := providerIndexByID(state.Providers, providerID)
@@ -135,8 +141,13 @@ func (s *Service) SaveLocalProvider(downloadURL string) error {
 }
 
 func (s *Service) DownloadLocalModel(downloadURL string) error {
-	if err := s.SaveLocalProvider(downloadURL); err != nil {
-		return err
+	downloadURL = strings.TrimSpace(downloadURL)
+	if downloadURL == "" {
+		return fmt.Errorf("model url is required")
+	}
+	parsed, err := url.Parse(downloadURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("model url must be a valid http or https url")
 	}
 
 	state := s.store.AIState()
@@ -144,7 +155,6 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	if index < 0 {
 		return fmt.Errorf("local ai provider is not available")
 	}
-	provider := state.Providers[index]
 
 	modelsDir, err := localModelsDir()
 	if err != nil {
@@ -154,11 +164,11 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 		return fmt.Errorf("create local models directory: %w", err)
 	}
 
-	filename := localModelFilenameFromURL(provider.DownloadURL)
+	filename := localModelFilenameFromURL(downloadURL)
 	targetPath := filepath.Join(modelsDir, filename)
 	tempPath := targetPath + ".part"
 
-	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, provider.DownloadURL, nil)
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return err
 	}
@@ -171,15 +181,25 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("model download returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
 	}
+	if resp.ContentLength > maxAIModelDownloadSize {
+		return fmt.Errorf("model download exceeds %d bytes", maxAIModelDownloadSize)
+	}
 
 	file, err := os.Create(tempPath)
 	if err != nil {
 		return fmt.Errorf("create model file: %w", err)
 	}
-	if _, err := io.Copy(file, resp.Body); err != nil {
+	limitedBody := io.LimitReader(resp.Body, maxAIModelDownloadSize+1)
+	written, err := io.Copy(file, limitedBody)
+	if err != nil {
 		_ = file.Close()
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("write model file: %w", err)
+	}
+	if written > maxAIModelDownloadSize {
+		_ = file.Close()
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("model download exceeds %d bytes", maxAIModelDownloadSize)
 	}
 	if err := file.Close(); err != nil {
 		_ = os.Remove(tempPath)
@@ -200,7 +220,8 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	}
 	state.Providers[index].LocalPath = targetPath
 	state.Providers[index].Endpoint = localAIEndpoint
-	state.Providers[index].Model = localModelNameFromURL(provider.DownloadURL)
+	state.Providers[index].DownloadURL = downloadURL
+	state.Providers[index].Model = localModelNameFromURL(downloadURL)
 	state.Providers[index].Configured = true
 	state.Providers[index].Status = "stopped"
 	if err := s.store.UpdateAIState(state); err != nil {
@@ -250,9 +271,12 @@ func (s *Service) ListCloudModels(endpoint, token string) ([]string, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxAIModelListResponseSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(respBody)) > maxAIModelListResponseSize {
+		return nil, fmt.Errorf("AI API model list response exceeds %d bytes", maxAIModelListResponseSize)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("AI API returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
@@ -378,7 +402,11 @@ func (s *Service) StopLocalModel() error {
 			return fmt.Errorf("stop llama-server: %w", err)
 		}
 		if done != nil {
-			_, _ = <-done
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				return fmt.Errorf("timeout waiting for llama-server to stop")
+			}
 		}
 	}
 

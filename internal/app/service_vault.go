@@ -29,9 +29,12 @@ func (s *Service) renewVaultToken(baseURL *url.URL, token string) error {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxVaultResponseSize+1))
 	if err != nil {
 		return fmt.Errorf("read vault token renewal response: %w", err)
+	}
+	if int64(len(body)) > maxVaultResponseSize {
+		return fmt.Errorf("vault token renewal response exceeds %d bytes", maxVaultResponseSize)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("vault token renewal returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
@@ -90,6 +93,9 @@ func (s *Service) loginVault(baseURL *url.URL, authMethod, login, password strin
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("read vault login response: %w", err)
+	}
+	if int64(len(body)) > maxVaultResponseSize {
+		return "", fmt.Errorf("vault login response exceeds %d bytes", maxVaultResponseSize)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("vault login returned %s: %s", resp.Status, strings.TrimSpace(string(body)))
