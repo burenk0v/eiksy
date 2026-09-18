@@ -47,11 +47,20 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	callbackState := newCloudProviderAuthSessionID()
+	sessionID := newCloudProviderAuthSessionID()
+	callbackURL, err := url.Parse(fmt.Sprintf("%s?requestFrom=CODY_CLI-%d", authURL, port))
+	if err != nil {
+		_ = listener.Close()
+		return CloudProviderAuthSession{}, fmt.Errorf("build browser authorization url: %w", err)
+	}
+	query := callbackURL.Query()
+	query.Set("state", callbackState)
+	callbackURL.RawQuery = query.Encode()
 	session := &cloudAuthSession{
 		state: CloudProviderAuthSession{
-			ID:       newCloudProviderAuthSessionID(),
+			ID:       sessionID,
 			Status:   "pending",
-			AuthURL:  fmt.Sprintf("%s?requestFrom=CODY_CLI-%d", authURL, port),
+			AuthURL:  callbackURL.String(),
 			Message:  "Waiting for browser authorization.",
 			Endpoint: endpoint,
 		},
@@ -86,15 +95,6 @@ func (s *Service) StartCloudProviderAuth(endpoint string) (CloudProviderAuthSess
 		}
 	}(session.server, listener, session.state.ID)
 
-	callbackURL, err := url.Parse(session.state.AuthURL)
-	if err != nil {
-		s.stopCloudAuthServer(session)
-		return CloudProviderAuthSession{}, fmt.Errorf("build browser authorization url: %w", err)
-	}
-	query := callbackURL.Query()
-	query.Set("state", callbackState)
-	callbackURL.RawQuery = query.Encode()
-	session.state.AuthURL = callbackURL.String()
 	return session.state, nil
 }
 
@@ -206,9 +206,9 @@ func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, messa
 	}
 
 	session = s.cloudAuth
-	if status == "completed" && s.cloudAuth.state.Status == "completed" {
+	if status == "completed" && s.cloudAuth.state.Status != "pending" {
 		s.authMu.Unlock()
-		return true
+		return s.cloudAuth.state.Status == "completed"
 	}
 
 	if status == "completed" && strings.TrimSpace(token) != "" {

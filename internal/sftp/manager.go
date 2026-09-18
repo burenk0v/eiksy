@@ -125,6 +125,13 @@ func (m *Manager) WriteFile(tabID, targetPath, content string) error {
 	if conn == nil {
 		return fmt.Errorf("sftp tab %q is not connected", tabID)
 	}
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" {
+		return fmt.Errorf("sftp target path is required")
+	}
+	if len(content) > maxSFTPTransferSize {
+		return fmt.Errorf("sftp file %q exceeds %d byte limit", targetPath, maxSFTPTransferSize)
+	}
 	file, err := conn.sftpClient.OpenFile(targetPath, os.O_WRONLY|os.O_TRUNC|os.O_CREATE)
 	if err != nil {
 		return fmt.Errorf("open sftp file %q for write: %w", targetPath, err)
@@ -339,40 +346,63 @@ func dialTarget(ctx context.Context, address string, config *xssh.ClientConfig, 
 		dialer := &net.Dialer{}
 		netConn, err := dialer.DialContext(ctx, "tcp", address)
 		if err != nil {
-			return nil, fmt.Errorf("dial sftp server: %w", err)
+			return nil, fmt.Errorf("dial sftp ssh server: %w", err)
 		}
 		return netConn, nil
 	}
-	jumpAddress, jumpUser := parseProxyJump(proxyJump, config.User)
-	jumpConfig := cloneClientConfig(config)
-	jumpConfig.User = jumpUser
-	jumpClient, err := xssh.Dial("tcp", jumpAddress, jumpConfig)
-	if err != nil {
-		return nil, fmt.Errorf("dial proxy jump %s: %w", jumpAddress, err)
+	jumps := parseProxyJumps(proxyJump, config.User)
+	if len(jumps) == 0 {
+		return nil, fmt.Errorf("proxy_jump contains no valid hosts")
 	}
-	netConn, err := jumpClient.Dial("tcp", address)
-	if err != nil {
-		_ = jumpClient.Close()
-		return nil, fmt.Errorf("dial target via proxy jump: %w", err)
+	clients := make([]*xssh.Client, 0, len(jumps))
+	closeClients := func() {
+		for i := len(clients)-1; i >= 0; i-- { _ = clients[i].Close() }
 	}
-	return &proxyConn{Conn: netConn, jumpClient: jumpClient}, nil
+	firstCfg := cloneClientConfig(config)
+	firstCfg.User = jumps[0].User
+	client, err := xssh.Dial("tcp", jumps[0].Address, firstCfg)
+	if err != nil { return nil, fmt.Errorf("dial proxy jump %s: %w", jumps[0].Address, err) }
+	clients = append(clients, client)
+	for _, jump := range jumps[1:] {
+		conn, err := clients[len(clients)-1].Dial("tcp", jump.Address)
+		if err != nil { closeClients(); return nil, fmt.Errorf("connect proxy jump %s: %w", jump.Address, err) }
+		jumpCfg := cloneClientConfig(config)
+		jumpCfg.User = jump.User
+		sshConn, chans, reqs, err := xssh.NewClientConn(conn, jump.Address, jumpCfg)
+		if err != nil { _ = conn.Close(); closeClients(); return nil, fmt.Errorf("authenticate proxy jump %s: %w", jump.Address, err) }
+		clients = append(clients, xssh.NewClient(sshConn, chans, reqs))
+	}
+	netConn, err := clients[len(clients)-1].Dial("tcp", address)
+	if err != nil { closeClients(); return nil, fmt.Errorf("dial target via proxy jump: %w", err) }
+	return &proxyConn{Conn: netConn, jumpClients: clients}, nil
 }
 
-func parseProxyJump(value, defaultUser string) (string, string) {
-	value = strings.TrimSpace(value)
-	value = strings.Split(value, ",")[0]
-	user := defaultUser
-	hostPort := value
-	if at := strings.Index(value, "@"); at > 0 {
-		user = value[:at]
-		hostPort = value[at+1:]
+type proxyJump struct {
+	Address string
+	User    string
+}
+
+func parseProxyJumps(value, defaultUser string) []proxyJump {
+	parts := strings.Split(value, ",")
+	result := make([]proxyJump, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" { continue }
+		user := defaultUser
+		hostPort := part
+		if at := strings.Index(part, "@"); at > 0 {
+			user = strings.TrimSpace(part[:at])
+			hostPort = strings.TrimSpace(part[at+1:])
+		}
+		host, port, err := net.SplitHostPort(hostPort)
+		if err != nil || host == "" {
+			host = hostPort
+			port = "22"
+		}
+		if host == "" { continue }
+		result = append(result, proxyJump{Address: net.JoinHostPort(host, port), User: user})
 	}
-	host, port, err := net.SplitHostPort(hostPort)
-	if err != nil || host == "" {
-		host = hostPort
-		port = "22"
-	}
-	return net.JoinHostPort(host, port), user
+	return result
 }
 
 func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
@@ -380,22 +410,20 @@ func cloneClientConfig(config *xssh.ClientConfig) *xssh.ClientConfig {
 	clone.Auth = append([]xssh.AuthMethod(nil), config.Auth...)
 	return &clone
 }
+
 func optionValue(options map[string]string, key string) string {
-	if options == nil {
-		return ""
-	}
+	if options == nil { return "" }
 	return options[key]
 }
 
 type proxyConn struct {
 	net.Conn
-	jumpClient *xssh.Client
+	jumpClients []*xssh.Client
 }
 
 func (c *proxyConn) Close() error {
-	_ = c.Conn.Close()
-	if c.jumpClient != nil {
-		return c.jumpClient.Close()
-	}
-	return nil
+	connErr := c.Conn.Close()
+	for i := len(c.jumpClients)-1; i >= 0; i-- { _ = c.jumpClients[i].Close() }
+	return connErr
 }
+

@@ -28,6 +28,9 @@ var sensitiveCommandPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key|authorization)\s*=\s*[^\s]+`),
 	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key)\s+[^\s]+`),
 	regexp.MustCompile(`(?i)(authorization\s*:\s*(?:bearer|basic)\s+)[^\s'\"]+`),
+	regexp.MustCompile(`(?i)(--?(?:password|passwd|token|secret|api[-_]?key|authorization))(?:[=\s]+)[^\s]+`),
+	regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API_KEY|AUTHORIZATION)[A-Za-z0-9_]*)\s*=\s*[^\s]+`),
+	regexp.MustCompile(`(?i)(https?://[^\s/@:]+):[^\s/@]+@`),
 }
 
 func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecision, approval, result string, exitCode int, durationMs int64, extra ai.CommandAuditEvent) {

@@ -11,11 +11,14 @@ import (
 )
 
 // ClearChat removes all messages from the AI chat history.
-func (s *Service) ClearChat() {
+func (s *Service) ClearChat() error {
 	state := s.store.AIState()
 	state.Messages = []ai.ChatMessage{}
 	state.ChatSessionID = fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano())
-	s.store.UpdateAIState(state)
+	if err := s.store.UpdateAIState(state); err != nil {
+		return fmt.Errorf("clear AI chat: %w", err)
+	}
+	return nil
 }
 
 func (s *Service) UpdateCommandPolicy(policy ai.CommandPolicy) error {
@@ -75,6 +78,14 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	}
 	if !commandToolEnabled(policy, request.ToolID) {
 		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
+	}
+	if _, ok := s.runtimeTab(request.SessionID); !ok {
+		removePending()
+		state.CommandPolicy = policy
+		if err := s.store.UpdateAIState(state); err != nil {
+			return fmt.Errorf("persist stale command request cleanup: %w", err)
+		}
+		return fmt.Errorf("active session %q not found", request.SessionID)
 	}
 	decision, reason := evaluateCommandPolicy(policy, request.ToolID, request.SessionID, request.Command)
 	if decision == commandPolicyDecisionDeny {
