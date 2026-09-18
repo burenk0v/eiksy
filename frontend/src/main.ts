@@ -1035,10 +1035,6 @@ class EiksyShell {
           });
         });
       });
-        });
-      });
-        });
-      });
     root
       ?.querySelectorAll<HTMLButtonElement>("[data-command-request-action]")
       .forEach((button) => {
