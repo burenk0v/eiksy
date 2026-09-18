@@ -135,8 +135,13 @@ func (s *Service) SaveLocalProvider(downloadURL string) error {
 }
 
 func (s *Service) DownloadLocalModel(downloadURL string) error {
-	if err := s.SaveLocalProvider(downloadURL); err != nil {
-		return err
+	downloadURL = strings.TrimSpace(downloadURL)
+	if downloadURL == "" {
+		return fmt.Errorf("model url is required")
+	}
+	parsed, err := url.Parse(downloadURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return fmt.Errorf("model url must be a valid http or https url")
 	}
 
 	state := s.store.AIState()
@@ -154,11 +159,11 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 		return fmt.Errorf("create local models directory: %w", err)
 	}
 
-	filename := localModelFilenameFromURL(provider.DownloadURL)
+	filename := localModelFilenameFromURL(downloadURL)
 	targetPath := filepath.Join(modelsDir, filename)
 	tempPath := targetPath + ".part"
 
-	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, provider.DownloadURL, nil)
+	req, err := http.NewRequestWithContext(s.resolveContext(nil), http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return err
 	}
@@ -170,6 +175,9 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("model download returned %s: %s", resp.Status, strings.TrimSpace(string(respBody)))
+	}
+	if resp.ContentLength > maxAIModelDownloadSize {
+		return fmt.Errorf("model download exceeds %d bytes", maxAIModelDownloadSize)
 	}
 
 	file, err := os.Create(tempPath)
@@ -207,7 +215,8 @@ func (s *Service) DownloadLocalModel(downloadURL string) error {
 	}
 	state.Providers[index].LocalPath = targetPath
 	state.Providers[index].Endpoint = localAIEndpoint
-	state.Providers[index].Model = localModelNameFromURL(provider.DownloadURL)
+	state.Providers[index].DownloadURL = downloadURL
+	state.Providers[index].Model = localModelNameFromURL(downloadURL)
 	state.Providers[index].Configured = true
 	state.Providers[index].Status = "stopped"
 	if err := s.store.UpdateAIState(state); err != nil {
