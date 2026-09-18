@@ -407,8 +407,7 @@ func TestExecuteCommandUsesExistingConnectedSession(t *testing.T) {
 	if !result.Success || result.ExitCode != 0 {
 		t.Fatalf("unexpected command result: %+v", result)
 	}
-	if len(ssh.inputs) != 1 || ssh.inputs[0].tabID != "session-1" || ssh.inputs[0].payload != "uname -a
-" {
+	if len(ssh.inputs) != 1 || ssh.inputs[0].tabID != "session-1" || ssh.inputs[0].payload != "uname -a\n" {
 		t.Fatalf("unexpected command dispatch: %+v", ssh.inputs)
 	}
 }
