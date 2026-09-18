@@ -1,13 +1,13 @@
 module eiksy
 
-go 1.25.13
+go 1.26.8
 
 require (
 	github.com/pkg/sftp v1.13.11
 	github.com/tobischo/gokeepasslib/v3 v3.7.0
 	github.com/wailsapp/wails/v2 v2.14.0
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/crypto v0.55.0
+	golang.org/x/crypto v0.56.0
 	modernc.org/sqlite v1.58.0
 )
 
