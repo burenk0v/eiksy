@@ -374,6 +374,45 @@ func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
 func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
 
 
+
+func TestExecuteCommandRequiresConnectedSession(t *testing.T) {
+	store := memory.NewStore()
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "disconnected"})
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	result, err := service.ExecuteCommand("session-1", "uname -a")
+	if err == nil || !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("expected disconnected-session error, got %v", err)
+	}
+	if result.ErrorType != sessions.CommandExecutionErrorConnection {
+		t.Fatalf("expected connection error type, got %q", result.ErrorType)
+	}
+	if len(ssh.inputs) != 0 {
+		t.Fatalf("command must not be dispatched for disconnected session, got %+v", ssh.inputs)
+	}
+}
+
+func TestExecuteCommandUsesExistingConnectedSession(t *testing.T) {
+	store := memory.NewStore()
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	result, err := service.ExecuteCommand("session-1", "uname -a")
+	if err != nil {
+		t.Fatalf("execute command: %v", err)
+	}
+	if !result.Success || result.ExitCode != 0 {
+		t.Fatalf("unexpected command result: %+v", result)
+	}
+	if len(ssh.inputs) != 1 || ssh.inputs[0].tabID != "session-1" || ssh.inputs[0].payload != "uname -a
+" {
+		t.Fatalf("unexpected command dispatch: %+v", ssh.inputs)
+	}
+}
+
+
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
 	store := memory.NewStore()
 	service := NewService(store, nil, nil)
