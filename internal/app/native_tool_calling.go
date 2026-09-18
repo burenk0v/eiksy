@@ -179,11 +179,15 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 	args.SessionID = strings.TrimSpace(args.SessionID)
 	args.Command = strings.TrimSpace(args.Command)
 	args.Reason = strings.TrimSpace(args.Reason)
+	activeSessionID = strings.TrimSpace(activeSessionID)
 	if args.SessionID == "" {
-		args.SessionID = strings.TrimSpace(activeSessionID)
+		args.SessionID = activeSessionID
 	}
 	if args.SessionID == "" || args.Command == "" {
 		return `{"error":{"type":"invalid_request","message":"sessionId and command are required"}}`, false, nil
+	}
+	if activeSessionID != "" && args.SessionID != activeSessionID {
+		return marshalNativeToolError("sessionId %q does not match the active Eiksy session %q", args.SessionID, activeSessionID), false, nil
 	}
 
 	decision, reason := evaluateCommandPolicy(policy, nativeSSHExecPolicyToolID, args.SessionID, args.Command)
