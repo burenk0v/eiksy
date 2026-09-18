@@ -397,7 +397,11 @@ func (s *Service) StopLocalModel() error {
 			return fmt.Errorf("stop llama-server: %w", err)
 		}
 		if done != nil {
-			_, _ = <-done
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				return fmt.Errorf("timeout waiting for llama-server to stop")
+			}
 		}
 	}
 
