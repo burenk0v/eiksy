@@ -38,6 +38,7 @@ type Store struct {
 	launchHistory       []sessions.HistoryEntry
 	credentialProviders []credentials.ProviderDescriptor
 	aiState             ai.WorkspaceState
+	legacyAIChatHistory []ai.ChatMessage
 	settings            settings.AppSettings
 	workspaceLayout     workspace.Layout
 	events              []workspace.Event
@@ -51,6 +52,7 @@ type persistedSettings struct {
 }
 
 type persistedAIWorkspaceState struct {
+	LegacyMessages []ai.ChatMessage `json:"messages,omitempty"`
 	Providers     []persistedAIProviderDescriptor `json:"providers"`
 	ContextPolicy ai.ContextPolicy                `json:"contextPolicy"`
 	CommandPolicy ai.CommandPolicy                `json:"commandPolicy"`
@@ -450,6 +452,7 @@ func (s *Store) loadSettings() error {
 	s.settings = loaded
 	if persisted.AIState != nil {
 		s.aiState = aiStateFromPersisted(*persisted.AIState)
+		s.legacyAIChatHistory = append([]ai.ChatMessage(nil), persisted.AIState.LegacyMessages...)
 	}
 	if history, err := s.loadAIChatHistory(); err != nil {
 		return err
@@ -584,6 +587,20 @@ func (s *Store) EnsureMasterPassword(password string) error {
 	s.settings.HasVaultToken = s.secretManager.SecretExists(securestorage.VaultTokenKey())
 	s.settings.HasKeePassPassword = s.secretManager.SecretExists(securestorage.KeePassPasswordKey())
 	s.settings.HasVaultPassword = s.secretManager.SecretExists(securestorage.VaultPasswordKey())
+	if history, err := s.loadAIChatHistory(); err != nil {
+		return err
+	} else if history != nil {
+		s.aiState.Messages = history
+	} else if s.legacyAIChatHistory != nil {
+		if err := s.persistAIChatHistoryLocked(s.legacyAIChatHistory); err != nil {
+			return err
+		}
+		s.aiState.Messages = append([]ai.ChatMessage(nil), s.legacyAIChatHistory...)
+		s.legacyAIChatHistory = nil
+		if err := s.saveSettings(); err != nil {
+			return err
+		}
+	}
 	for id, profile := range s.sessionProfiles {
 		profile.HasPassword = s.secretManager.SecretExists(securestorage.SessionPasswordKey(id))
 		profile.HasKeyPassphrase = s.secretManager.SecretExists(securestorage.SessionKeyPassphraseKey(id))
