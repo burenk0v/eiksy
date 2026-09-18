@@ -70,8 +70,6 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	updated.HasKeePassPassword = s.store.SecretExists(securestorage.KeePassPasswordKey())
 	updated.HasVaultToken = s.store.SecretExists(securestorage.VaultTokenKey())
 	updated.HasVaultPassword = s.store.SecretExists(securestorage.VaultPasswordKey())
-	updated.SSHForwardPorts = sanitizeForwardPorts(updated.SSHForwardPorts)
-	updated.SSHForwardHostID = strings.TrimSpace(updated.SSHForwardHostID)
 	updated.PortForwardRules = normalizeForwardRules(updated.PortForwardRules)
 	return s.store.UpdateSettings(updated)
 }

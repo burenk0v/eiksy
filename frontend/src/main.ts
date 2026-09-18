@@ -64,8 +64,7 @@ type SessionProfile = sessions.ProfileInput;
 type AIProvider = aiModels.ProviderDescriptor;
 type CommandPolicyState = {
   tools: aiModels.CommandTool[];
-  allowedTools: string[];
-  sessionAllowedTools?: Record<string, string[]>;
+  commandRules: aiModels.CommandRule[];
   pendingRequests: aiModels.CommandRequest[];
   localDocsPath?: string;
 };
@@ -124,7 +123,6 @@ type VaultAuthMethod = "token" | "oidc" | "oidc-sec" | "domain";
 type CommandPolicyTab = "access" | "tools" | "settings";
 
 type PortForwardRule = {
-  ports?: string;
   localPort: string;
   remoteHost: string;
   remotePort: string;
@@ -170,13 +168,9 @@ type HostKeyDialogState = {
 };
 
 const THEME_KEY = "eiksy-theme";
-const LEGACY_THEME_KEY = "opsy-theme";
 const SIDEBAR_COLLAPSED_KEY = "eiksy-sidebar-collapsed";
-const LEGACY_SIDEBAR_COLLAPSED_KEY = "opsy-sidebar-collapsed";
 const ASSISTANT_COLLAPSED_KEY = "eiksy-assistant-collapsed";
-const LEGACY_ASSISTANT_COLLAPSED_KEY = "opsy-assistant-collapsed";
 const SESSION_INNER_TABS_KEY = "eiksy-session-inner-tabs";
-const LEGACY_SESSION_INNER_TABS_KEY = "opsy-session-inner-tabs";
 const THEMES: Theme[] = ["dark", "light", "green"];
 const APP_METADATA = {
   name: "Eiksy",
@@ -206,7 +200,6 @@ class EiksyShell {
   private showSettingsModal = false;
   private settingsTab: SettingsTab = "ai";
   private commandPolicyTab: CommandPolicyTab = "access";
-  private commandPolicySessionId = "";
   private sessionInnerTab: SessionInnerTab = "console";
   private sessionForm: SessionFormState = this.defaultSessionForm();
   private sidebarCollapsed = false;
@@ -295,35 +288,15 @@ class EiksyShell {
   private showSidebarActionsMenu = false;
 
   constructor() {
-    const saved = this.readStoredValue(THEME_KEY, LEGACY_THEME_KEY);
+    const saved = localStorage.getItem(THEME_KEY);
     this.theme = isTheme(saved) ? saved : "dark";
     this.sidebarCollapsed =
-      this.readStoredValue(
-        SIDEBAR_COLLAPSED_KEY,
-        LEGACY_SIDEBAR_COLLAPSED_KEY,
-      ) === "true";
+      localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
     this.assistantCollapsed =
-      this.readStoredValue(
-        ASSISTANT_COLLAPSED_KEY,
-        LEGACY_ASSISTANT_COLLAPSED_KEY,
-      ) === "true";
+      localStorage.getItem(ASSISTANT_COLLAPSED_KEY) === "true";
     this.sessionInnerTabs = this.loadStoredSessionInnerTabs();
     this.applyTheme();
     this.applyFavicon();
-  }
-
-  private readStoredValue(key: string, legacyKey?: string): string | null {
-    const currentValue = localStorage.getItem(key);
-    if (currentValue !== null || !legacyKey) {
-      return currentValue;
-    }
-
-    const legacyValue = localStorage.getItem(legacyKey);
-    if (legacyValue !== null) {
-      localStorage.setItem(key, legacyValue);
-      localStorage.removeItem(legacyKey);
-    }
-    return legacyValue;
   }
 
   private applyTheme(): void {
@@ -541,7 +514,6 @@ class EiksyShell {
             (button.dataset.openSettingsTab as SettingsTab) ?? "ai";
           if (this.settingsTab === "commandpolicy") {
             this.commandPolicyTab = "access";
-            this.commandPolicySessionId = this.activeTab()?.id ?? "";
           }
           this.showSettingsModal = true;
           this.initializeSettingsDrafts();
@@ -1051,14 +1023,6 @@ class EiksyShell {
         });
       });
     root
-      ?.querySelector<HTMLSelectElement>("[data-command-policy-session]")
-      ?.addEventListener("change", (event) => {
-        this.commandPolicySessionId = (
-          event.currentTarget as HTMLSelectElement
-        ).value;
-        this.render();
-      });
-    root
       ?.querySelectorAll<HTMLInputElement>("[data-command-tool-enabled]")
       .forEach((input) => {
         input.addEventListener("change", async () => {
@@ -1068,45 +1032,6 @@ class EiksyShell {
             policy.tools = policy.tools.map((tool) =>
               tool.id === toolID ? { ...tool, enabled: input.checked } : tool,
             );
-          });
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLInputElement>("[data-command-tool-global]")
-      .forEach((input) => {
-        input.addEventListener("change", async () => {
-          const toolID = input.dataset.commandToolGlobal;
-          if (!toolID) return;
-          await this.persistCommandPolicy((policy) => {
-            const allowed = new Set(policy.allowedTools ?? []);
-            if (input.checked) {
-              allowed.add(toolID);
-            } else {
-              allowed.delete(toolID);
-            }
-            policy.allowedTools = Array.from(allowed);
-          });
-        });
-      });
-    root
-      ?.querySelectorAll<HTMLInputElement>("[data-command-tool-session]")
-      .forEach((input) => {
-        input.addEventListener("change", async () => {
-          const toolID = input.dataset.commandToolSession;
-          const sessionID =
-            this.commandPolicySessionId || this.activeTab()?.id || "";
-          if (!toolID || !sessionID) return;
-          await this.persistCommandPolicy((policy) => {
-            const existing = new Set(
-              policy.sessionAllowedTools?.[sessionID] ?? [],
-            );
-            if (input.checked) {
-              existing.add(toolID);
-            } else {
-              existing.delete(toolID);
-            }
-            policy.sessionAllowedTools = policy.sessionAllowedTools ?? {};
-            policy.sessionAllowedTools[sessionID] = Array.from(existing);
           });
         });
       });
@@ -2472,7 +2397,6 @@ class EiksyShell {
 
     this.cloudAuthMessage = session.message || "";
     if (session.status === "completed") {
-      this.cloudDraftToken = session.token || "";
       this.cloudAuthPending = false;
       this.clearCloudAuthPolling();
       this.cloudAuthMessage =
@@ -2637,7 +2561,7 @@ class EiksyShell {
                   .map(
                     (rule, idx) => `
                     <div class="pf-rule ${rule.enabled ? "pf-rule-enabled" : "pf-rule-disabled"}">
-                        <span class="pf-rule-ports">${escapeHtml(rule.localPort || rule.ports || "")}</span>
+                        <span class="pf-rule-ports">${escapeHtml(rule.localPort || "")}</span>
                         <span class="pf-rule-arrow">→</span>
                         <span class="pf-rule-host">${escapeHtml(rule.remoteHost)}:${escapeHtml(rule.remotePort)} via ${escapeHtml(profileName(rule.hostId))}</span>
                         <span class="pf-rule-spacer"></span>
@@ -2669,19 +2593,6 @@ class EiksyShell {
 
   private renderCommandPolicyPanel(): string {
     const policy = this.commandPolicy();
-    const activeSessionID = this.activeTab()?.id ?? "";
-    const selectedSessionID =
-      this.commandPolicySessionId ||
-      activeSessionID ||
-      this.shellState?.activeSessions[0]?.id ||
-      "";
-    const selectedSessionName =
-      (this.shellState?.activeSessions ?? []).find(
-        (session) => session.id === selectedSessionID,
-      )?.title ?? selectedSessionID;
-    const sessionTools = selectedSessionID
-      ? (policy.sessionAllowedTools?.[selectedSessionID] ?? [])
-      : [];
     const pendingRows =
       policy.pendingRequests.length === 0
         ? '<div class="empty-state" style="padding:0.75rem 0;">No pending permission requests.</div>'
@@ -2713,8 +2624,6 @@ class EiksyShell {
                 </div>
                 <div class="provider-form-actions">
                     <label class="inline-check"><span>Enabled</span><input type="checkbox" data-command-tool-enabled="${escapeHtml(tool.id)}" ${tool.enabled ? "checked" : ""} /></label>
-                    <label class="inline-check"><span>Always allow</span><input type="checkbox" data-command-tool-global="${escapeHtml(tool.id)}" ${policy.allowedTools.includes(tool.id) ? "checked" : ""} /></label>
-                    ${selectedSessionID ? `<label class="inline-check"><span>Allow in session</span><input type="checkbox" data-command-tool-session="${escapeHtml(tool.id)}" ${sessionTools.includes(tool.id) ? "checked" : ""} /></label>` : ""}
                 </div>
             </div>
         `,
@@ -2723,18 +2632,8 @@ class EiksyShell {
     const panelByTab: Record<CommandPolicyTab, string> = {
       access: `
                 <div class="section-title">Access control</div>
-                <div class="section-copy">Pending model requests and manual permissions.</div>
+                <div class="section-copy">Pending model requests are resolved explicitly and become command rules.</div>
                 ${pendingRows}
-                <div class="section-title">Session scope</div>
-                <label>
-                    <span>Session</span>
-                    <select data-command-policy-session>
-                        <option value="">Select active session</option>
-                        ${(this.shellState?.activeSessions ?? []).map((session) => `<option value="${escapeHtml(session.id)}" ${session.id === selectedSessionID ? "selected" : ""}>${escapeHtml(session.title)}</option>`).join("")}
-                    </select>
-                </label>
-                <div class="section-copy">${selectedSessionID ? `Selected session: ${escapeHtml(selectedSessionName)}` : "Open an SSH session to use per-session permissions."}</div>
-                <div>${toolRows || '<div class="empty-state" style="padding:0.75rem 0;">No tools configured.</div>'}</div>
             `,
       tools: `
                 <div class="section-title">Tools</div>
@@ -3131,10 +3030,7 @@ class EiksyShell {
 
   private loadStoredSessionInnerTabs(): Map<string, SessionInnerTab> {
     try {
-      const stored = this.readStoredValue(
-        SESSION_INNER_TABS_KEY,
-        LEGACY_SESSION_INNER_TABS_KEY,
-      );
+      const stored = localStorage.getItem(SESSION_INNER_TABS_KEY);
       if (!stored) {
         return new Map<string, SessionInnerTab>();
       }
@@ -3264,13 +3160,12 @@ class EiksyShell {
     const raw = this.shellState?.ai.commandPolicy as
       aiModels.CommandPolicy | undefined;
     const tools = Array.isArray(raw?.tools) ? raw.tools : [];
-    const allowedTools = Array.isArray(raw?.allowedTools)
-      ? raw.allowedTools
+    const commandRules = Array.isArray(raw?.commandRules)
+      ? raw.commandRules
       : [];
     const pendingRequests = Array.isArray(raw?.pendingRequests)
       ? raw.pendingRequests
       : [];
-    const sessionAllowedTools = raw?.sessionAllowedTools ?? {};
     return {
       tools: tools.map((tool) => ({
         id: tool.id ?? "",
@@ -3278,13 +3173,13 @@ class EiksyShell {
         description: tool.description ?? "",
         enabled: Boolean(tool.enabled),
       })),
-      allowedTools: [...allowedTools],
-      sessionAllowedTools: Object.fromEntries(
-        Object.entries(sessionAllowedTools).map(([key, value]) => [
-          key,
-          Array.isArray(value) ? [...value] : [],
-        ]),
-      ),
+      commandRules: commandRules.map((rule) => ({
+        toolId: rule.toolId ?? "",
+        sessionId: rule.sessionId ?? "",
+        pattern: rule.pattern ?? "",
+        action: rule.action ?? "ask",
+        description: rule.description ?? "",
+      })),
       pendingRequests: pendingRequests.map((request) => ({
         id: request.id ?? "",
         toolId: request.toolId ?? "",

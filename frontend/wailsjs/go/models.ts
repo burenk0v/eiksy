@@ -70,10 +70,29 @@ export namespace ai {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class CommandRule {
+	    toolId?: string;
+	    sessionId?: string;
+	    pattern: string;
+	    action: string;
+	    description?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CommandRule(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.toolId = source["toolId"];
+	        this.sessionId = source["sessionId"];
+	        this.pattern = source["pattern"];
+	        this.action = source["action"];
+	        this.description = source["description"];
+	    }
+	}
 	export class CommandPolicy {
 	    tools: CommandTool[];
-	    allowedTools: string[];
-	    sessionAllowedTools?: {[key: string]: string[]};
+	    commandRules: CommandRule[];
 	    pendingRequests: CommandRequest[];
 	    localDocsPath?: string;
 	
@@ -84,8 +103,7 @@ export namespace ai {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tools = this.convertValues(source["tools"], CommandTool);
-	        this.allowedTools = source["allowedTools"];
-	        this.sessionAllowedTools = source["sessionAllowedTools"];
+	        this.commandRules = this.convertValues(source["commandRules"], CommandRule);
 	        this.pendingRequests = this.convertValues(source["pendingRequests"], CommandRequest);
 	        this.localDocsPath = source["localDocsPath"];
 	    }
@@ -187,7 +205,6 @@ export namespace app {
 	    id: string;
 	    status: string;
 	    authUrl?: string;
-	    token?: string;
 	    message?: string;
 	    endpoint?: string;
 	
@@ -200,7 +217,6 @@ export namespace app {
 	        this.id = source["id"];
 	        this.status = source["status"];
 	        this.authUrl = source["authUrl"];
-	        this.token = source["token"];
 	        this.message = source["message"];
 	        this.endpoint = source["endpoint"];
 	    }
@@ -504,7 +520,6 @@ export namespace settings {
 	    }
 	}
 	export class PortForwardRule {
-	    ports: string;
 	    localPort: string;
 	    remoteHost: string;
 	    remotePort: string;
@@ -517,7 +532,6 @@ export namespace settings {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ports = source["ports"];
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
@@ -531,8 +545,6 @@ export namespace settings {
 	    windowLayout: WindowLayout;
 	    promptBeforeAi: boolean;
 	    allowCloudModels: boolean;
-	    sshForwardPorts: string;
-	    sshForwardHostId: string;
 	    portForwardRules: PortForwardRule[];
 	    sshConfigAutoLoaded: boolean;
 	    vaultAddress: string;
@@ -560,8 +572,6 @@ export namespace settings {
 	        this.windowLayout = this.convertValues(source["windowLayout"], WindowLayout);
 	        this.promptBeforeAi = source["promptBeforeAi"];
 	        this.allowCloudModels = source["allowCloudModels"];
-	        this.sshForwardPorts = source["sshForwardPorts"];
-	        this.sshForwardHostId = source["sshForwardHostId"];
 	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
 	        this.sshConfigAutoLoaded = source["sshConfigAutoLoaded"];
 	        this.vaultAddress = source["vaultAddress"];

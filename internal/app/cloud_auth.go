@@ -12,6 +12,9 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"eiksy/internal/domain/ai"
+	"eiksy/internal/securestorage"
 )
 
 const cloudAuthSessionTimeout = 5 * time.Minute
@@ -203,16 +206,25 @@ func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, messa
 	}
 
 	session = s.cloudAuth
-	if status == "completed" && s.cloudAuth.state.Status == "completed" && s.cloudAuth.state.Token != "" {
+	if status == "completed" && s.cloudAuth.state.Status == "completed" {
 		s.authMu.Unlock()
 		return true
 	}
 
+	if status == "completed" && strings.TrimSpace(token) != "" {
+		state := s.store.AIState()
+		index := providerIndexByClass(state.Providers, ai.ProviderClassOpenAICompatible)
+		if index < 0 {
+			s.authMu.Unlock()
+			return false
+		}
+		if err := s.store.StoreSecret(securestorage.AIProviderTokenKey(state.Providers[index].ID), strings.TrimSpace(token)); err != nil {
+			s.authMu.Unlock()
+			return false
+		}
+	}
 	s.cloudAuth.state.Status = status
 	s.cloudAuth.state.Message = message
-	if token != "" {
-		s.cloudAuth.state.Token = token
-	}
 	if session.timer != nil {
 		session.timer.Stop()
 		session.timer = nil

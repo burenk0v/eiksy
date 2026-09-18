@@ -22,7 +22,6 @@ func (m *structuredToolSSHManager) Disconnect(string) error { return nil }
 func (m *structuredToolSSHManager) SetOutputHandler(string, func(string)) {}
 func (m *structuredToolSSHManager) GetCurrentDir(string) (string, error) { return ".", nil }
 func (m *structuredToolSSHManager) AcceptHostKey(string) error { return nil }
-func (m *structuredToolSSHManager) ExecCommand(string, string) (string, error) { return "legacy", nil }
 func (m *structuredToolSSHManager) ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error) {
 	return sessions.CommandExecutionResult{
 		Success:    true,

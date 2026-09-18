@@ -82,8 +82,6 @@ type PendingNativeToolCall struct {
 
 type CommandPolicy struct {
 	Tools               []CommandTool       `json:"tools"`
-	AllowedTools        []string            `json:"allowedTools"`
-	SessionAllowedTools map[string][]string `json:"sessionAllowedTools,omitempty"`
 	CommandRules        []CommandRule       `json:"commandRules,omitempty"`
 	PendingRequests     []CommandRequest    `json:"pendingRequests"`
 	LocalDocsPath       string              `json:"localDocsPath,omitempty"`

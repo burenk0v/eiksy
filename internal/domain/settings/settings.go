@@ -13,7 +13,6 @@ const (
 
 // PortForwardRule describes a single SSH local-port-forwarding rule.
 type PortForwardRule struct {
-	Ports      string `json:"ports"` // legacy field for backward compatibility
 	LocalPort  string `json:"localPort"`
 	RemoteHost string `json:"remoteHost"`
 	RemotePort string `json:"remotePort"`
@@ -27,8 +26,6 @@ type AppSettings struct {
 	WindowLayout        WindowLayout      `json:"windowLayout"`
 	PromptBeforeAI      bool              `json:"promptBeforeAi"`
 	AllowCloudModels    bool              `json:"allowCloudModels"`
-	SSHForwardPorts     string            `json:"sshForwardPorts"`
-	SSHForwardHostID    string            `json:"sshForwardHostId"`
 	PortForwardRules    []PortForwardRule `json:"portForwardRules"`
 	SSHConfigAutoLoaded bool              `json:"sshConfigAutoLoaded"`
 	VaultAddress        string            `json:"vaultAddress"`

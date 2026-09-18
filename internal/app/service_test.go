@@ -191,7 +191,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "browser-token" { t.Fatalf("expected received token to be returned, got %q", completed.Token) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", storedToken) }
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
@@ -203,7 +203,7 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "posted-token" { t.Fatalf("expected posted token to be returned, got %q", completed.Token) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", storedToken) }
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
@@ -221,12 +221,6 @@ func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testin
 	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending requests to be cleared, got %d", len(updated.CommandPolicy.PendingRequests)) }
 	if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "uname -a", ai.CommandPermissionAllow) { t.Fatalf("expected exact shell command grant for session %s", tab.ID) }
 	if len(ssh.inputs) != 1 { t.Fatalf("expected exactly one command dispatch, got %d", len(ssh.inputs)) }; if ssh.inputs[0].tabID != tab.ID { t.Fatalf("expected command to run in tab %s, got %s", tab.ID, ssh.inputs[0].tabID) }; if ssh.inputs[0].payload != "uname -a\n" { t.Fatalf("unexpected command payload %q", ssh.inputs[0].payload) }
-}
-
-func TestUpdateCommandPolicyNormalizesState(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil); policy := ai.CommandPolicy{Tools: []ai.CommandTool{{ID: " shell ", Name: "Shell", Enabled: true}, {ID: "custom-tool", Name: "Custom", Enabled: true}}, AllowedTools: []string{"SHELL", " ", "custom-tool", "shell"}, SessionAllowedTools: map[string][]string{" tab-1 ": []string{"SHELL", "custom-tool", "shell"}}, PendingRequests: []ai.CommandRequest{{ID: " req-1 ", ToolID: " SHELL ", SessionID: " tab-1 ", Command: "  ls -la  "}, {ID: "req-empty-command", ToolID: "shell", SessionID: "tab-1", Command: "   "}}, LocalDocsPath: " /tmp/docs "}
-	if err := service.UpdateCommandPolicy(policy); err != nil { t.Fatalf("update command policy: %v", err) }; state := service.GetShellState()
-	if state.AI.CommandPolicy.LocalDocsPath != "/tmp/docs" { t.Fatalf("expected docs path to be trimmed, got %q", state.AI.CommandPolicy.LocalDocsPath) }; if !slices.Contains(state.AI.CommandPolicy.AllowedTools, "shell") { t.Fatal("expected shell in normalized allowed tools") }; if len(state.AI.CommandPolicy.SessionAllowedTools["tab-1"]) == 0 { t.Fatal("expected normalized per-session tools for tab-1") }; if _, exists := state.AI.CommandPolicy.SessionAllowedTools[" tab-1 "]; exists { t.Fatal("expected spaced session key to be normalized") }; if len(state.AI.CommandPolicy.PendingRequests) != 1 { t.Fatalf("expected only valid pending requests after normalization, got %d", len(state.AI.CommandPolicy.PendingRequests)) }; if state.AI.CommandPolicy.PendingRequests[0].Command != "ls -la" { t.Fatalf("expected pending command to be trimmed, got %q", state.AI.CommandPolicy.PendingRequests[0].Command) }
 }
 
 func TestResolveCommandPolicyRequestPersistsAlwaysGrantOnExecutionFailure(t *testing.T) {
@@ -279,6 +273,7 @@ func (m *recordingSSHManager) Disconnect(string) error { return nil }
 func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
+func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
 
 
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {

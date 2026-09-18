@@ -38,23 +38,6 @@ type ProfileInput struct {
 	LastLaunchedAt string            `json:"lastLaunchedAt,omitempty"`
 }
 
-func (p ProfileInput) ToProfile() Profile {
-	return Profile{
-		ID:             p.ID,
-		Name:           p.Name,
-		Group:          p.Group,
-		Tags:           p.Tags,
-		Favorite:       p.Favorite,
-		ProtocolID:     p.ProtocolID,
-		Host:           p.Host,
-		Port:           p.Port,
-		Username:       p.Username,
-		SecretRef:      p.SecretRef,
-		Options:        p.Options,
-		LastLaunchedAt: p.LastLaunchedAt,
-	}
-}
-
 type HistoryEntry struct {
 	ProfileID   string `json:"profileId"`
 	ProfileName string `json:"profileName"`

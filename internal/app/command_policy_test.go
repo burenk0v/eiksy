@@ -28,7 +28,6 @@ func TestEvaluateCommandPolicyDefaultRules(t *testing.T) {
 	policy := ai.CommandPolicy{
 		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
 		CommandRules: defaultCommandRules(),
-		AllowedTools: []string{"shell"},
 	}
 
 	tests := []struct {
@@ -57,7 +56,6 @@ func TestEvaluateCommandPolicyRejectsShellComposition(t *testing.T) {
 	policy := ai.CommandPolicy{
 		Tools:        []ai.CommandTool{{ID: "shell", Enabled: true}},
 		CommandRules: []ai.CommandRule{{Pattern: "ls *", Action: ai.CommandPermissionAllow}},
-		AllowedTools: []string{"shell"},
 	}
 
 	for _, command := range []string{

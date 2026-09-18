@@ -1,7 +1,5 @@
 package protocols
 
-import "context"
-
 type Capability string
 
 const (
@@ -35,8 +33,3 @@ type RuntimeSession struct {
 	DisplayName string `json:"displayName"`
 }
 
-type Provider interface {
-	Descriptor() Descriptor
-	Open(context.Context, ConnectionSpec) (RuntimeSession, error)
-	Close(context.Context, string) error
-}

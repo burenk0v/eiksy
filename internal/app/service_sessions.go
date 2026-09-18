@@ -440,9 +440,7 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 	}
 	cfg := s.store.Settings()
 
-	// Build the combined list of active rules from PortForwardRules.
-	// Fall back to the legacy SSHForwardPorts/SSHForwardHostID fields when
-	// no explicit rules are configured so that existing settings keep working.
+	// Build the active forwarding rules from PortForwardRules.
 	type ruleEntry struct {
 		localPorts string
 		remoteHost string
@@ -455,21 +453,11 @@ func (s *Service) applySSHForwardingSettings(profile sessions.Profile) sessions.
 			continue
 		}
 		p := strings.TrimSpace(r.LocalPort)
-		if p == "" {
-			p = strings.TrimSpace(r.Ports)
-		}
 		rh := strings.TrimSpace(r.RemoteHost)
 		rp := strings.TrimSpace(r.RemotePort)
 		h := strings.TrimSpace(r.HostID)
 		if p != "" && h != "" && rh != "" {
 			rules = append(rules, ruleEntry{localPorts: p, remoteHost: rh, remotePort: rp, hostID: h})
-		}
-	}
-	if len(rules) == 0 {
-		legacyPorts := strings.TrimSpace(cfg.SSHForwardPorts)
-		legacyHostID := strings.TrimSpace(cfg.SSHForwardHostID)
-		if legacyPorts != "" && legacyHostID != "" {
-			rules = append(rules, ruleEntry{localPorts: legacyPorts, remoteHost: "", remotePort: "", hostID: legacyHostID})
 		}
 	}
 	if len(rules) == 0 {
@@ -575,9 +563,6 @@ func normalizeForwardRules(rules []settings.PortForwardRule) []settings.PortForw
 		entry := rule
 		entry.HostID = strings.TrimSpace(entry.HostID)
 		entry.LocalPort = sanitizeForwardPorts(entry.LocalPort)
-		if entry.LocalPort == "" {
-			entry.LocalPort = sanitizeForwardPorts(entry.Ports)
-		}
 		entry.RemoteHost = strings.TrimSpace(entry.RemoteHost)
 		entry.RemotePort = strings.TrimSpace(entry.RemotePort)
 		normalized = append(normalized, entry)
@@ -663,26 +648,4 @@ func cloneSessionProfile(profile sessions.Profile) sessions.Profile {
 	cloned.Tags = append([]string(nil), profile.Tags...)
 	cloned.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	return cloned
-}
-
-func (s *Service) executeSessionCommand(sessionID, command string) error {
-	sessionID = strings.TrimSpace(sessionID)
-	command = strings.TrimSpace(command)
-	if sessionID == "" {
-		return fmt.Errorf("command request session id is required")
-	}
-	if command == "" {
-		return fmt.Errorf("command cannot be empty")
-	}
-	tab, ok := s.runtimeTab(sessionID)
-	if !ok {
-		return fmt.Errorf("active session %q not found", sessionID)
-	}
-	if tab.ProtocolID != "ssh" {
-		return fmt.Errorf("commands can only run in ssh sessions")
-	}
-	if s.sshManager == nil {
-		return fmt.Errorf("ssh manager is not configured")
-	}
-	return s.sshManager.SendInput(sessionID, command+"\n")
 }

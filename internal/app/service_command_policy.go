@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -95,20 +96,29 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		pending := state.PendingNativeToolCall
 		state.PendingNativeToolCall = nil
 		s.store.UpdateAIState(state)
-		output, err := s.executeSessionCommandWithOutput(request.SessionID, request.Command)
-		if err != nil {
-			return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"execution_failed","message":%q,"output":%q}`, err.Error(), output))
+		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
+		payload := map[string]any{
+			"status":    "executed",
+			"sessionId": request.SessionID,
+			"command":   request.Command,
+			"result":    result,
 		}
-		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, fmt.Sprintf(`{"status":"executed","sessionId":%q,"command":%q,"output":%q}`, request.SessionID, request.Command, output))
+		if err != nil {
+			payload["status"] = "execution_failed"
+			payload["message"] = err.Error()
+		}
+		encoded, marshalErr := json.Marshal(payload)
+		if marshalErr != nil {
+			return marshalErr
+		}
+		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, string(encoded))
 	}
-	if request.ToolID != "shell" {
-		return fmt.Errorf("tool %q does not support command dispatch", request.ToolID)
-	}
-	message := ""
-	if err := s.executeSessionCommand(request.SessionID, request.Command); err != nil {
+	result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
+	message := fmt.Sprintf("Approved command in session %s: `%s`", request.SessionID, request.Command)
+	if err != nil {
 		message = fmt.Sprintf("Command execution failed: %v", err)
-	} else {
-		message = fmt.Sprintf("Approved and executed command in session %s: `%s`", request.SessionID, request.Command)
+	} else if !result.Success {
+		message = fmt.Sprintf("Command completed with exit code %d in session %s: `%s`", result.ExitCode, request.SessionID, request.Command)
 	}
 	state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
 	s.store.UpdateAIState(state)
@@ -152,21 +162,6 @@ func normalizeCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	}
 	policy.Tools = normalizedTools
 	policy.LocalDocsPath = strings.TrimSpace(policy.LocalDocsPath)
-	policy.AllowedTools = uniqueStrings(policy.AllowedTools)
-	if policy.SessionAllowedTools == nil {
-		policy.SessionAllowedTools = map[string][]string{}
-	}
-	for sessionID, tools := range policy.SessionAllowedTools {
-		trimmedSession := strings.TrimSpace(sessionID)
-		if trimmedSession == "" {
-			delete(policy.SessionAllowedTools, sessionID)
-			continue
-		}
-		policy.SessionAllowedTools[trimmedSession] = uniqueStrings(tools)
-		if trimmedSession != sessionID {
-			delete(policy.SessionAllowedTools, sessionID)
-		}
-	}
 	if policy.PendingRequests == nil {
 		policy.PendingRequests = []ai.CommandRequest{}
 	}
@@ -188,46 +183,6 @@ func normalizeCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	}
 	policy.PendingRequests = filteredRequests
 	return policy
-}
-
-func uniqueStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		normalized := strings.ToLower(strings.TrimSpace(value))
-		if normalized == "" {
-			continue
-		}
-		if _, exists := seen[normalized]; exists {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		result = append(result, normalized)
-	}
-	return result
-}
-
-func commandAllowedByPolicy(policy ai.CommandPolicy, toolID, sessionID string) bool {
-	normalized := normalizeCommandPolicy(policy)
-	toolID = strings.ToLower(strings.TrimSpace(toolID))
-	sessionID = strings.TrimSpace(sessionID)
-	if toolID == "" {
-		return false
-	}
-	if !commandToolEnabled(normalized, toolID) {
-		return false
-	}
-	for _, allowed := range normalized.AllowedTools {
-		if allowed == toolID {
-			return true
-		}
-	}
-	for _, allowed := range normalized.SessionAllowedTools[sessionID] {
-		if allowed == toolID {
-			return true
-		}
-	}
-	return false
 }
 
 func commandToolEnabled(policy ai.CommandPolicy, toolID string) bool {

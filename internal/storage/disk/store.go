@@ -21,7 +21,6 @@ import (
 const (
 	maxLaunchHistoryEntries = 100
 	defaultEiksyDir         = ".eiksy"
-	legacyOpsyDir           = ".opsy"
 )
 
 type Store struct {
@@ -83,25 +82,7 @@ func eiksyDir() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve user home dir: %w", err)
 	}
-	currentDir := filepath.Join(homeDir, defaultEiksyDir)
-	legacyDir := filepath.Join(homeDir, legacyOpsyDir)
-
-	if _, err := os.Stat(currentDir); err == nil {
-		return currentDir, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat eiksy directory: %w", err)
-	}
-
-	if _, err := os.Stat(legacyDir); err == nil {
-		if err := os.Rename(legacyDir, currentDir); err == nil {
-			return currentDir, nil
-		}
-		return legacyDir, nil
-	} else if !os.IsNotExist(err) {
-		return "", fmt.Errorf("stat legacy opsy directory: %w", err)
-	}
-
-	return currentDir, nil
+	return filepath.Join(homeDir, defaultEiksyDir), nil
 }
 
 func NewStoreAt(baseDir string) (*Store, error) {
@@ -614,8 +595,6 @@ func defaultCommandPolicy() ai.CommandPolicy {
 			{ID: "sftp", Name: "SFTP operations", Description: "Browse and edit files over SFTP", Enabled: true},
 			{ID: "search", Name: "Search", Description: "Run grep/find-like queries on host", Enabled: true},
 		},
-		AllowedTools:        []string{},
-		SessionAllowedTools: map[string][]string{},
 		PendingRequests:     []ai.CommandRequest{},
 	}
 }
@@ -650,16 +629,8 @@ func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 func cloneCommandPolicy(policy ai.CommandPolicy) ai.CommandPolicy {
 	cloned := policy
 	cloned.Tools = append([]ai.CommandTool(nil), policy.Tools...)
-	cloned.AllowedTools = append([]string(nil), policy.AllowedTools...)
 	cloned.PendingRequests = append([]ai.CommandRequest(nil), policy.PendingRequests...)
-	if policy.SessionAllowedTools != nil {
-		cloned.SessionAllowedTools = make(map[string][]string, len(policy.SessionAllowedTools))
-		for sessionID, tools := range policy.SessionAllowedTools {
-			cloned.SessionAllowedTools[sessionID] = append([]string(nil), tools...)
-		}
-	} else {
-		cloned.SessionAllowedTools = map[string][]string{}
-	}
+
 	return cloned
 }
 
@@ -697,9 +668,6 @@ func normalizePortForwardRules(rules []settings.PortForwardRule) []settings.Port
 		entry.LocalPort = strings.TrimSpace(entry.LocalPort)
 		entry.RemoteHost = strings.TrimSpace(entry.RemoteHost)
 		entry.RemotePort = strings.TrimSpace(entry.RemotePort)
-		if entry.LocalPort == "" && strings.TrimSpace(entry.Ports) != "" {
-			entry.LocalPort = strings.TrimSpace(entry.Ports)
-		}
 		normalized = append(normalized, entry)
 	}
 	return normalized
@@ -763,11 +731,8 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 	if len(state.CommandPolicy.Tools) == 0 {
 		state.CommandPolicy.Tools = append([]ai.CommandTool(nil), defaultPolicy.Tools...)
 	}
-	if state.CommandPolicy.AllowedTools == nil {
-		state.CommandPolicy.AllowedTools = []string{}
-	}
-	if state.CommandPolicy.SessionAllowedTools == nil {
-		state.CommandPolicy.SessionAllowedTools = map[string][]string{}
+	if state.CommandPolicy.CommandRules == nil {
+		state.CommandPolicy.CommandRules = []ai.CommandRule{}
 	}
 	if state.CommandPolicy.PendingRequests == nil {
 		state.CommandPolicy.PendingRequests = []ai.CommandRequest{}
