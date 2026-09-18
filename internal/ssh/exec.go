@@ -111,9 +111,5 @@ func combinedExecOutput(result sessions.CommandExecutionResult) string {
 }
 
 var _ interface {
-	ExecCommand(string, string) (string, error)
-} = (*Manager)(nil)
-
-var _ interface {
 	ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error)
 } = (*Manager)(nil)
