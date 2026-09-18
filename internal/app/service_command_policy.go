@@ -76,7 +76,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		pending := state.PendingNativeToolCall
 		state.PendingNativeToolCall = nil
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved SFTP write request: %w", err) }
-		var args struct { SessionID string `json:"sessionId"`; Path string `json:"path"`; Content string `json:"content"` }
+		var args struct { SessionID string `json:"sessionId"`; Path string `json:"path"`; Content string `json:"content"`; Reason string `json:"reason"` }
 		decoder := json.NewDecoder(strings.NewReader(pending.ToolArguments)); decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&args); err != nil { return fmt.Errorf("decode pending SFTP write: %w", err) }
 		args.SessionID = strings.TrimSpace(args.SessionID); args.Path = strings.TrimSpace(args.Path)
