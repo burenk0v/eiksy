@@ -8,7 +8,7 @@ import (
 func TestCommandToolRegistry(t *testing.T) {
 	tools := commandToolRegistry()
 	if len(tools) != 3 {
-		t.Fatalf("expected two AI tools, got %d", len(tools))
+		t.Fatalf("expected four AI tools, got %d", len(tools))
 	}
 	if tools[0].Name != "ssh.exec" || tools[1].Name != "sftp.list" || tools[2].Name != "ssh.diagnostics" {
 		t.Fatalf("unexpected tool names: %#v", tools)
