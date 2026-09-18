@@ -72,8 +72,6 @@ export namespace ai {
 	}
 	export class CommandPolicy {
 	    tools: CommandTool[];
-	    allowedTools: string[];
-	    sessionAllowedTools?: {[key: string]: string[]};
 	    pendingRequests: CommandRequest[];
 	    localDocsPath?: string;
 	
@@ -84,8 +82,6 @@ export namespace ai {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.tools = this.convertValues(source["tools"], CommandTool);
-	        this.allowedTools = source["allowedTools"];
-	        this.sessionAllowedTools = source["sessionAllowedTools"];
 	        this.pendingRequests = this.convertValues(source["pendingRequests"], CommandRequest);
 	        this.localDocsPath = source["localDocsPath"];
 	    }
@@ -187,7 +183,6 @@ export namespace app {
 	    id: string;
 	    status: string;
 	    authUrl?: string;
-	    token?: string;
 	    message?: string;
 	    endpoint?: string;
 	
@@ -200,7 +195,6 @@ export namespace app {
 	        this.id = source["id"];
 	        this.status = source["status"];
 	        this.authUrl = source["authUrl"];
-	        this.token = source["token"];
 	        this.message = source["message"];
 	        this.endpoint = source["endpoint"];
 	    }
@@ -504,7 +498,6 @@ export namespace settings {
 	    }
 	}
 	export class PortForwardRule {
-	    ports: string;
 	    localPort: string;
 	    remoteHost: string;
 	    remotePort: string;
@@ -517,7 +510,6 @@ export namespace settings {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.ports = source["ports"];
 	        this.localPort = source["localPort"];
 	        this.remoteHost = source["remoteHost"];
 	        this.remotePort = source["remotePort"];
@@ -531,8 +523,6 @@ export namespace settings {
 	    windowLayout: WindowLayout;
 	    promptBeforeAi: boolean;
 	    allowCloudModels: boolean;
-	    sshForwardPorts: string;
-	    sshForwardHostId: string;
 	    portForwardRules: PortForwardRule[];
 	    sshConfigAutoLoaded: boolean;
 	    vaultAddress: string;
@@ -560,8 +550,6 @@ export namespace settings {
 	        this.windowLayout = this.convertValues(source["windowLayout"], WindowLayout);
 	        this.promptBeforeAi = source["promptBeforeAi"];
 	        this.allowCloudModels = source["allowCloudModels"];
-	        this.sshForwardPorts = source["sshForwardPorts"];
-	        this.sshForwardHostId = source["sshForwardHostId"];
 	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
 	        this.sshConfigAutoLoaded = source["sshConfigAutoLoaded"];
 	        this.vaultAddress = source["vaultAddress"];
