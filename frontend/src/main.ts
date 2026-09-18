@@ -2403,7 +2403,6 @@ class EiksyShell {
 
     this.cloudAuthMessage = session.message || "";
     if (session.status === "completed") {
-      this.cloudDraftToken = session.token || "";
       this.cloudAuthPending = false;
       this.clearCloudAuthPolling();
       this.cloudAuthMessage =
