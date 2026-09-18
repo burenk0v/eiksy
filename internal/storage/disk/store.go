@@ -734,11 +734,8 @@ func aiStateFromPersisted(persisted persistedAIWorkspaceState) ai.WorkspaceState
 	if len(state.CommandPolicy.Tools) == 0 {
 		state.CommandPolicy.Tools = append([]ai.CommandTool(nil), defaultPolicy.Tools...)
 	}
-	if state.CommandPolicy.AllowedTools == nil {
-		state.CommandPolicy.AllowedTools = []string{}
-	}
-	if state.CommandPolicy.SessionAllowedTools == nil {
-		state.CommandPolicy.SessionAllowedTools = map[string][]string{}
+	if state.CommandPolicy.CommandRules == nil {
+		state.CommandPolicy.CommandRules = []ai.CommandRule{}
 	}
 	if state.CommandPolicy.PendingRequests == nil {
 		state.CommandPolicy.PendingRequests = []ai.CommandRequest{}
