@@ -206,7 +206,7 @@ func (s *Service) finishCloudProviderAuthSession(sessionID, status, token, messa
 	}
 
 	session = s.cloudAuth
-	if status == "completed" && s.cloudAuth.state.Status == "completed" && s.cloudAuth.state.Token != "" {
+	if status == "completed" && s.cloudAuth.state.Status == "completed" {
 		s.authMu.Unlock()
 		return true
 	}
