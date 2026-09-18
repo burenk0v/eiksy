@@ -17,19 +17,6 @@ const (
 	execCommandTimeout  = 30 * time.Second
 )
 
-// ExecCommand preserves the original simple execution API for callers that
-// only need combined output. AI execution should use ExecCommandResult so the
-// model receives structured stdout/stderr/exit-code information.
-func (m *Manager) ExecCommand(tabID, command string) (string, error) {
-	result, err := m.ExecCommandResult(context.Background(), tabID, command)
-	return combinedExecOutput(result), err
-}
-
-// ExecCommandResult executes one non-interactive command over the existing SSH
-// connection. It uses a fresh SSH exec session, so command execution does not
-// mutate the state of the interactive terminal session.
-//
-// A bounded timeout is enforced even when the caller does not provide one.
 func (m *Manager) ExecCommandResult(ctx context.Context, tabID, command string) (sessions.CommandExecutionResult, error) {
 	started := time.Now()
 	result := sessions.CommandExecutionResult{ExitCode: -1}
