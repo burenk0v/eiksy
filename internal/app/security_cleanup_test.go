@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"eiksy/internal/domain/workspace"
@@ -16,6 +17,14 @@ func (m *lockTrackingSSHManager) Disconnect(id string) error{m.disconnected=appe
 func (m *lockTrackingSSHManager) SetOutputHandler(string,func(string)){}
 func (m *lockTrackingSSHManager) GetCurrentDir(string)(string,error){return ".",nil}
 func (m *lockTrackingSSHManager) AcceptHostKey(string) error{return nil}
+
+func TestAuditRedactionCoversCommonSecretForms(t *testing.T) {
+	input := "curl --token supersecret https://user:password@example.com API_KEY=abc123 Authorization: Bearer bearer-secret"
+	got := redactAuditValue(input)
+	for _, secret := range []string{"supersecret", "password", "abc123", "bearer-secret"} {
+		if strings.Contains(got, secret) { t.Fatalf("audit output contains secret %q: %q", secret, got) }
+	}
+}
 
 func TestLockSecureStorageDisconnectsRuntimeSSH(t *testing.T) {
 	store:=memory.NewStore()
