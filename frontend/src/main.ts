@@ -13,6 +13,7 @@ import {
   ClearChat,
   CloseSession,
   ConnectSSH,
+  ReconnectSession,
   CreateSessionProfile,
   DownloadSFTPFiles,
   DownloadLocalModel,
@@ -729,6 +730,17 @@ class EiksyShell {
           if (this.sessionInnerTab === "sftp") {
             await this.ensureActiveSFTPLoaded();
           }
+        });
+      });
+
+    root
+      ?.querySelectorAll<HTMLButtonElement>("[data-reconnect-tab]")
+      .forEach((button) => {
+        button.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          const tabID = button.dataset.reconnectTab;
+          if (!tabID) return;
+          await this.reconnectTab(tabID);
         });
       });
 
@@ -1556,6 +1568,9 @@ class EiksyShell {
           this.fitActiveTerminal();
           await this.ensureActiveSFTPLoaded(true);
         }
+      } else {
+        await ReconnectSession(tab.id);
+        await this.refresh("");
       }
 
     } catch (error) {
@@ -1593,6 +1608,26 @@ class EiksyShell {
         return false;
       }
       throw error;
+    }
+  }
+
+  private async reconnectTab(tabID: string): Promise<void> {
+    const tab = this.shellState?.activeSessions.find((entry) => entry.id === tabID);
+    if (!tab) return;
+    try {
+      this.activeTabId = tabID;
+      if (tab.protocolId === "ssh") {
+        this.ensureTerminalSubscription(tabID);
+        if (!(await this.connectSSHWithHostKeyHandling(tabID, tab.profileId))) return;
+      } else {
+        await ReconnectSession(tabID);
+      }
+      await this.refresh("");
+      this.fitActiveTerminal();
+      if (tab.protocolId === "ssh") await this.ensureActiveSFTPLoaded(true);
+    } catch (error) {
+      this.setErrorMessage(formatError("Unable to reconnect session", error));
+      this.render();
     }
   }
 
@@ -2116,6 +2151,8 @@ class EiksyShell {
         (tab) => `
             <button class="tab ${tab.id === this.activeTabId ? "active" : ""}" data-tab-id="${escapeHtml(tab.id)}">
                 <span>${escapeHtml(tab.title)}</span>
+                <span class="pill small">${escapeHtml(tab.status || "unknown")}</span>
+                ${tab.status !== "connected" ? '<span class="tab-action" data-reconnect-tab="${escapeHtml(tab.id)}" title="Reconnect">↻</span>' : ""}
                 <span class="tab-close" data-close-tab="${escapeHtml(tab.id)}">×</span>
             </button>
         `,

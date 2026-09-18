@@ -6,6 +6,10 @@ export function CloseSession(arg1) {
   return window['go']['main']['App']['CloseSession'](arg1);
 }
 
+export function ReconnectSession(arg1) {
+  return window['go']['main']['App']['ReconnectSession'](arg1);
+}
+
 export function ConnectSSH(arg1, arg2) {
   return window['go']['main']['App']['ConnectSSH'](arg1, arg2);
 }
