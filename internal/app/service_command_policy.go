@@ -85,7 +85,9 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 			message += fmt.Sprintf(" (%s)", reason)
 		}
 		state.Messages = append(state.Messages, ai.ChatMessage{Role: "assistant", Content: message})
-		s.store.UpdateAIState(state)
+		if err := s.store.UpdateAIState(state); err != nil {
+			return fmt.Errorf("persist policy-denied command request: %w", err)
+		}
 		s.emitFn("ai:message", map[string]string{"role": "assistant", "content": message})
 		return nil
 	}
@@ -101,7 +103,9 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
 		pending := state.PendingNativeToolCall
 		state.PendingNativeToolCall = nil
-		s.store.UpdateAIState(state)
+		if err := s.store.UpdateAIState(state); err != nil {
+			return fmt.Errorf("persist approved command request: %w", err)
+		}
 		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
 		payload := map[string]any{
 			"status":    "executed",
