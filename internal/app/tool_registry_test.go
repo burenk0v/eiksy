@@ -7,10 +7,10 @@ import (
 
 func TestCommandToolRegistry(t *testing.T) {
 	tools := commandToolRegistry()
-	if len(tools) != 2 {
+	if len(tools) != 3 {
 		t.Fatalf("expected two AI tools, got %d", len(tools))
 	}
-	if tools[0].Name != "ssh.exec" || tools[1].Name != "ssh.diagnostics" {
+	if tools[0].Name != "ssh.exec" || tools[1].Name != "sftp.list" || tools[2].Name != "ssh.diagnostics" {
 		t.Fatalf("unexpected tool names: %#v", tools)
 	}
 	params, ok := tools[0].Parameters["properties"].(map[string]any)
@@ -22,7 +22,7 @@ func TestCommandToolRegistry(t *testing.T) {
 			t.Fatalf("missing parameter %q", required)
 		}
 	}
-	diagnosticsParams, ok := tools[1].Parameters["properties"].(map[string]any)
+	diagnosticsParams, ok := tools[2].Parameters["properties"].(map[string]any)
 	if !ok {
 		t.Fatal("diagnostics parameters do not contain properties")
 	}
@@ -40,7 +40,7 @@ func TestOpenAIToolDefinitionsAreValidJSON(t *testing.T) {
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		t.Fatalf("unmarshal tools: %v", err)
 	}
-	if len(decoded) != 2 || decoded[0]["type"] != "function" || decoded[1]["type"] != "function" {
+	if len(decoded) != 3 || decoded[0]["type"] != "function" || decoded[1]["type"] != "function" || decoded[2]["type"] != "function" {
 		t.Fatalf("unexpected OpenAI tool definitions: %#v", decoded)
 	}
 }

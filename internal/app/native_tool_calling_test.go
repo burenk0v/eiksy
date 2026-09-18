@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
+	sftpdomain "eiksy/internal/domain/sftp"
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/storage/memory"
 )
@@ -27,8 +29,49 @@ func (m *nativeTestSSHManager) Disconnect(string) error { return nil }
 func (m *nativeTestSSHManager) SetOutputHandler(string, func(string)) {}
 func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error) { return ".", nil }
 func (m *nativeTestSSHManager) AcceptHostKey(string) error { return nil }
+type nativeTestSFTPManager struct {
+	entries []sftpdomain.FileEntry
+}
+
+func (m *nativeTestSFTPManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
+func (m *nativeTestSFTPManager) Connected(string) bool { return true }
+func (m *nativeTestSFTPManager) ListDir(string, string) ([]sftpdomain.FileEntry, error) { return m.entries, nil }
+func (m *nativeTestSFTPManager) ReadFile(string, string) (string, error) { return "", nil }
+func (m *nativeTestSFTPManager) WriteFile(string, string, string) error { return nil }
+func (m *nativeTestSFTPManager) UploadFile(string, string, string) error { return nil }
+func (m *nativeTestSFTPManager) DownloadFile(string, string, string) error { return nil }
+func (m *nativeTestSFTPManager) Disconnect(string) error { return nil }
 func (m *nativeTestSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.mu.Lock(); defer m.mu.Unlock(); m.commands = append(m.commands, tabID+":"+command+"\n"); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
 
+func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	entries := make([]sftpdomain.FileEntry, 300)
+	for i := range entries { entries[i] = sftpdomain.FileEntry{Name: fmt.Sprintf("file-%d", i), Path: fmt.Sprintf("/tmp/file-%d", i)} }
+	service := NewService(store, nil, &nativeTestSFTPManager{entries: entries})
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	call := nativeToolCall{ID: "call-sftp", Type: "function"}
+	call.Function.Name = nativeSFTPListToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "inspect files", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if pending { t.Fatal("read-only SFTP listing must not require approval") }
+	var payload struct { Entries []sftpdomain.FileEntry `json:"entries"`; Truncated bool `json:"truncated"` }
+	if err := json.Unmarshal([]byte(result), &payload); err != nil { t.Fatalf("decode result: %v", err) }
+	if len(payload.Entries) != maxNativeSFTPListEntries || !payload.Truncated { t.Fatalf("expected bounded/truncated result, got len=%d truncated=%v", len(payload.Entries), payload.Truncated) }
+}
+
+func TestDispatchNativeSFTPListRejectsDifferentSession(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, &nativeTestSFTPManager{})
+	call := nativeToolCall{ID: "call-sftp", Type: "function"}
+	call.Function.Name = nativeSFTPListToolName
+	call.Function.Arguments = `{"sessionId":"session-2","path":"/tmp"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "inspect files", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if pending { t.Fatal("different session must not create pending state") }
+	if !strings.Contains(result, "does not match the active Eiksy session") { t.Fatalf("expected active-session validation error, got %q", result) }
+}
 func TestCallNativeToolCompletionParsesToolCall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost || r.URL.Path != "/v1/chat/completions" { t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path) }

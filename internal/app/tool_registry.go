@@ -29,6 +29,19 @@ func commandToolRegistry() []AITool {
 			},
 		},
 		{
+			Name: "sftp.list",
+			Description: "List files and directories in the selected active SSH session through SFTP. Read-only; the path is requested by the model and the result is bounded.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sessionId": map[string]any{"type": "string", "description": "Active Eiksy SSH session ID."},
+					"path":      map[string]any{"type": "string", "description": "Remote directory path to list. Use . for the current directory."},
+				},
+				"required": []string{"sessionId", "path"},
+				"additionalProperties": false,
+			},
+		},
+		{
 			Name: "ssh.diagnostics",
 			Description: "Run a fixed, read-only infrastructure diagnostic summary against the selected active SSH session. No arbitrary command is accepted.",
 			Parameters: map[string]any{
