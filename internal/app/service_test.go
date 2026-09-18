@@ -22,6 +22,44 @@ import (
 	"eiksy/internal/storage/memory"
 )
 
+func TestLoginVaultRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxVaultResponseSize+1)))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+
+	_, err = service.loginVault(baseURL, vaultAuthMethodDomain, "ops", "password")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
+}
+
+func TestRenewVaultTokenRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(bytes.Repeat([]byte("x"), int(maxVaultResponseSize+1)))
+	}))
+	defer server.Close()
+
+	service := NewService(memory.NewStore(), nil, nil)
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse test server url: %v", err)
+	}
+
+	err = service.renewVaultToken(baseURL, "vault-token")
+	if err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("expected oversized response error, got %v", err)
+	}
+}
+
 func TestGetShellStateIncludesScaffoldedDomains(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	state := service.GetShellState()
@@ -106,7 +144,7 @@ func TestSaveCloudProviderPreservesTokenWhenBlank(t *testing.T) {
 	if err != nil { t.Fatalf("load preserved cloud token: %v", err) }
 	if token != "secret-token" { t.Fatalf("expected cloud token to be preserved, got %q", token) }
 	if cloudProvider.Model != "gpt-5.7" { t.Fatalf("expected updated model to be saved, got %q", cloudProvider.Model) }
-	if cloudProvider.Endpoint != "https://models.example.com/v2" { t.Fatalf("expected updated endpoint to be saved, got %q", cloudProvider.Endpoint) }
+	if cloudProvider.Endpoint != "https://models.example.com/v2" { t.Fatalf("expected cloud endpoint to be saved, got %q", cloudProvider.Endpoint) }
 }
 
 func TestSaveLocalProviderStoresCustomURLAndSelectsLocalProvider(t *testing.T) {
@@ -165,7 +203,6 @@ func TestListCloudModelsUsesSavedTokenWhenInputBlank(t *testing.T) {
 	if _, err := service.ListCloudModels(server.URL+"/v1", ""); err != nil { t.Fatalf("list cloud models: %v", err) }
 	if !strings.HasPrefix(authHeader, "Bearer ") { t.Fatalf("expected bearer authorization header, got %q", authHeader) }
 }
-
 
 func TestListCloudModelsRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -231,7 +268,7 @@ func TestStartCloudProviderAuthBuildsSourcegraphCallbackURL(t *testing.T) {
 	if session.Status != "pending" { t.Fatalf("expected pending auth session, got %q", session.Status) }
 	authURL, err := url.Parse(session.AuthURL); if err != nil { t.Fatalf("parse auth url: %v", err) }
 	if authURL.Scheme != "https" || authURL.Host != "sourcegraph.example.com" { t.Fatalf("unexpected auth url origin: %s", session.AuthURL) }
-	if authURL.Path != "/user/settings/tokens/new/callback" { t.Fatalf("unexpected auth url path: %s", authURL.Path) }
+	if authURL.Path != "/user/settings/tokens/new/callback" { t.Fatalf("unexpected auth url path: %s", session.AuthURL) }
 	if !strings.HasPrefix(authURL.Query().Get("requestFrom"), "CODY_CLI-") { t.Fatalf("unexpected requestFrom value: %q", authURL.Query().Get("requestFrom")) }
 }
 
@@ -250,7 +287,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", storedToken) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", err) }
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
@@ -261,8 +298,8 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	resp, err := http.Post("http://127.0.0.1:"+port+"/api/sourcegraph/token?state="+url.QueryEscape(authURL.Query().Get("state")), "application/json", bytes.NewBufferString(`{"accessToken":"posted-token"}`)); if err != nil { t.Fatalf("post callback: %v", err) }; resp.Body.Close()
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
-	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", storedToken) }
+	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", err) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", err) }
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
@@ -302,7 +339,7 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 func TestUpdateSettingsVaultPasswordPersistsOnBlankUpdate(t *testing.T) {
 	store := memory.NewStore(); service := NewService(store, nil, nil); initial := store.Settings(); initial.VaultAuthMethod = "domain"; initial.VaultLogin = "CORP\\ops"
 	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-secret"); err != nil { t.Fatalf("store vault password: %v", err) }; if err := store.UpdateSettings(initial); err != nil { t.Fatalf("seed settings: %v", err) }
-	updated := store.Settings(); updated.VaultPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasVaultPassword { t.Fatal("expected vault password flag to persist") }; password, err := store.LoadSecret(securestorage.VaultPasswordKey()); if err != nil { t.Fatalf("load vault password: %v", err) }; if password != "vault-secret" { t.Fatalf("expected vault password to persist, got %q", password) }
+	updated := store.Settings(); updated.VaultPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasVaultPassword { t.Fatal("expected vault password flag to persist") }; password, err := store.LoadSecret(securestorage.VaultPasswordKey()); if err != nil { t.Fatalf("load vault password: %v", err) }; if password != "vault-secret" { t.Fatalf("expected vault password to persist, got %q", err) }
 }
 
 func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
@@ -327,13 +364,12 @@ type sshInputCall struct { tabID string; payload string }
 type recordingSSHManager struct { inputs []sshInputCall; sendInputErr error }
 func (m *recordingSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
 func (m *recordingSSHManager) SendInput(tabID, data string) error { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: data}); return m.sendInputErr }
-func (m *recordingSSHManager) ResizeTerminal(string, int, int) error { return nil }
+func (m *recordingSSHManager) ResizeTerminal(string, int, int) error {}
 func (m *recordingSSHManager) Disconnect(string) error { return nil }
 func (m *recordingSSHManager) SetOutputHandler(string, func(data string)) {}
 func (m *recordingSSHManager) GetCurrentDir(string) (string, error) { return "", nil }
 func (m *recordingSSHManager) AcceptHostKey(string) error { return nil }
 func (m *recordingSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: command+"\n"}); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
-
 
 func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
 	store := memory.NewStore()
