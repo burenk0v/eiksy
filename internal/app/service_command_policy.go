@@ -78,7 +78,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	default:
 		return fmt.Errorf("unsupported permission mode %q", mode)
 	}
-	if !commandToolEnabled(policy, request.ToolID) {
+	if request.ToolID != nativeSFTPWriteToolName && !commandToolEnabled(policy, request.ToolID) {
 		return fmt.Errorf("tool %q is disabled in command policy", request.ToolID)
 	}
 	if _, ok := s.runtimeTab(request.SessionID); !ok {
@@ -105,11 +105,13 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		return nil
 	}
 	removePending()
+	if request.ToolID != nativeSFTPWriteToolName {
 	switch mode {
 	case ai.CommandPermissionModeAlways:
 		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: always allow this exact command"})
 	case ai.CommandPermissionModeSession:
 		policy.CommandRules = append(policy.CommandRules, ai.CommandRule{ToolID: request.ToolID, SessionID: request.SessionID, Pattern: request.Command, Action: ai.CommandPermissionAllow, Description: "Approved by user: allow this exact command for this session"})
+	}
 	}
 	policy.CommandRules = normalizeCommandRules(policy.CommandRules)
 	state.CommandPolicy = policy
@@ -139,6 +141,30 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		if marshalErr != nil {
 			return marshalErr
 		}
+		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, string(encoded))
+	}
+	if request.ToolID == nativeSFTPWriteToolName {
+		if state.PendingNativeToolCall == nil || state.PendingNativeToolCall.RequestID != requestID || state.PendingNativeToolCall.ToolName != nativeSFTPWriteToolName { return fmt.Errorf("pending SFTP write call %q not found", requestID) }
+		pending := state.PendingNativeToolCall
+		state.PendingNativeToolCall = nil
+		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved SFTP write request: %w", err) }
+		var args struct {
+			SessionID string `json:"sessionId"`
+			Path string `json:"path"`
+			Content string `json:"content"`
+		}
+		decoder := json.NewDecoder(strings.NewReader(pending.ToolArguments)); decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&args); err != nil { return fmt.Errorf("decode pending SFTP write: %w", err) }
+		args.SessionID = strings.TrimSpace(args.SessionID); args.Path = strings.TrimSpace(args.Path)
+		if len([]byte(args.Content)) > maxNativeSFTPWriteSize { return fmt.Errorf("SFTP write content exceeds %d byte limit", maxNativeSFTPWriteSize) }
+		tab, ok := s.runtimeTab(args.SessionID)
+		if !ok || tab.ProtocolID != "ssh" || tab.Status != "connected" { return fmt.Errorf("sftp.write requires a connected active SSH session") }
+		start := time.Now(); err := s.SaveSFTPFile(args.SessionID, args.Path, args.Content); duration := time.Since(start).Milliseconds()
+		status := "executed"; if err != nil { status = "execution_failed" }
+		s.emitNativeSFTPOperation(status, args.SessionID, args.Path, len([]byte(args.Content)), string(mode), errString(err), duration)
+		result := map[string]any{"status": status, "sessionId": args.SessionID, "path": args.Path, "bytes": len([]byte(args.Content))}
+		if err != nil { result["error"] = err.Error() }
+		encoded, marshalErr := json.Marshal(result); if marshalErr != nil { return marshalErr }
 		return s.resumePendingNativeToolCall(s.resolveContext(context.Background()), pending, string(encoded))
 	}
 	result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
