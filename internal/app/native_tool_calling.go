@@ -217,7 +217,7 @@ func (s *Service) dispatchNativeSFTPWrite(call nativeToolCall, activeSessionID, 
 	request := ai.CommandRequest{ID: fmt.Sprintf("cmdreq-%d", time.Now().UTC().UnixNano()), ToolID: nativeSFTPWriteToolName, SessionID: args.SessionID, Command: args.Path, Reason: args.Reason, RequestedAt: time.Now().UTC().Format(time.RFC3339)}
 	encodedMessages, err := json.Marshal(messages)
 	if err != nil { return "", false, fmt.Errorf("persist SFTP write approval: %w", err) }
-	state.PendingNativeToolCall = &ai.PendingNativeToolCall{RequestID: request.ID, ProviderID: providerID, ToolCallID: call.ID, ToolName: nativeSFTPWriteToolName, ToolArguments: call.Function.Arguments, SessionID: args.SessionID, MessagesJSON: string(encodedMessages)}
+	state.PendingNativeToolCall = &ai.PendingNativeToolCall{RequestID: request.ID, ProviderID: providerID, ToolCallID: call.ID, ToolName: nativeSFTPWriteToolName, ToolArguments: call.Function.Arguments, UserMessage: userMessage, SessionID: args.SessionID, MessagesJSON: string(encodedMessages)}
 	state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
 	state.CommandPolicy.PendingRequests = append(state.CommandPolicy.PendingRequests, request)
 	if err := s.store.UpdateAIState(state); err != nil { return "", false, fmt.Errorf("persist SFTP write approval: %w", err) }
