@@ -287,7 +287,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", err) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", storedToken) }
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
@@ -298,8 +298,8 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	resp, err := http.Post("http://127.0.0.1:"+port+"/api/sourcegraph/token?state="+url.QueryEscape(authURL.Query().Get("state")), "application/json", bytes.NewBufferString(`{"accessToken":"posted-token"}`)); if err != nil { t.Fatalf("post callback: %v", err) }; resp.Body.Close()
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
-	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", err) }
-	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", err) }
+	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
+	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", storedToken) }
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
@@ -339,7 +339,7 @@ func TestUpdateSettingsKeePassPasswordPersistsOnBlankUpdate(t *testing.T) {
 func TestUpdateSettingsVaultPasswordPersistsOnBlankUpdate(t *testing.T) {
 	store := memory.NewStore(); service := NewService(store, nil, nil); initial := store.Settings(); initial.VaultAuthMethod = "domain"; initial.VaultLogin = "CORP\\ops"
 	if err := store.StoreSecret(securestorage.VaultPasswordKey(), "vault-secret"); err != nil { t.Fatalf("store vault password: %v", err) }; if err := store.UpdateSettings(initial); err != nil { t.Fatalf("seed settings: %v", err) }
-	updated := store.Settings(); updated.VaultPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasVaultPassword { t.Fatal("expected vault password flag to persist") }; password, err := store.LoadSecret(securestorage.VaultPasswordKey()); if err != nil { t.Fatalf("load vault password: %v", err) }; if password != "vault-secret" { t.Fatalf("expected vault password to persist, got %q", err) }
+	updated := store.Settings(); updated.VaultPassword = ""; if err := service.UpdateSettings(updated); err != nil { t.Fatalf("update settings: %v", err) }; reloaded := store.Settings(); if !reloaded.HasVaultPassword { t.Fatal("expected vault password flag to persist") }; password, err := store.LoadSecret(securestorage.VaultPasswordKey()); if err != nil { t.Fatalf("load vault password: %v", err) }; if password != "vault-secret" { t.Fatalf("expected vault password to persist, got %q", password) }
 }
 
 func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
