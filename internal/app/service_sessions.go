@@ -115,6 +115,40 @@ func (s *Service) LaunchSession(profileID string) (RuntimeSessionView, error) {
 	return RuntimeSessionView(tab), nil
 }
 
+func (s *Service) ReconnectSession(sessionID string) error {
+	 tab, ok := s.runtimeTab(sessionID)
+	 if !ok {
+		 return fmt.Errorf("active session %q not found", sessionID)
+	 }
+	 profile, ok := s.store.SessionProfile(tab.ProfileID)
+	 if !ok {
+		 return fmt.Errorf("session profile %q not found", tab.ProfileID)
+	 }
+	 switch profile.ProtocolID {
+	 case "ssh":
+		 return s.ConnectSSH(s.resolveContext(nil), sessionID, profile.ID)
+	 case "sftp":
+		 if s.sftpManager == nil {
+			 return fmt.Errorf("sftp manager is not configured")
+		 }
+		 if err := s.sftpManager.Disconnect(sessionID); err != nil {
+			 return fmt.Errorf("disconnect SFTP session: %w", err)
+		 }
+		 _ = s.updateTabStatus(sessionID, "connecting")
+		 profile, err := s.profileWithSecrets(profile)
+		 if err != nil { _ = s.updateTabStatus(sessionID, "error"); return err }
+		 credential, err := s.profileCredential(profile)
+		 if err != nil { _ = s.updateTabStatus(sessionID, "error"); return err }
+		 if err := s.sftpManager.Connect(s.resolveContext(nil), sessionID, profile.Host, profile.Port, profile.Username, credential, profile.Options); err != nil {
+			 _ = s.updateTabStatus(sessionID, "error")
+			 return fmt.Errorf("connect SFTP: %w", err)
+		 }
+		 return s.updateTabStatus(sessionID, "connected")
+	 default:
+		 return fmt.Errorf("session protocol %q cannot be reconnected", profile.ProtocolID)
+	 }
+}
+
 func (s *Service) CloseSession(sessionID string) error {
 	if ok := s.store.CloseRuntimeTab(sessionID); !ok {
 		return fmt.Errorf("active session %q not found", sessionID)
