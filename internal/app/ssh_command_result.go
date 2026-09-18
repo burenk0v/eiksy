@@ -12,7 +12,11 @@ type sshStructuredCommandExecutor interface {
 	ExecCommandResult(context.Context, string, string) (sessions.CommandExecutionResult, error)
 }
 
-func (s *Service) executeSessionCommandResult(sessionID, command string) (sessions.CommandExecutionResult, error) {
+func (s *Service) ExecuteCommand(sessionID, command string) (sessions.CommandExecutionResult, error) {
+	return s.executeSessionCommandResult(sessionID, command)
+}
+
+func (s *Service) executeSessionCommandResult(sessionID, command string) {
 	sessionID = strings.TrimSpace(sessionID)
 	command = strings.TrimSpace(command)
 	if sessionID == "" {
