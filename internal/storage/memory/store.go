@@ -142,7 +142,7 @@ func (s *Store) AIState() ai.WorkspaceState {
 	return cloneAIState(s.aiState)
 }
 
-func (s *Store) UpdateAIState(state ai.WorkspaceState) {
+func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -150,6 +150,7 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) {
 	for i := range s.aiState.Providers {
 		s.aiState.Providers[i].Token = ""
 	}
+	return nil
 }
 
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
