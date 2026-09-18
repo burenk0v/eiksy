@@ -31,17 +31,110 @@ func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error) { return ".
 func (m *nativeTestSSHManager) AcceptHostKey(string) error { return nil }
 type nativeTestSFTPManager struct {
 	entries []sftpdomain.FileEntry
+	writes  []string
+	writeErr error
 }
 
 func (m *nativeTestSFTPManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
 func (m *nativeTestSFTPManager) Connected(string) bool { return true }
 func (m *nativeTestSFTPManager) ListDir(string, string) ([]sftpdomain.FileEntry, error) { return m.entries, nil }
 func (m *nativeTestSFTPManager) ReadFile(string, string) (string, error) { return "", nil }
-func (m *nativeTestSFTPManager) WriteFile(string, string, string) error { return nil }
+func (m *nativeTestSFTPManager) WriteFile(_ string, path, content string) error {
+	m.writes = append(m.writes, path+":"+content)
+	return m.writeErr
+}
 func (m *nativeTestSFTPManager) UploadFile(string, string, string) error { return nil }
 func (m *nativeTestSFTPManager) DownloadFile(string, string, string) error { return nil }
 func (m *nativeTestSFTPManager) Disconnect(string) error { return nil }
 func (m *nativeTestSSHManager) ExecCommandResult(_ context.Context, tabID, command string) (sessions.CommandExecutionResult, error) { m.mu.Lock(); defer m.mu.Unlock(); m.commands = append(m.commands, tabID+":"+command+"\n"); return sessions.CommandExecutionResult{Success:true, ExitCode:0, Stdout:"mock output"}, nil }
+
+
+func TestDispatchNativeSFTPWriteRequiresApprovalAndDoesNotWrite(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	sftp := &nativeTestSFTPManager{}
+	service := NewService(store, nil, sftp)
+	call := nativeToolCall{ID: "call-write", Type: "function"}
+	call.Function.Name = nativeSFTPWriteToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/etc/eiksy.conf","content":"safe=true","reason":"apply approved configuration"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "change config", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if !pending { t.Fatal("SFTP write must require approval") }
+	if !strings.Contains(result, "approval_required") { t.Fatalf("expected approval-required result, got %q", result) }
+	if len(sftp.writes) != 0 { t.Fatalf("SFTP write occurred before approval: %#v", sftp.writes) }
+	state := store.AIState()
+	if state.PendingNativeToolCall == nil || state.PendingNativeToolCall.ToolName != nativeSFTPWriteToolName { t.Fatalf("expected pending SFTP write, got %#v", state.PendingNativeToolCall) }
+}
+
+func TestDispatchNativeSFTPWriteRejectsDifferentSession(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, &nativeTestSFTPManager{})
+	call := nativeToolCall{ID: "call-write", Type: "function"}
+	call.Function.Name = nativeSFTPWriteToolName
+	call.Function.Arguments = `{"sessionId":"session-2","path":"/tmp/test","content":"x"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "write", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if pending { t.Fatal("cross-session write must not create approval") }
+	if !strings.Contains(result, "does not match the active Eiksy session") { t.Fatalf("expected active-session error, got %q", result) }
+}
+
+func TestDispatchNativeSFTPWriteRejectsOversizedContent(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	service := NewService(store, nil, &nativeTestSFTPManager{})
+	call := nativeToolCall{ID: "call-write", Type: "function"}
+	call.Function.Name = nativeSFTPWriteToolName
+	call.Function.Arguments = fmt.Sprintf(`{"sessionId":"session-1","path":"/tmp/test","content":%q}`, strings.Repeat("x", maxNativeSFTPWriteSize+1))
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "write", nil)
+	if err != nil { t.Fatalf("dispatch returned unexpected error: %v", err) }
+	if pending { t.Fatal("oversized write must not create approval") }
+	if !strings.Contains(result, "request_too_large") { t.Fatalf("expected size error, got %q", result) }
+}
+
+func TestResolveNativeSFTPWriteExecutesOnlyAfterApproval(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	sftp := &nativeTestSFTPManager{}
+	state := ai.WorkspaceState{
+		Providers: []ai.ProviderDescriptor{{ID: "provider-1", Class: ai.ProviderClassOpenAICompatible, Configured: true}},
+		CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}},
+	}
+	store.UpdateAIState(state)
+	service := NewService(store, nil, sftp)
+	call := nativeToolCall{ID: "call-write", Type: "function"}
+	call.Function.Name = nativeSFTPWriteToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp/eiksy.conf","content":"enabled=true","reason":"apply config"}`
+	_, pending, err := service.dispatchNativeToolCall(call, state.CommandPolicy, "session-1", "provider-1", "change config", nil)
+	if err != nil || !pending { t.Fatalf("expected pending write: pending=%v err=%v", pending, err) }
+	request := store.AIState().CommandPolicy.PendingRequests[0]
+	if len(sftp.writes) != 0 { t.Fatal("write happened before approval") }
+	_ = service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeNow)
+	if len(sftp.writes) != 1 || sftp.writes[0] != "/tmp/eiksy.conf:enabled=true" { t.Fatalf("expected one approved write, got %#v", sftp.writes) }
+	if len(store.AIState().CommandPolicy.CommandRules) != 0 { t.Fatal("SFTP write approval must not create a reusable command rule") }
+}
+
+func TestResolveNativeSFTPWriteDenialDoesNotWrite(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	sftp := &nativeTestSFTPManager{}
+	store.UpdateAIState(ai.WorkspaceState{Providers: []ai.ProviderDescriptor{{ID: "provider-1", Configured: true}}, CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})
+	service := NewService(store, nil, sftp)
+	call := nativeToolCall{ID: "call-write", Type: "function"}
+	call.Function.Name = nativeSFTPWriteToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp/eiksy.conf","content":"enabled=true"}`
+	_, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}, "session-1", "provider-1", "write", nil)
+	if err != nil || !pending { t.Fatalf("expected pending write: pending=%v err=%v", pending, err) }
+	request := store.AIState().CommandPolicy.PendingRequests[0]
+	if err := service.ResolveCommandPolicyRequest(request.ID, ai.CommandPermissionModeDeny); err != nil { t.Fatalf("deny write: %v", err) }
+	if len(sftp.writes) != 0 { t.Fatalf("denied write was executed: %#v", sftp.writes) }
+}
 
 func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
 	store := memory.NewStore()
