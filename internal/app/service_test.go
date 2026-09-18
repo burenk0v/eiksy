@@ -191,7 +191,7 @@ func TestCloudProviderAuthSessionCompletesFromLocalhostCallback(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "browser-token" { t.Fatalf("expected received token to be returned, got %q", completed.Token) }
+	storedToken, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored browser token: %v", err) }; if storedToken != "browser-token" { t.Fatalf("expected browser token in secure storage, got %q", storedToken) }
 }
 
 func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
@@ -203,7 +203,7 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	if resp.StatusCode != http.StatusOK { t.Fatalf("expected callback status 200, got %d", resp.StatusCode) }
 	completed, err := service.GetCloudProviderAuthSession(session.ID); if err != nil { t.Fatalf("get auth session: %v", err) }
 	if completed.Status != "completed" { t.Fatalf("expected completed auth session, got %q", completed.Status) }
-	if completed.Token != "posted-token" { t.Fatalf("expected posted token to be returned, got %q", completed.Token) }
+	storedToken, err := store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", storedToken) }
 }
 
 func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
