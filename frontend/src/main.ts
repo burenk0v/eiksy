@@ -200,7 +200,6 @@ class EiksyShell {
   private showSettingsModal = false;
   private settingsTab: SettingsTab = "ai";
   private commandPolicyTab: CommandPolicyTab = "access";
-  private commandPolicySessionId = "";
   private sessionInnerTab: SessionInnerTab = "console";
   private sessionForm: SessionFormState = this.defaultSessionForm();
   private sidebarCollapsed = false;
@@ -515,7 +514,6 @@ class EiksyShell {
             (button.dataset.openSettingsTab as SettingsTab) ?? "ai";
           if (this.settingsTab === "commandpolicy") {
             this.commandPolicyTab = "access";
-            this.commandPolicySessionId = this.activeTab()?.id ?? "";
           }
           this.showSettingsModal = true;
           this.initializeSettingsDrafts();
