@@ -101,7 +101,7 @@ type stateStore interface {
 	DeleteSecret(string) error
 	OpenRuntimeTab(workspace.Tab)
 	CloseRuntimeTab(string) bool
-	RecordLaunch(string)
+	RecordLaunch(string) error
 }
 
 type sessionProfileMutator interface {
@@ -158,9 +158,21 @@ func (s *Service) EmitLog(level, message string) {
 }
 
 func (s *Service) LockSecureStorage() {
+	// Close all live protocol connections before locking credentials. This
+	// prevents already-authenticated sessions from surviving a credential lock.
+	for _, tab := range s.store.RuntimeTabs() {
+		if s.sshManager != nil {
+			if err := s.sshManager.Disconnect(tab.ID); err != nil {
+				s.emitFn("app:log", map[string]string{"level": "error", "message": fmt.Sprintf("disconnect SSH session %s during secure-storage lock: %v", tab.ID, err)})
+			}
+		}
+		if s.sftpManager != nil {
+			if err := s.sftpManager.Disconnect(tab.ID); err != nil {
+				s.emitFn("app:log", map[string]string{"level": "error", "message": fmt.Sprintf("disconnect SFTP session %s during secure-storage lock: %v", tab.ID, err)})
+			}
+		}
+	}
 	s.store.LockSecureStorage()
-	// Locking credentials also invalidates any approval continuation that could
-	// otherwise retain authenticated workflow state across a lock boundary.
 	state := s.store.AIState()
 	state.PendingNativeToolCall = nil
 	state.CommandPolicy.PendingRequests = nil
