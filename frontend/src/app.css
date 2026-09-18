@@ -705,6 +705,68 @@ small {
     background: var(--color-accent-subtle);
 }
 
+.ai-operation {
+    border: 1px solid var(--border-card);
+    border-radius: 12px;
+    background: var(--bg-input);
+    padding: 0.75rem;
+    font-size: 0.82rem;
+}
+
+.ai-operation-header,
+.ai-operation-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    color: var(--color-muted);
+}
+
+.ai-operation-command {
+    margin-top: 0.5rem;
+    overflow-x: auto;
+}
+
+.ai-operation-command code {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ai-operation-error {
+    margin-top: 0.5rem;
+    color: var(--color-error);
+}
+
+.ai-operation-message {
+    margin-top: 0.5rem;
+    color: var(--color-muted);
+}
+
+.ai-operation-output {
+    margin-top: 0.6rem;
+}
+
+.ai-operation-output pre {
+    max-height: 220px;
+    overflow: auto;
+    margin-top: 0.45rem;
+    padding: 0.6rem;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background: var(--bg-terminal);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.ai-operation-executed {
+    border-color: var(--border-active);
+}
+
+.ai-operation-execution_failed,
+.ai-operation-denied {
+    border-color: var(--color-error-border);
+}
+
+
 .message p,
 .message ul,
 .message blockquote,
