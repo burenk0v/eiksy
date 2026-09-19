@@ -8,6 +8,7 @@ import (
 
 	agentai "eiksy/internal/ai"
 	domainai "eiksy/internal/domain/ai"
+	"eiksy/internal/domain/workspace"
 	"eiksy/internal/storage/memory"
 )
 
