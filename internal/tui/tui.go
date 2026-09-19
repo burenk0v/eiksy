@@ -62,6 +62,7 @@ type Model struct {
 	messages  []ChatMessage
 	toolCalls []ToolCallView
 	input     string
+	palette   *CommandPalette
 	approval  *agentai.ApprovalRequest
 
 	sessions        []SessionRef
@@ -70,6 +71,25 @@ type Model struct {
 	sessionForker   SessionForker
 
 	approvalResolver ApprovalResolver
+}
+
+type PaletteCommand struct {
+	ID    string
+	Title string
+}
+
+type CommandPalette struct {
+	Query    string
+	Selected int
+}
+
+var paletteCommands = []PaletteCommand{
+	{ID: "next-tab", Title: "Next tab"},
+	{ID: "previous-tab", Title: "Previous tab"},
+	{ID: "next-session", Title: "Next session"},
+	{ID: "previous-session", Title: "Previous session"},
+	{ID: "fork-session", Title: "Fork active session"},
+	{ID: "quit", Title: "Quit Eiksy"},
 }
 
 func NewModel() Model {
@@ -147,6 +167,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionForkError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session fork failed: %v", msg.err)})
 	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlP {
+			if m.palette == nil { m.palette = &CommandPalette{} } else { m.palette = nil }
+			return m, nil
+		}
+		if m.palette != nil {
+			return m.updateCommandPalette(msg)
+		}
 		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil) {
 			return m, tea.Quit
 		}
@@ -194,6 +221,55 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) updateCommandPalette(msg tea.KeyMsg) (Model, tea.Cmd) {
+	filtered := m.filteredPaletteCommands()
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.palette = nil
+	case tea.KeyUp:
+		if len(filtered) > 0 { m.palette.Selected = (m.palette.Selected - 1 + len(filtered)) % len(filtered) }
+	case tea.KeyDown:
+		if len(filtered) > 0 { m.palette.Selected = (m.palette.Selected + 1) % len(filtered) }
+	case tea.KeyEnter:
+		if len(filtered) > 0 {
+			command := filtered[m.palette.Selected]
+			m.palette = nil
+			return *m, m.executePaletteCommand(command.ID)
+		}
+	case tea.KeyBackspace:
+		if len(m.palette.Query) > 0 { m.palette.Query = m.palette.Query[:len(m.palette.Query)-1]; m.palette.Selected = 0 }
+	case tea.KeyRunes:
+		for _, r := range msg.Runes {
+			if r >= 32 { m.palette.Query += string(r) }
+		}
+		m.palette.Selected = 0
+	}
+	return *m, nil
+}
+
+func (m Model) filteredPaletteCommands() []PaletteCommand {
+	if m.palette == nil { return nil }
+	query := strings.ToLower(strings.TrimSpace(m.palette.Query))
+	if query == "" { return append([]PaletteCommand(nil), paletteCommands...) }
+	result := make([]PaletteCommand, 0, len(paletteCommands))
+	for _, command := range paletteCommands {
+		if strings.Contains(strings.ToLower(command.Title), query) || strings.Contains(command.ID, query) { result = append(result, command) }
+	}
+	return result
+}
+
+func (m *Model) executePaletteCommand(id string) tea.Cmd {
+	switch id {
+	case "next-tab": m.selectNextTab()
+	case "previous-tab": m.selectPreviousTab()
+	case "next-session": m.selectNextSession()
+	case "previous-session": m.selectPreviousSession()
+	case "fork-session": return m.forkActiveSession()
+	case "quit": return tea.Quit
+	}
+	return nil
 }
 
 func (m *Model) handleAgentEvent(event agentai.Event) {
@@ -375,6 +451,18 @@ func (m Model) View() string {
 
 	header := " EIKSY  Think. Connect. Operate."
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
+	if m.palette != nil {
+		var palette strings.Builder
+		palette.WriteString("  COMMAND PALETTE\n\n")
+		fmt.Fprintf(&palette, "  > %s\n\n", m.palette.Query)
+		filtered := m.filteredPaletteCommands()
+		for i, command := range filtered {
+			marker := "  "
+			if i == m.palette.Selected { marker = "> " }
+			fmt.Fprintf(&palette, "  %s%s\n", marker, command.Title)
+		}
+		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
+	}
 	if active == "Chat" {
 		var chat strings.Builder
 		if len(m.sessions) > 0 {
@@ -414,7 +502,7 @@ func (m Model) View() string {
 		}
 		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
-	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   q quit"
+	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
