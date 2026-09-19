@@ -149,6 +149,70 @@ func (s *Service) ReconnectSession(sessionID string) error {
 	 }
 }
 
+func (s *Service) ConnectSession(sessionID string) error {
+	tab, ok := s.runtimeTab(sessionID)
+	if !ok {
+		return fmt.Errorf("active session %q not found", sessionID)
+	}
+	profile, ok := s.store.SessionProfile(tab.ProfileID)
+	if !ok {
+		_ = s.updateTabStatus(sessionID, "error")
+		return fmt.Errorf("session profile %q not found", tab.ProfileID)
+	}
+
+	switch profile.ProtocolID {
+	case "ssh":
+		return s.ConnectSSH(s.resolveContext(nil), sessionID, profile.ID)
+	case "sftp":
+		if s.sftpManager == nil {
+			_ = s.updateTabStatus(sessionID, "error")
+			return fmt.Errorf("sftp manager is not configured")
+		}
+		_ = s.updateTabStatus(sessionID, "connecting")
+		profile, err := s.profileWithSecrets(profile)
+		if err != nil {
+			_ = s.updateTabStatus(sessionID, "error")
+			return err
+		}
+		credential, err := s.profileCredential(profile)
+		if err != nil {
+			_ = s.updateTabStatus(sessionID, "error")
+			return err
+		}
+		if err := s.sftpManager.Connect(s.resolveContext(nil), sessionID, profile.Host, profile.Port, profile.Username, credential, profile.Options); err != nil {
+			_ = s.updateTabStatus(sessionID, "error")
+			return fmt.Errorf("connect SFTP: %w", err)
+		}
+		return s.updateTabStatus(sessionID, "connected")
+	default:
+		_ = s.updateTabStatus(sessionID, "error")
+		return fmt.Errorf("session protocol %q cannot be connected", profile.ProtocolID)
+	}
+}
+
+func (s *Service) DisconnectSession(sessionID string) error {
+	if _, ok := s.runtimeTab(sessionID); !ok {
+		return fmt.Errorf("active session %q not found", sessionID)
+	}
+
+	var firstErr error
+	if s.sshManager != nil {
+		if err := s.sshManager.Disconnect(sessionID); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("disconnect SSH: %w", err)
+		}
+	}
+	if s.sftpManager != nil {
+		if err := s.sftpManager.Disconnect(sessionID); err != nil && firstErr == nil {
+			firstErr = fmt.Errorf("disconnect SFTP: %w", err)
+		}
+	}
+	if firstErr != nil {
+		_ = s.updateTabStatus(sessionID, "error")
+		return firstErr
+	}
+	return s.updateTabStatus(sessionID, "disconnected")
+}
+
 func (s *Service) CloseSession(sessionID string) error {
 	if ok := s.store.CloseRuntimeTab(sessionID); !ok {
 		return fmt.Errorf("active session %q not found", sessionID)
