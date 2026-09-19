@@ -90,6 +90,12 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	if request.ToolID == nativeSFTPWriteToolName {
 		if state.PendingNativeToolCall == nil || state.PendingNativeToolCall.RequestID != requestID || state.PendingNativeToolCall.ToolName != nativeSFTPWriteToolName { return fmt.Errorf("pending SFTP write call %q not found", requestID) }
 		pending := state.PendingNativeToolCall
+		if pendingToolID := policyToolIDForNativeTool(pending.ToolName); pendingToolID != request.ToolID {
+			return fmt.Errorf("pending tool %q does not match approved tool %q", pending.ToolName, request.ToolID)
+		}
+		if strings.TrimSpace(pending.SessionID) != request.SessionID {
+			return fmt.Errorf("pending tool session %q does not match approved session %q", pending.SessionID, request.SessionID)
+		}
 		state.PendingNativeToolCall = nil
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved SFTP write request: %w", err) }
 		var args struct { SessionID string `json:"sessionId"`; Path string `json:"path"`; Content string `json:"content"`; Reason string `json:"reason"` }
@@ -222,4 +228,15 @@ func commandToolEnabled(policy ai.CommandPolicy, toolID string) bool {
 		}
 	}
 	return false
+}
+
+func policyToolIDForNativeTool(toolName string) string {
+	switch toolName {
+	case nativeSSHExecToolName:
+		return nativeSSHExecPolicyToolID
+	case nativeSFTPWriteToolName:
+		return nativeSFTPWriteToolName
+	default:
+		return toolName
+	}
 }
