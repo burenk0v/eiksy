@@ -420,14 +420,22 @@ func (s *Service) dispatchNativeSFTPList(call nativeToolCall, activeSessionID st
 	if !ok || tab.Status != "connected" || tab.ProtocolID != "ssh" {
 		return `{"error":{"type":"invalid_session","message":"active session is not a connected SSH session"}}`, false, nil
 	}
+	startedAt := time.Now()
 	entries, err := s.ListSFTPFiles(args.SessionID, args.Path)
 	if err != nil {
+		s.emitNativeSFTPOperation(nativeSFTPListToolName, "execution_failed", args.SessionID, args.Path, 0, "not_required", err.Error(), time.Since(startedAt).Milliseconds())
 		return marshalNativeToolError("SFTP listing failed: %v", err), false, nil
 	}
-	truncated := len(entries) > maxNativeSFTPListEntries
+	originalEntryCount := len(entries)
+	truncated := originalEntryCount > maxNativeSFTPListEntries
 	if truncated {
 		entries = entries[:maxNativeSFTPListEntries]
 	}
+	message := ""
+	if truncated {
+		message = fmt.Sprintf("listing truncated to %d entries", maxNativeSFTPListEntries)
+	}
+	s.emitNativeSFTPOperation(nativeSFTPListToolName, "executed", args.SessionID, args.Path, originalEntryCount, "not_required", message, time.Since(startedAt).Milliseconds())
 	payload := map[string]any{
 		"status": "ok",
 		"sessionId": args.SessionID,
