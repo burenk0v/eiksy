@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	agentai "eiksy/internal/ai"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
