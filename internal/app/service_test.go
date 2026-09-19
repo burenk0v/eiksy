@@ -305,11 +305,47 @@ func TestCloudProviderAuthSessionAcceptsPostedAccessToken(t *testing.T) {
 	storedToken, err := service.store.LoadSecret(securestorage.AIProviderTokenKey("openai-compatible-cloud")); if err != nil { t.Fatalf("load stored posted token: %v", err) }; if storedToken != "posted-token" { t.Fatalf("expected posted token in secure storage, got %q", storedToken) }
 }
 
-func TestClearChatKeepsMessageSliceUsable(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, nil)
-	if err := service.SendChatMessage(nil, "hello", ""); err == nil || !strings.Contains(err.Error(), "no AI provider is configured") { t.Fatalf("expected provider configuration error, got %v", err) }
-	service.ClearChat(); state := service.GetShellState()
-	if state.AI.Messages == nil { t.Fatal("expected clear chat to leave an empty message slice") }; if len(state.AI.Messages) != 0 { t.Fatalf("expected chat messages to be cleared, got %d", len(state.AI.Messages)) }; if state.AI.ChatSessionID == "" { t.Fatal("expected chat session id to be regenerated") }
+func TestClearChatStartsFreshSession(t *testing.T) {
+	store := memory.NewStore()
+	service := NewService(store, nil, nil)
+
+	state := store.AIState()
+	previousSessionID := state.ChatSessionID
+	state.Messages = []ai.ChatMessage{
+		{Role: "user", Content: "old conversation"},
+	}
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{
+		{ID: "request-1", ToolID: "shell", SessionID: "session-1", Command: "uname -a"},
+	}
+	state.PendingNativeToolCall = &ai.PendingNativeToolCall{
+		RequestID: "request-1",
+		ProviderID: "provider-1",
+		ToolCallID: "tool-1",
+		ToolName: "ssh.exec",
+		UserMessage: "run uname",
+		SessionID: "session-1",
+	}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed AI session state: %v", err)
+	}
+
+	if err := service.ClearChat(); err != nil {
+		t.Fatalf("clear chat: %v", err)
+	}
+
+	updated := store.AIState()
+	if updated.Messages == nil || len(updated.Messages) != 0 {
+		t.Fatalf("expected chat messages to be cleared, got %#v", updated.Messages)
+	}
+	if updated.ChatSessionID == "" || updated.ChatSessionID == previousSessionID {
+		t.Fatalf("expected a new chat session id, got %q", updated.ChatSessionID)
+	}
+	if len(updated.CommandPolicy.PendingRequests) != 0 {
+		t.Fatalf("expected pending command approvals to be cleared, got %d", len(updated.CommandPolicy.PendingRequests))
+	}
+	if updated.PendingNativeToolCall != nil {
+		t.Fatalf("expected pending native tool call to be cleared, got %#v", updated.PendingNativeToolCall)
+	}
 }
 
 func TestResolveCommandPolicyRequestWithSessionApprovalExecutesCommand(t *testing.T) {
