@@ -96,6 +96,16 @@ func (m *Manager) ListDir(tabID, targetPath string) ([]sftpdomain.FileEntry, err
 	return result, nil
 }
 
+func (m *Manager) Stat(tabID, targetPath string) (sftpdomain.FileEntry, error) {
+	m.mu.RLock(); conn := m.connections[tabID]; m.mu.RUnlock()
+	if conn == nil { return sftpdomain.FileEntry{}, fmt.Errorf("sftp tab %q is not connected", tabID) }
+	targetPath = strings.TrimSpace(targetPath)
+	if targetPath == "" { return sftpdomain.FileEntry{}, fmt.Errorf("sftp target path is required") }
+	info, err := conn.sftpClient.Stat(targetPath)
+	if err != nil { return sftpdomain.FileEntry{}, fmt.Errorf("stat sftp path %q: %w", targetPath, err) }
+	return sftpdomain.FileEntry{Name: info.Name(), Path: targetPath, IsDir: info.IsDir(), Size: info.Size(), ModTime: info.ModTime().UTC().Format(time.RFC3339), Mode: info.Mode().String()}, nil
+}
+
 func (m *Manager) ReadFile(tabID, targetPath string) (string, error) {
 	m.mu.RLock()
 	conn := m.connections[tabID]
