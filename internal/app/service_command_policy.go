@@ -80,7 +80,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	}
 	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
 		pending := state.PendingNativeToolCall
-		if strings.TrimSpace(pending.ToolName) != request.ToolID {
+		if pendingToolID := policyToolIDForNativeTool(pending.ToolName); pendingToolID != request.ToolID {
 			return fmt.Errorf("pending tool %q does not match approved tool %q", pending.ToolName, request.ToolID)
 		}
 		if strings.TrimSpace(pending.SessionID) != request.SessionID {
@@ -235,7 +235,7 @@ func policyToolIDForNativeTool(toolName string) string {
 	case nativeSSHExecToolName:
 		return nativeSSHExecPolicyToolID
 	case nativeSFTPWriteToolName:
-		return nativeSFTPWriteToolName
+		return "sftp"
 	default:
 		return toolName
 	}
