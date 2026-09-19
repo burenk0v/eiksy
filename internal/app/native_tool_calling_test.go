@@ -32,13 +32,15 @@ func (m *nativeTestSSHManager) AcceptHostKey(string) error { return nil }
 type nativeTestSFTPManager struct {
 	entries []sftpdomain.FileEntry
 	writes  []string
+	readContent string
+	readErr error
 	writeErr error
 }
 
 func (m *nativeTestSFTPManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
 func (m *nativeTestSFTPManager) Connected(string) bool { return true }
 func (m *nativeTestSFTPManager) ListDir(string, string) ([]sftpdomain.FileEntry, error) { return m.entries, nil }
-func (m *nativeTestSFTPManager) ReadFile(string, string) (string, error) { return "", nil }
+func (m *nativeTestSFTPManager) ReadFile(string, string) (string, error) { return m.readContent, m.readErr }
 func (m *nativeTestSFTPManager) WriteFile(_ string, path, content string) error {
 	m.writes = append(m.writes, path+":"+content)
 	return m.writeErr
@@ -140,6 +142,46 @@ func TestResolveNativeSFTPWriteDenialDoesNotWrite(t *testing.T) {
 	if len(sftp.writes) != 0 { t.Fatalf("denied write was executed: %#v", sftp.writes) }
 }
 
+
+func TestDispatchNativeSFTPReadReturnsBoundedContent(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	sftp := &nativeTestSFTPManager{readContent: strings.Repeat("x", maxNativeSFTPReadSize+10)}
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})
+	service := NewService(store, nil, sftp)
+	call := nativeToolCall{ID: "call-read", Type: "function"}
+	call.Function.Name = nativeSFTPReadToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp/eiksy.conf"}`
+	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "inspect file", nil)
+	if err != nil || pending { t.Fatalf("expected read-only non-pending result: pending=%v err=%v", pending, err) }
+	var payload struct { Content string `json:"content"`; Bytes int `json:"bytes"`; Truncated bool `json:"truncated"` }
+	if err := json.Unmarshal([]byte(result), &payload); err != nil { t.Fatalf("decode result: %v", err) }
+	if len(payload.Content) != maxNativeSFTPReadSize || payload.Bytes != maxNativeSFTPReadSize+10 || !payload.Truncated { t.Fatalf("unexpected bounded read: len=%d bytes=%d truncated=%v", len(payload.Content), payload.Bytes, payload.Truncated) }
+}
+
+func TestDispatchNativeSFTPReadRejectsDifferentSession(t *testing.T) {
+	store := memory.NewStore()
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{readContent: "secret"})
+	call := nativeToolCall{ID: "call-read", Type: "function"}
+	call.Function.Name = nativeSFTPReadToolName
+	call.Function.Arguments = `{"sessionId":"session-2","path":"/tmp/test"}`
+	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "read", nil)
+	if err != nil || pending { t.Fatalf("expected rejected non-pending read: pending=%v err=%v", pending, err) }
+	if !strings.Contains(result, "does not match the active Eiksy session") { t.Fatalf("expected active-session error, got %q", result) }
+}
+
+func TestDispatchNativeSFTPReadRequiresSFTPPolicy(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, &nativeTestSFTPManager{readContent: "secret"})
+	call := nativeToolCall{ID: "call-read", Type: "function"}
+	call.Function.Name = nativeSFTPReadToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp/test"}`
+	result, pending, err := service.dispatchNativeToolCall(call, ai.CommandPolicy{}, "session-1", "provider-1", "read", nil)
+	if err != nil || pending { t.Fatalf("expected disabled-tool result: pending=%v err=%v", pending, err) }
+	if !strings.Contains(result, "disabled") { t.Fatalf("expected disabled-tool error, got %q", result) }
+}
 func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
 	store := memory.NewStore()
 	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
