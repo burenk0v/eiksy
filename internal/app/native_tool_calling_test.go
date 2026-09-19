@@ -18,8 +18,9 @@ import (
 )
 
 type nativeTestSSHManager struct {
-	mu       sync.Mutex
-	commands []string
+	mu         sync.Mutex
+	commands   []string
+	currentDir string
 }
 
 func (m *nativeTestSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
@@ -27,7 +28,7 @@ func (m *nativeTestSSHManager) SendInput(sessionID, data string) error { m.mu.Lo
 func (m *nativeTestSSHManager) ResizeTerminal(string, int, int) error { return nil }
 func (m *nativeTestSSHManager) Disconnect(string) error { return nil }
 func (m *nativeTestSSHManager) SetOutputHandler(string, func(string)) {}
-func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error) { return ".", nil }
+func (m *nativeTestSSHManager) GetCurrentDir(string) (string, error) { if m.currentDir != "" { return m.currentDir, nil }; return ".", nil }
 func (m *nativeTestSSHManager) AcceptHostKey(string) error { return nil }
 type nativeTestSFTPManager struct {
 	entries []sftpdomain.FileEntry
