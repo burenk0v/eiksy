@@ -153,7 +153,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyDown:
 			m.selectNextSession()
 		case tea.KeyEnter:
-			if m.activeTab == 0 && len(m.sessions) > 0 {
+			if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectActiveSession(); cmd != nil {
 					return m, cmd
 				}
