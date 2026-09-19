@@ -44,6 +44,19 @@ func commandToolRegistry() []AITool {
 			},
 		},
 		{
+			Name: "sftp.stat",
+			Description: "Read metadata for one file or directory in the selected active SSH session through SFTP. Read-only; no file content is returned.",
+			Parameters: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"sessionId": map[string]any{"type": "string", "description": "Active Eiksy SSH session ID."},
+					"path": map[string]any{"type": "string", "description": "Remote file or directory path."},
+				},
+				"required": []string{"sessionId", "path"},
+				"additionalProperties": false,
+			},
+		},
+		{
 			Name: "sftp.read",
 			Description: "Read a bounded amount of UTF-8 text from a file in the selected active SSH session through SFTP. Read-only; use only when file content is explicitly needed.",
 			Parameters: map[string]any{

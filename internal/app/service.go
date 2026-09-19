@@ -123,6 +123,7 @@ type sftpManager interface {
 	Connect(context.Context, string, string, int, string, string, map[string]string) error
 	Connected(string) bool
 	ListDir(string, string) ([]sftpdomain.FileEntry, error)
+	Stat(string, string) (sftpdomain.FileEntry, error)
 	ReadFile(string, string) (string, error)
 	WriteFile(string, string, string) error
 	UploadFile(string, string, string) error
