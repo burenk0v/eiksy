@@ -237,7 +237,7 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	for i := range s.aiState.Providers {
 		s.aiState.Providers[i].Token = ""
 	}
-	if !chatMessagesEqual(previous.Messages, s.aiState.Messages) {
+	if !chatMessagesEqual(previous.Messages, s.aiState.Messages) || len(s.aiState.ChatSessions) > 0 {
 		if err := s.persistAIChatHistoryLocked(s.aiState.Messages); err != nil {
 			s.aiState = previous
 			return err
@@ -248,6 +248,57 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Store) ListChatSessions() []ai.ChatSession {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]ai.ChatSession, 0, len(s.aiState.ChatSessions))
+	for _, session := range s.aiState.ChatSessions {
+		copy := session
+		copy.Messages = nil
+		result = append(result, copy)
+	}
+	return result
+}
+
+func (s *Store) CreateChatSession(title string) (ai.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	title = strings.TrimSpace(title)
+	if title == "" { title = "New session" }
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := ai.ChatSession{ID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()), Title: title, CreatedAt: now, UpdatedAt: now}
+	s.aiState.ChatSessions = append(s.aiState.ChatSessions, session)
+	s.aiState.ChatSessionID = session.ID
+	s.aiState.Messages = nil
+	if err := s.persistAIChatHistoryLocked(nil); err != nil { return ai.ChatSession{}, err }
+	if err := s.saveSettings(); err != nil { return ai.ChatSession{}, err }
+	return session, nil
+}
+
+func (s *Store) SelectChatSession(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, session := range s.aiState.ChatSessions {
+		if session.ID != id { continue }
+		s.aiState.ChatSessionID = session.ID
+		s.aiState.Messages = append([]ai.ChatMessage(nil), session.Messages...)
+		return s.saveSettings()
+	}
+	return fmt.Errorf("chat session %q not found", id)
+}
+
+func (s *Store) syncChatSessionLocked() {
+	for i := range s.aiState.ChatSessions {
+		if s.aiState.ChatSessions[i].ID == s.aiState.ChatSessionID {
+			s.aiState.ChatSessions[i].Messages = append([]ai.ChatMessage(nil), s.aiState.Messages...)
+			s.aiState.ChatSessions[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+			return
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.aiState.ChatSessions = append(s.aiState.ChatSessions, ai.ChatSession{ID: s.aiState.ChatSessionID, Title: "Main session", CreatedAt: now, UpdatedAt: now, Messages: append([]ai.ChatMessage(nil), s.aiState.Messages...)})
 }
 
 func (s *Store) ClearAIHistory() error {
@@ -479,6 +530,7 @@ func (s *Store) loadSettings() error {
 }
 
 func (s *Store) persistAIChatHistoryLocked(messages []ai.ChatMessage) error {
+	s.syncChatSessionLocked()
 	payload, err := json.Marshal(persistedChatHistory{Sessions: s.aiState.ChatSessions, Legacy: messages})
 	if err != nil {
 		return fmt.Errorf("encode AI chat history: %w", err)
