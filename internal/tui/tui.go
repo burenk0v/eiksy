@@ -46,6 +46,10 @@ type SessionSelector interface {
 	SelectChatSession(sessionID string) error
 }
 
+type SessionForker interface {
+	ForkChatSession(sessionID, title string) (SessionRef, error)
+}
+
 type ApprovalResolver interface {
 	ResolveApproval(requestID, mode string) error
 }
@@ -63,6 +67,7 @@ type Model struct {
 	sessions        []SessionRef
 	activeSession   int
 	sessionSelector SessionSelector
+	sessionForker   SessionForker
 
 	approvalResolver ApprovalResolver
 }
@@ -96,6 +101,11 @@ func (m Model) WithSessionSelector(selector SessionSelector) Model {
 }
 
 // ActiveSession returns the currently highlighted chat session.
+func (m Model) WithSessionForker(forker SessionForker) Model {
+	m.sessionForker = forker
+	return m
+}
+
 func (m Model) ActiveSession() *SessionRef {
 	if m.activeSession < 0 || m.activeSession >= len(m.sessions) {
 		return nil
@@ -127,6 +137,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s selected.", msg.sessionID)})
 	case sessionSelectionError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session selection failed: %v", msg.err)})
+	case sessionForkDone:
+		m.sessions = append(m.sessions, msg.session)
+		m.activeSession = len(m.sessions) - 1
+		m.syncActiveSessionTab()
+		m.messages = nil
+		m.toolCalls = nil
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s forked.", msg.session.Title)})
+	case sessionForkError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session fork failed: %v", msg.err)})
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil) {
 			return m, tea.Quit
@@ -165,6 +184,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.input = m.input[:len(m.input)-1]
 			}
 		case tea.KeyRunes:
+			if len(msg.Runes) == 1 && (msg.Runes[0] == 'f' || msg.Runes[0] == 'F') && m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
+				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
+				break
+			}
 			if len(msg.Runes) == 1 && msg.Runes[0] >= 32 {
 				m.input += string(msg.Runes)
 			}
@@ -281,6 +304,26 @@ func (m *Model) selectActiveSession() tea.Cmd {
 type sessionSelectionDone struct{ sessionID string }
 type sessionSelectionError struct{ err error }
 
+func (m *Model) forkActiveSession() tea.Cmd {
+	session := m.ActiveSession()
+	if session == nil { return nil }
+	if m.sessionForker == nil {
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Session forking unavailable."})
+		return nil
+	}
+	sessionID := session.ID
+	title := session.Title + " (fork)"
+	forker := m.sessionForker
+	return func() tea.Msg {
+		created, err := forker.ForkChatSession(sessionID, title)
+		if err != nil { return sessionForkError{err: err} }
+		return sessionForkDone{session: created}
+	}
+}
+
+type sessionForkDone struct{ session SessionRef }
+type sessionForkError struct{ err error }
+
 func (m *Model) submitChatInput() {
 	content := strings.TrimSpace(m.input)
 	if content == "" || m.activeTab != 0 {
@@ -371,7 +414,7 @@ func (m Model) View() string {
 		}
 		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
-	footer := "  enter send   ↑/↓ sessions   ←/→/tab tabs   q quit"
+	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
