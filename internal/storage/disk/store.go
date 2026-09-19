@@ -941,3 +941,29 @@ func (s *Store) loadAuditLocked() ([]ai.CommandAuditEvent, error) {
 	if len(events) > maxPersistentAuditEvents { events = events[len(events)-maxPersistentAuditEvents:] }
 	return events, nil
 }
+
+
+func (s *Store) ForkChatSession(id, title string) (ai.ChatSession, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var source *ai.ChatSession
+	for i := range s.aiState.ChatSessions {
+		if s.aiState.ChatSessions[i].ID == id {
+			copy := s.aiState.ChatSessions[i]
+			copy.Messages = append([]ai.ChatMessage(nil), copy.Messages...)
+			source = &copy
+			break
+		}
+	}
+	if source == nil { return ai.ChatSession{}, fmt.Errorf("chat session %q not found", id) }
+	title = strings.TrimSpace(title)
+	if title == "" { title = source.Title + " (fork)" }
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := ai.ChatSession{ID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()), Title: title, CreatedAt: now, UpdatedAt: now, Messages: source.Messages}
+	s.aiState.ChatSessions = append(s.aiState.ChatSessions, session)
+	s.aiState.ChatSessionID = session.ID
+	s.aiState.Messages = append([]ai.ChatMessage(nil), session.Messages...)
+	if err := s.persistAIChatHistoryLocked(nil); err != nil { return ai.ChatSession{}, err }
+	if err := s.saveSettings(); err != nil { return ai.ChatSession{}, err }
+	return session, nil
+}
