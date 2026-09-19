@@ -67,18 +67,18 @@ func TestDispatchNativeDiagnosticsSummaryUsesFixedCommands(t *testing.T) {
 	if eventName != "ai:operate" {
 		t.Fatalf("expected ai:operate event, got %q", eventName)
 	}
-	payload, ok := eventData.(map[string]any)
+	eventPayload, ok := eventData.(map[string]any)
 	if !ok {
 		t.Fatalf("unexpected event payload type %T", eventData)
 	}
-	if payload["status"] != "executed" || payload["sessionId"] != "session-1" {
-		t.Fatalf("unexpected diagnostics activity: %#v", payload)
+	if eventPayload["status"] != "executed" || eventPayload["sessionId"] != "session-1" {
+		t.Fatalf("unexpected diagnostics activity: %#v", eventPayload)
 	}
-	command, ok := payload["command"].(string)
+	command, ok := eventPayload["command"].(string)
 	if !ok || !strings.Contains(command, "ssh.diagnostics summary") || !strings.Contains(command, "6 checks") {
-		t.Fatalf("unexpected diagnostics activity command: %#v", payload["command"])
+		t.Fatalf("unexpected diagnostics activity command: %#v", eventPayload["command"])
 	}
-	if payload["stdout"] != "" || payload["stderr"] != "" {
+	if eventPayload["stdout"] != "" || eventPayload["stderr"] != "" {
 		t.Fatal("diagnostics activity must not expose command output")
 	}
 }
