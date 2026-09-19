@@ -90,7 +90,7 @@ Audit
 
 AI does not receive passwords, private keys, API tokens or decrypted credential values. The UI is an interaction surface, not the authorization boundary.
 
-See [`docs/architecture.md`](docs/architecture.md) for application boundaries and [`docs/ai.md`](docs/ai.md) for the AI security model.
+See [`docs/README.md`](docs/README.md) for the documentation index, [`docs/architecture.md`](docs/architecture.md) for application boundaries and [`docs/ai.md`](docs/ai.md) for the AI security model.
 
 ## Architecture
 
