@@ -147,10 +147,37 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	defer s.mu.Unlock()
 
 	s.aiState = cloneAIState(state)
+	if len(s.aiState.ChatSessions) == 0 && s.aiState.ChatSessionID != "" { s.aiState.ChatSessions = []ai.ChatSession{{ID: s.aiState.ChatSessionID, Title: "Main session"}} }
 	for i := range s.aiState.Providers {
 		s.aiState.Providers[i].Token = ""
 	}
 	return nil
+}
+
+func (s *Store) ListChatSessions() []ai.ChatSession {
+	s.mu.RLock(); defer s.mu.RUnlock()
+	result := make([]ai.ChatSession, 0, len(s.aiState.ChatSessions))
+	for _, session := range s.aiState.ChatSessions { copy := session; copy.Messages = nil; result = append(result, copy) }
+	return result
+}
+
+func (s *Store) CreateChatSession(title string) (ai.ChatSession, error) {
+	s.mu.Lock(); defer s.mu.Unlock()
+	title = strings.TrimSpace(title); if title == "" { title = "New session" }
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := ai.ChatSession{ID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()), Title: title, CreatedAt: now, UpdatedAt: now}
+	s.aiState.ChatSessions = append(s.aiState.ChatSessions, session); s.aiState.ChatSessionID = session.ID; s.aiState.Messages = nil
+	return session, nil
+}
+
+func (s *Store) SelectChatSession(id string) error {
+	s.mu.Lock(); defer s.mu.Unlock()
+	for _, session := range s.aiState.ChatSessions { if session.ID == id { s.aiState.ChatSessionID = id; s.aiState.Messages = append([]ai.ChatMessage(nil), session.Messages...); return nil } }
+	return fmt.Errorf("chat session %q not found", id)
+}
+
+func (s *Store) syncChatSessionLocked() {
+	for i := range s.aiState.ChatSessions { if s.aiState.ChatSessions[i].ID == s.aiState.ChatSessionID { s.aiState.ChatSessions[i].Messages = append([]ai.ChatMessage(nil), s.aiState.Messages...); s.aiState.ChatSessions[i].UpdatedAt = time.Now().UTC().Format(time.RFC3339); return } }
 }
 
 func (s *Store) ClearAIHistory() error {
@@ -381,6 +408,7 @@ func defaultAIState() ai.WorkspaceState {
 		CommandPolicy: defaultCommandPolicy(),
 		Messages:      []ai.ChatMessage{{Role: "assistant", Content: "Ask for command suggestions or paste terminal errors for analysis."}},
 		ChatSessionID: fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano()),
+		ChatSessions:  []ai.ChatSession{},
 	}
 }
 
@@ -427,6 +455,8 @@ func cloneAIState(state ai.WorkspaceState) ai.WorkspaceState {
 	cloned.Providers = append([]ai.ProviderDescriptor(nil), state.Providers...)
 	cloned.CommandPolicy = cloneCommandPolicy(state.CommandPolicy)
 	cloned.Messages = append([]ai.ChatMessage{}, state.Messages...)
+	cloned.ChatSessions = make([]ai.ChatSession, len(state.ChatSessions))
+	for i, session := range state.ChatSessions { cloned.ChatSessions[i] = session; cloned.ChatSessions[i].Messages = append([]ai.ChatMessage(nil), session.Messages...) }
 	return cloned
 }
 
