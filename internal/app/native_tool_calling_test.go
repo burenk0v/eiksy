@@ -186,7 +186,7 @@ func TestDispatchNativeSFTPReadEmitsRedactedActivity(t *testing.T) {
 	if payload["status"] != "executed" { t.Fatalf("expected executed status, got %#v", payload["status"]) }
 	if payload["sessionId"] != "session-1" { t.Fatalf("unexpected session id: %#v", payload["sessionId"]) }
 	command, ok := payload["command"].(string)
-	if !ok || !strings.Contains(command, "sftp.read /tmp/secret.conf") || !strings.Contains(command, "17 bytes") {
+	if !ok || !strings.Contains(command, "sftp.read /tmp/secret.conf") || !strings.Contains(command, fmt.Sprintf("%d bytes", len(secret))) {
 		t.Fatalf("unexpected read activity command: %#v", payload["command"])
 	}
 	if strings.Contains(fmt.Sprint(payload), secret) { t.Fatal("SFTP read activity leaked file content") }
