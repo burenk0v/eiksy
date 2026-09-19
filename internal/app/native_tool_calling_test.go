@@ -161,6 +161,38 @@ func TestDispatchNativeSFTPReadReturnsBoundedContent(t *testing.T) {
 	if len(payload.Content) != maxNativeSFTPReadSize || payload.Bytes != maxNativeSFTPReadSize+10 || !payload.Truncated { t.Fatalf("unexpected bounded read: len=%d bytes=%d truncated=%v", len(payload.Content), payload.Bytes, payload.Truncated) }
 }
 
+func TestDispatchNativeSFTPReadEmitsRedactedActivity(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	secret := "TOP-SECRET-CONTENT"
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{readContent: secret})
+	var eventName string
+	var eventData any
+	service.SetRuntimeContext(context.Background(), func(name string, data ...interface{}) {
+		eventName = name
+		if len(data) > 0 { eventData = data[0] }
+	})
+	call := nativeToolCall{ID: "call-read", Type: "function"}
+	call.Function.Name = nativeSFTPReadToolName
+	call.Function.Arguments = "{\"sessionId\":\"session-1\",\"path\":\"/tmp/secret.conf\"}"
+	_, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "inspect", nil)
+	if err != nil || pending { t.Fatalf("expected successful read: pending=%v err=%v", pending, err) }
+	if eventName != "ai:operate" { t.Fatalf("expected ai:operate event, got %q", eventName) }
+	payload, ok := eventData.(map[string]any)
+	if !ok { t.Fatalf("unexpected event payload type %T", eventData) }
+	if payload["status"] != "executed" { t.Fatalf("expected executed status, got %#v", payload["status"]) }
+	if payload["sessionId"] != "session-1" { t.Fatalf("unexpected session id: %#v", payload["sessionId"]) }
+	command, ok := payload["command"].(string)
+	if !ok || !strings.Contains(command, "sftp.read /tmp/secret.conf") || !strings.Contains(command, fmt.Sprintf("%d bytes", len(secret))) {
+		t.Fatalf("unexpected read activity command: %#v", payload["command"])
+	}
+	if strings.Contains(fmt.Sprint(payload), secret) { t.Fatal("SFTP read activity leaked file content") }
+	if payload["stdout"] != "" || payload["stderr"] != "" { t.Fatal("SFTP read activity must not expose file content as output") }
+}
+
 func TestDispatchNativeSFTPReadRejectsDifferentSession(t *testing.T) {
 	store := memory.NewStore()
 	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})

@@ -52,7 +52,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 			state.PendingNativeToolCall = nil
 			if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist denied command request: %w", err) }
 			if request.ToolID == nativeSFTPWriteToolName {
-				s.emitNativeSFTPOperation("denied", request.SessionID, request.Command, 0, "required", "user denied the SFTP write", 0)
+				s.emitNativeSFTPOperation(nativeSFTPWriteToolName, "denied", request.SessionID, request.Command, 0, "required", "user denied the SFTP write", 0)
 			} else {
 				s.emitNativeOperation("denied", request.SessionID, request.Command, sessions.CommandExecutionResult{ExitCode: -1}, "required", "user denied the command")
 			}
@@ -86,7 +86,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		if !ok || tab.ProtocolID != "ssh" || tab.Status != "connected" { return fmt.Errorf("sftp.write requires a connected active SSH session") }
 		start := time.Now(); err := s.SaveSFTPFile(args.SessionID, args.Path, args.Content); duration := time.Since(start).Milliseconds()
 		status := "executed"; if err != nil { status = "execution_failed" }
-		s.emitNativeSFTPOperation(status, args.SessionID, args.Path, len([]byte(args.Content)), string(mode), errString(err), duration)
+		s.emitNativeSFTPOperation(nativeSFTPWriteToolName, status, args.SessionID, args.Path, len([]byte(args.Content)), string(mode), errString(err), duration)
 		result := map[string]any{"status":status,"sessionId":args.SessionID,"path":args.Path,"bytes":len([]byte(args.Content))}
 		if err != nil { result["error"] = err.Error() }
 		encoded, err := json.Marshal(result); if err != nil { return err }
