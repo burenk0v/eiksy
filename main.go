@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 
+	"eiksy/internal/cli"
+
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
@@ -14,6 +16,10 @@ import (
 var assets embed.FS
 
 func main() {
+	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr); handled {
+		os.Exit(exitCode)
+	}
+
 	app := NewApp()
 
 	err := wails.Run(&options.App{
