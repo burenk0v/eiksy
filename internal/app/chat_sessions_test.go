@@ -36,3 +36,41 @@ func TestSelectChatSessionRejectsUnknownID(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, nil)
 	if err := service.SelectChatSession("missing"); err == nil { t.Fatal("expected unknown session error") }
 }
+
+func TestChatSessionForkCopiesMessagesAndActivatesFork(t *testing.T) {
+	store := memory.NewStore()
+	service := NewService(store, nil, nil)
+	source := store.AIState()
+	source.Messages = []ai.ChatMessage{
+		{Role: "user", Content: "debug safely"},
+		{Role: "assistant", Content: "I will inspect diagnostics first."},
+	}
+	if err := store.UpdateAIState(source); err != nil { t.Fatalf("update state: %v", err) }
+
+	fork, err := service.ForkChatSession(source.ChatSessionID, "")
+	if err != nil { t.Fatalf("fork session: %v", err) }
+	if fork.Title != "Main session (fork)" { t.Fatalf("unexpected fork title %q", fork.Title) }
+	if fork.ID == source.ChatSessionID { t.Fatal("fork reused source id") }
+	if len(fork.Messages) != 2 || fork.Messages[0].Content != "debug safely" {
+		t.Fatalf("fork did not copy messages: %+v", fork.Messages)
+	}
+	state := store.AIState()
+	if state.ChatSessionID != fork.ID || len(state.Messages) != 2 {
+		t.Fatalf("fork should become active with copied messages: %+v", state)
+	}
+
+	state.Messages[0].Content = "changed fork"
+	if err := store.UpdateAIState(state); err != nil { t.Fatalf("update fork: %v", err) }
+	if err := service.SelectChatSession(source.ChatSessionID); err != nil { t.Fatalf("select source: %v", err) }
+	if got := store.AIState().Messages[0].Content; got != "debug safely" {
+		t.Fatalf("source messages were mutated by fork: %q", got)
+	}
+}
+
+func TestChatSessionForkRejectsUnknownID(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	if _, err := service.ForkChatSession("missing", "fork"); err == nil {
+		t.Fatal("expected unknown session error")
+	}
+}
+

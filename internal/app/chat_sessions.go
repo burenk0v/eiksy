@@ -25,3 +25,12 @@ func (s *Service) SelectChatSession(id string) error {
 	if s == nil || s.store == nil { return fmt.Errorf("application service is unavailable") }
 	return s.store.SelectChatSession(strings.TrimSpace(id))
 }
+
+
+// ForkChatSession creates a new persistent conversation with a copy of the source session's messages.
+func (s *Service) ForkChatSession(id, title string) (ai.ChatSession, error) {
+	if s == nil || s.store == nil {
+		return ai.ChatSession{}, fmt.Errorf("application service is unavailable")
+	}
+	return s.store.ForkChatSession(strings.TrimSpace(id), strings.TrimSpace(title))
+}
