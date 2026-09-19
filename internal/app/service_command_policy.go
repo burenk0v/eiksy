@@ -124,6 +124,7 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved command request: %w", err) }
 		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
 		status := "executed"; if err != nil { status = "execution_failed" }
+		s.recordCommandAudit(pending.ProviderID, request.SessionID, request.Command, string(decision), string(mode), status, result.ExitCode, result.DurationMs, ai.CommandAuditEvent{ErrorType: string(result.ErrorType), Error: result.Error})
 		s.emitNativeOperation(status, request.SessionID, request.Command, result, string(mode), errString(err))
 		payload := map[string]any{"status":status,"sessionId":request.SessionID,"command":request.Command,"result":result}
 		if err != nil { payload["message"] = err.Error() }
