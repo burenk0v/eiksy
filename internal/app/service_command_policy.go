@@ -235,7 +235,7 @@ func policyToolIDForNativeTool(toolName string) string {
 	case nativeSSHExecToolName:
 		return nativeSSHExecPolicyToolID
 	case nativeSFTPWriteToolName:
-		return "sftp"
+		return nativeSFTPWriteToolName
 	default:
 		return toolName
 	}
