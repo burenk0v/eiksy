@@ -244,6 +244,9 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 	if call.Function.Name == nativeSFTPWriteToolName {
 		return s.dispatchNativeSFTPWrite(call, activeSessionID, providerID, userMessage, messages)
 	}
+	if call.Function.Name == nativeSFTPReadToolName {
+		return s.dispatchNativeSFTPRead(call, activeSessionID)
+	}
 	if call.Function.Name != nativeSSHExecToolName {
 		return marshalNativeToolError("unknown tool %q", call.Function.Name), false, nil
 	}
