@@ -216,6 +216,18 @@ func TestDispatchNativeSFTPReadRequiresSFTPPolicy(t *testing.T) {
 	if err != nil || pending { t.Fatalf("expected disabled-tool result: pending=%v err=%v", pending, err) }
 	if !strings.Contains(result, "disabled") { t.Fatalf("expected disabled-tool error, got %q", result) }
 }
+func TestDispatchNativeSFTPListRequiresSFTPPolicy(t *testing.T) {
+	store := memory.NewStore()
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: false}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{entries: []sftpdomain.FileEntry{{Name: "secret.conf", Path: "/etc/secret.conf"}}})
+	call := nativeToolCall{ID: "call-list", Type: "function"}
+	call.Function.Name = nativeSFTPListToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/etc"}`
+	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "list", nil)
+	if err != nil || pending { t.Fatalf("expected disabled-tool result: pending=%v err=%v", pending, err) }
+	if !strings.Contains(result, "disabled") { t.Fatalf("expected disabled-tool error, got %q", result) }
+}
+
 func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
 	store := memory.NewStore()
 	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
