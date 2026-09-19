@@ -311,6 +311,43 @@ func TestAIChatHistoryIsEncryptedAndReloaded(t *testing.T) {
 }
 
 
+
+func TestAIChatHistoryClearedFromMemoryWhenSecureStorageLocks(t *testing.T) {
+	baseDir := t.TempDir()
+	keyring := newMemoryKeyring()
+	store, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil {
+		t.Fatalf("create disk store: %v", err)
+	}
+	if err := store.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock secure storage: %v", err)
+	}
+
+	state := store.AIState()
+	state.Messages = []ai.ChatMessage{
+		{Role: "user", Content: "private terminal output"},
+		{Role: "assistant", Content: "private AI response"},
+	}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("persist AI state: %v", err)
+	}
+
+	if err := store.LockSecureStorage(); err != nil {
+		t.Fatalf("lock secure storage: %v", err)
+	}
+	if messages := store.AIState().Messages; len(messages) != 0 {
+		t.Fatalf("expected AI history to be cleared from memory after lock, got %+v", messages)
+	}
+
+	if err := store.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock secure storage: %v", err)
+	}
+	restored := store.AIState().Messages
+	if len(restored) != 2 || restored[0].Content != "private terminal output" || restored[1].Content != "private AI response" {
+		t.Fatalf("expected encrypted history to survive lock/unlock, got %+v", restored)
+	}
+}
+
 func TestUpdateAIStateReturnsPersistenceErrorAndRollsBack(t *testing.T) {
 	baseDir := t.TempDir()
 	store, err := NewStoreAtWithKeyring(baseDir, newMemoryKeyring())
