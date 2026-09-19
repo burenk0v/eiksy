@@ -435,3 +435,57 @@ func TestModelForkUnavailable(t *testing.T) {
 	}
 }
 
+
+func TestModelCommandPaletteOpensFiltersAndCloses(t *testing.T) {
+	m := NewModel()
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	if cmd != nil { t.Fatal("expected no command") }
+	m = next.(Model)
+	if m.palette == nil { t.Fatal("expected command palette to open") }
+	if !strings.Contains(m.View(), "COMMAND PALETTE") || !strings.Contains(m.View(), "Fork active session") {
+		t.Fatal("expected command palette contents")
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	m = next.(Model)
+	if m.palette.Query != "f" || !strings.Contains(m.View(), "Fork active session") {
+		t.Fatalf("expected palette query filtering, got %+v", m.palette)
+	}
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if m.palette != nil { t.Fatal("expected palette to close") }
+}
+
+func TestModelCommandPaletteRunsNavigationCommand(t *testing.T) {
+	m := NewModel()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = next.(Model)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if cmd != nil { t.Fatal("expected no command while filtering") }
+	m = next.(Model)
+	if !strings.Contains(m.View(), "Next tab") {
+		t.Fatal("expected next tab command in filtered palette")
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil { t.Fatal("expected navigation command to execute locally") }
+	m = next.(Model)
+	if m.palette != nil || m.activeTab != 1 {
+		t.Fatalf("expected palette closed and next tab selected: palette=%+v tab=%d", m.palette, m.activeTab)
+	}
+}
+
+func TestModelCommandPaletteQuit(t *testing.T) {
+	m := NewModel()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	m = next.(Model)
+	if cmd != nil { t.Fatal("expected no command while filtering") }
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected quit command from palette") }
+	m = next.(Model)
+	if m.palette != nil { t.Fatal("expected palette to close") }
+}
