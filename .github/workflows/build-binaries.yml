@@ -1,7 +1,6 @@
 name: Build desktop binaries
 
 on:
-  push:
   pull_request:
   workflow_dispatch:
 
