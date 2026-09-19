@@ -6,7 +6,6 @@ import (
 
 	"eiksy/internal/domain/protocols"
 	"eiksy/internal/domain/resources"
-	"eiksy/internal/domain/workspace"
 )
 
 // GetResources returns configured operational targets without exposing
