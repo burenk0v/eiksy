@@ -42,6 +42,10 @@ type ToolCallView struct {
 	Status string
 }
 
+type SessionSelector interface {
+	SelectChatSession(sessionID string) error
+}
+
 type ApprovalResolver interface {
 	ResolveApproval(requestID, mode string) error
 }
@@ -52,9 +56,14 @@ type Model struct {
 	tabs      []Tab
 	activeTab int
 	messages  []ChatMessage
-	toolCalls       []ToolCallView
-	input           string
-	approval        *agentai.ApprovalRequest
+	toolCalls []ToolCallView
+	input     string
+	approval  *agentai.ApprovalRequest
+
+	sessions        []SessionRef
+	activeSession   int
+	sessionSelector SessionSelector
+
 	approvalResolver ApprovalResolver
 }
 
@@ -69,14 +78,40 @@ func NewModel() Model {
 	}
 }
 
+// WithChatSessions provides application-owned session metadata to the TUI.
+// Message bodies are intentionally not part of this presentation model.
+func (m Model) WithChatSessions(sessions []SessionRef) Model {
+	m.sessions = append([]SessionRef(nil), sessions...)
+	if m.activeSession >= len(m.sessions) {
+		m.activeSession = 0
+	}
+	m.syncActiveSessionTab()
+	return m
+}
+
+// WithSessionSelector connects session selection to the application service.
+func (m Model) WithSessionSelector(selector SessionSelector) Model {
+	m.sessionSelector = selector
+	return m
+}
+
+// ActiveSession returns the currently highlighted chat session.
+func (m Model) ActiveSession() *SessionRef {
+	if m.activeSession < 0 || m.activeSession >= len(m.sessions) {
+		return nil
+	}
+	session := m.sessions[m.activeSession]
+	return &session
+}
+
+func (m Model) Init() tea.Cmd { return nil }
+
 // WithApprovalResolver connects the TUI to the existing backend approval
 // service without making the TUI responsible for policy or execution.
 func (m Model) WithApprovalResolver(resolver ApprovalResolver) Model {
 	m.approvalResolver = resolver
 	return m
 }
-
-func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -109,12 +144,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectPreviousTab()
 		case tea.KeyRight, tea.KeyTab:
 			m.selectNextTab()
+		case tea.KeyUp:
+			m.selectPreviousSession()
+		case tea.KeyDown:
+			m.selectNextSession()
+		case tea.KeyEnter:
+			if m.activeTab == 0 && len(m.sessions) > 0 {
+				if cmd := m.selectActiveSession(); cmd != nil {
+					return m, cmd
+				}
+			} else {
+				m.submitChatInput()
+			}
 		case tea.KeyBackspace:
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
-		case tea.KeyEnter:
-			m.submitChatInput()
 		case tea.KeyRunes:
 			if len(msg.Runes) == 1 && msg.Runes[0] >= 32 {
 				m.input += string(msg.Runes)
@@ -186,6 +231,52 @@ func (m *Model) resolveApproval(mode string) tea.Cmd {
 type approvalResolutionDone struct{ mode string }
 type approvalResolutionError struct{ err error }
 
+func (m *Model) selectPreviousSession() {
+	if len(m.sessions) == 0 {
+		return
+	}
+	m.activeSession = (m.activeSession - 1 + len(m.sessions)) % len(m.sessions)
+	m.syncActiveSessionTab()
+}
+
+func (m *Model) selectNextSession() {
+	if len(m.sessions) == 0 {
+		return
+	}
+	m.activeSession = (m.activeSession + 1) % len(m.sessions)
+	m.syncActiveSessionTab()
+}
+
+func (m *Model) syncActiveSessionTab() {
+	if len(m.tabs) == 0 || len(m.sessions) == 0 {
+		return
+	}
+	session := m.sessions[m.activeSession]
+	m.tabs[0].BindSession(session.ID, session.Title)
+}
+
+func (m *Model) selectActiveSession() tea.Cmd {
+	session := m.ActiveSession()
+	if session == nil {
+		return nil
+	}
+	if m.sessionSelector == nil {
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s selected.", session.Title)})
+		return nil
+	}
+	sessionID := session.ID
+	selector := m.sessionSelector
+	return func() tea.Msg {
+		if err := selector.SelectChatSession(sessionID); err != nil {
+			return sessionSelectionError{err: err}
+		}
+		return sessionSelectionDone{sessionID: sessionID}
+	}
+}
+
+type sessionSelectionDone struct{ sessionID string }
+type sessionSelectionError struct{ err error }
+
 func (m *Model) submitChatInput() {
 	content := strings.TrimSpace(m.input)
 	if content == "" || m.activeTab != 0 {
@@ -239,13 +330,24 @@ func (m Model) View() string {
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
 	if active == "Chat" {
 		var chat strings.Builder
+		if len(m.sessions) > 0 {
+			chat.WriteString("  Sessions\n")
+			for i, session := range m.sessions {
+				marker := "  "
+				if i == m.activeSession {
+					marker = "> "
+				}
+				fmt.Fprintf(&chat, "  %s%s\n", marker, session.Title)
+			}
+			chat.WriteString("\n")
+		}
 		if m.approval != nil {
-			chat.WriteString("  EIKSY ACTION\\n\\n")
-			fmt.Fprintf(&chat, "  Tool: %s\\n", m.approval.ToolID)
-			fmt.Fprintf(&chat, "  Session: %s\\n", m.approval.SessionID)
-			fmt.Fprintf(&chat, "  Command: %s\\n", m.approval.Command)
+			chat.WriteString("  EIKSY ACTION\n\n")
+			fmt.Fprintf(&chat, "  Tool: %s\n", m.approval.ToolID)
+			fmt.Fprintf(&chat, "  Session: %s\n", m.approval.SessionID)
+			fmt.Fprintf(&chat, "  Command: %s\n", m.approval.Command)
 			if m.approval.Reason != "" {
-				fmt.Fprintf(&chat, "  Reason: %s\\n", m.approval.Reason)
+				fmt.Fprintf(&chat, "  Reason: %s\n", m.approval.Reason)
 			}
 			chat.WriteString("  [Y] now  [S] session  [A] always  [N] deny\n\n")
 		}
@@ -265,7 +367,7 @@ func (m Model) View() string {
 		}
 		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
-	footer := "  enter send   ←/h previous   →/l/tab next   q quit"
+	footer := "  enter send   ↑/↓ sessions   ←/→/tab tabs   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
