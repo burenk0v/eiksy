@@ -244,6 +244,13 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 	return nil
 }
 
+func (s *Store) ClearAIHistory() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.aiState.Messages = nil
+	return nil
+}
+
 func (s *Store) UpdateSettings(updated settings.AppSettings) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -569,6 +576,7 @@ func (s *Store) LockSecureStorage() {
 	if s.secretManager != nil {
 		s.secretManager.Lock()
 	}
+	_ = s.ClearAIHistory()
 }
 
 func (s *Store) SecureStorageStatus() securestorage.Status {
