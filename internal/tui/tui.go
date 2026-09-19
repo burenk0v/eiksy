@@ -502,6 +502,18 @@ func (m Model) View() string {
 		}
 		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
+	if m.palette != nil {
+		var palette strings.Builder
+		palette.WriteString("  COMMAND PALETTE\n\n")
+		fmt.Fprintf(&palette, "  > %s\n\n", m.palette.Query)
+		filtered := m.filteredPaletteCommands()
+		for i, command := range filtered {
+			marker := "  "
+			if i == m.palette.Selected { marker = "> " }
+			fmt.Fprintf(&palette, "  %s%s\n", marker, command.Title)
+		}
+		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
+	}
 	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
