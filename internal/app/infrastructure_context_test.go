@@ -81,3 +81,39 @@ func contains(value, needle string) bool {
 	}
 	return false
 }
+
+
+func TestGetAIInfrastructureContextBoundsOperationalMetadata(t *testing.T) {
+	store := memory.NewStore()
+	long := func(n int) string { b := make([]byte, n); for i := range b { b[i] = 'x' }; return string(b) }
+	if err := store.UpsertSessionProfile(sessions.Profile{
+		ID: "profile-bounded", Name: long(300), Group: long(200),
+		Tags: []string{long(100), "", long(70)},
+		ProtocolID: "ssh", Host: long(300), Port: 22, Username: long(200),
+	}); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	store.OpenRuntimeTab(workspace.Tab{
+		ID: "session-bounded", ProfileID: "profile-bounded", ProtocolID: "ssh",
+		Status: "connected", Description: long(600),
+	})
+	service := NewService(store, &nativeTestSSHManager{currentDir: long(1200)}, nil)
+
+	context, err := service.GetAIInfrastructureContext("session-bounded")
+	if err != nil {
+		t.Fatalf("get infrastructure context: %v", err)
+	}
+	got := context.ActiveSession
+	if got == nil {
+		t.Fatal("expected active session context")
+	}
+	if len(got.Name) != maxAIContextName || len(got.Group) != maxAIContextGroup ||
+		len(got.Host) != maxAIContextHost || len(got.Username) != maxAIContextUsername ||
+		len(got.Description) != maxAIContextDescription || len(got.CurrentDir) != maxAIContextCurrentDir {
+		t.Fatalf("expected bounded context fields, got lengths name=%d group=%d host=%d username=%d description=%d dir=%d",
+			len(got.Name), len(got.Group), len(got.Host), len(got.Username), len(got.Description), len(got.CurrentDir))
+	}
+	if len(got.Tags) != 2 || len(got.Tags[0]) != maxAIContextTag || len(got.Tags[1]) != maxAIContextTag {
+		t.Fatalf("expected bounded tags, got lengths %+v", got.Tags)
+	}
+}
