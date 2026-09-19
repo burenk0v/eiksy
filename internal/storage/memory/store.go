@@ -526,7 +526,5 @@ func (s *Store) ForkChatSession(id, title string) (ai.ChatSession, error) {
 	s.aiState.ChatSessions = append(s.aiState.ChatSessions, session)
 	s.aiState.ChatSessionID = session.ID
 	s.aiState.Messages = append([]ai.ChatMessage(nil), session.Messages...)
-	if err := s.persistAIChatHistoryLocked(nil); err != nil { return ai.ChatSession{}, err }
-	if err := s.saveSettings(); err != nil { return ai.ChatSession{}, err }
 	return session, nil
 }
