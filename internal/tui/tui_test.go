@@ -103,3 +103,41 @@ func TestTabBindSessionIgnoresEmptyID(t *testing.T) {
 		t.Fatal("expected empty session ID not to create a reference")
 	}
 }
+
+func TestModelChatInput(t *testing.T) {
+	m := NewModel()
+	for _, r := range []rune("hello") {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			t.Fatal("expected no command")
+		}
+		m = next.(Model)
+	}
+	if m.input != "hello" {
+		t.Fatalf("expected input %q, got %q", "hello", m.input)
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected no command")
+	}
+	m = next.(Model)
+	if m.input != "" {
+		t.Fatalf("expected input to clear, got %q", m.input)
+	}
+	if len(m.messages) != 1 || m.messages[0].Role != "You" || m.messages[0].Content != "hello" {
+		t.Fatalf("unexpected messages: %+v", m.messages)
+	}
+	if !strings.Contains(m.View(), "You: hello") {
+		t.Fatal("expected submitted message in chat view")
+	}
+}
+
+func TestModelChatIgnoresEmptyInput(t *testing.T) {
+	m := NewModel()
+	m.input = "   "
+	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(m.messages) != 0 {
+		t.Fatal("expected empty input not to create a message")
+	}
+}
