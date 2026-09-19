@@ -332,12 +332,18 @@ func (s *Store) SecretExists(key string) bool {
 func (s *Store) LoadSecret(key string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if !s.secureStatus.Unlocked {
+		return "", fmt.Errorf("secure storage is locked")
+	}
 	return s.secrets[key], nil
 }
 
 func (s *Store) StoreSecret(key, value string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.secureStatus.Unlocked {
+		return fmt.Errorf("secure storage is locked")
+	}
 	s.secrets[key] = value
 	return nil
 }
