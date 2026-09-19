@@ -123,6 +123,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval %s applied.", msg.mode)})
 	case approvalResolutionError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval failed: %v", msg.err)})
+	case sessionSelectionDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s selected.", msg.sessionID)})
+	case sessionSelectionError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session selection failed: %v", msg.err)})
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil) {
 			return m, tea.Quit
