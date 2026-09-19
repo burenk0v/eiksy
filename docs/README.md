@@ -9,6 +9,7 @@ Eiksy documentation is organized around the permanent product and implementation
 ## Architecture
 
 - [architecture.md](architecture.md) — stable application boundaries, responsibilities and extension rules.
+- [adr/0001-cli-tui-architecture.md](adr/0001-cli-tui-architecture.md) — CLI/TUI frontend boundary, state model and security constraints.
 - [ai.md](ai.md) — AI architecture, context boundaries, native tools, approval and execution flow.
 - [release-acceptance.md](release-acceptance.md) — final release acceptance gate for the product contract.
 
