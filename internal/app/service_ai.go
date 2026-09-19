@@ -643,5 +643,7 @@ func (s *Service) scrubAIStateForShell(state ai.WorkspaceState) ai.WorkspaceStat
 		}
 	}
 	scrubbed.Messages = append([]ai.ChatMessage{}, state.Messages...)
+	scrubbed.ChatSessions = make([]ai.ChatSession, len(state.ChatSessions))
+	for i, session := range state.ChatSessions { scrubbed.ChatSessions[i] = session; scrubbed.ChatSessions[i].Messages = nil }
 	return scrubbed
 }

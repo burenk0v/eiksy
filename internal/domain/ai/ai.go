@@ -92,11 +92,20 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+type ChatSession struct {
+	ID        string        `json:"id"`
+	Title     string        `json:"title"`
+	CreatedAt string        `json:"createdAt"`
+	UpdatedAt string        `json:"updatedAt"`
+	Messages  []ChatMessage `json:"messages,omitempty"`
+}
+
 type WorkspaceState struct {
 	Providers             []ProviderDescriptor   `json:"providers"`
 	ContextPolicy         ContextPolicy          `json:"contextPolicy"`
 	CommandPolicy         CommandPolicy          `json:"commandPolicy"`
 	Messages              []ChatMessage          `json:"messages"`
 	ChatSessionID         string                 `json:"chatSessionId"`
+	ChatSessions          []ChatSession          `json:"chatSessions,omitempty"`
 	PendingNativeToolCall *PendingNativeToolCall `json:"pendingNativeToolCall,omitempty"`
 }

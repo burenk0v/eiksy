@@ -91,6 +91,9 @@ type stateStore interface {
 	RuntimeTabs() []workspace.Tab
 	Events() []workspace.Event
 	UpdateAIState(ai.WorkspaceState) error
+	ListChatSessions() []ai.ChatSession
+	CreateChatSession(string) (ai.ChatSession, error)
+	SelectChatSession(string) error
 	ClearAIHistory() error
 	UpdateSettings(settings.AppSettings) error
 	SecureStorageStatus() securestorage.Status

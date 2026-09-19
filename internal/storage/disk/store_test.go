@@ -157,8 +157,18 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 			t.Fatalf("secret row %q contains plaintext payload: %s", name, value)
 		}
 	}
-	if len(names) != 5 {
-		t.Fatalf("expected 5 encrypted secrets, got %d (%v)", len(names), names)
+	if len(names) != 6 {
+		t.Fatalf("expected 6 encrypted secrets, got %d (%v)", len(names), names)
+	}
+	foundChatHistory := false
+	for _, name := range names {
+		if name == securestorage.AIChatHistoryKey() {
+			foundChatHistory = true
+			break
+		}
+	}
+	if !foundChatHistory {
+		t.Fatalf("expected encrypted AI chat history secret, got %v", names)
 	}
 
 	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
@@ -385,4 +395,32 @@ func TestCommandAuditPersistsAcrossStoreReload(t *testing.T) {
 	if err != nil { t.Fatalf("reload disk store: %v", err) }
 	trail := reloaded.CommandAuditTrail()
 	if len(trail) != 1 || trail[0].ID != "audit-1" { t.Fatalf("unexpected persisted audit trail: %+v", trail) }
+}
+
+func TestChatSessionsPersistEncryptedAndRestore(t *testing.T) {
+	baseDir := t.TempDir()
+	keyring := newMemoryKeyring()
+	store, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("create store: %v", err) }
+	service := app.NewService(store, nil, nil)
+	if err := service.EnsureMasterPassword("master-password"); err != nil { t.Fatalf("unlock: %v", err) }
+	created, err := service.CreateChatSession("Persistent debug")
+	if err != nil { t.Fatalf("create chat session: %v", err) }
+	state := store.AIState()
+	state.Messages = []ai.ChatMessage{{Role: "user", Content: "private conversation"}}
+	if err := store.UpdateAIState(state); err != nil { t.Fatalf("update chat: %v", err) }
+	if err := service.SelectChatSession(created.ID); err != nil { t.Fatalf("select chat: %v", err) }
+
+	rawSettings, err := os.ReadFile(filepath.Join(baseDir, "settings.json"))
+	if err != nil { t.Fatalf("read settings: %v", err) }
+	if strings.Contains(string(rawSettings), "private conversation") || strings.Contains(string(rawSettings), "Persistent debug") { t.Fatal("settings.json must not contain chat content or titles") }
+
+	reopened, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("reopen store: %v", err) }
+	reopenedService := app.NewService(reopened, nil, nil)
+	if err := reopenedService.EnsureMasterPassword("master-password"); err != nil { t.Fatalf("unlock reopened store: %v", err) }
+	found := reopenedService.ListChatSessions()
+	if len(found) != 2 { t.Fatalf("expected two chat sessions, got %d", len(found)) }
+	if err := reopenedService.SelectChatSession(created.ID); err != nil { t.Fatalf("select restored chat: %v", err) }
+	if got := reopened.AIState().Messages; len(got) != 1 || got[0].Content != "private conversation" { t.Fatalf("restored messages mismatch: %+v", got) }
 }
