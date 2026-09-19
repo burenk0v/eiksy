@@ -78,6 +78,15 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist stale command request cleanup: %w", err) }
 		return fmt.Errorf("active session %q not found", request.SessionID)
 	}
+	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
+		pending := state.PendingNativeToolCall
+		if strings.TrimSpace(pending.ToolName) != request.ToolID {
+			return fmt.Errorf("pending tool %q does not match approved tool %q", pending.ToolName, request.ToolID)
+		}
+		if strings.TrimSpace(pending.SessionID) != request.SessionID {
+			return fmt.Errorf("pending tool session %q does not match approved session %q", pending.SessionID, request.SessionID)
+		}
+	}
 	if request.ToolID == nativeSFTPWriteToolName {
 		if state.PendingNativeToolCall == nil || state.PendingNativeToolCall.RequestID != requestID || state.PendingNativeToolCall.ToolName != nativeSFTPWriteToolName { return fmt.Errorf("pending SFTP write call %q not found", requestID) }
 		pending := state.PendingNativeToolCall
@@ -121,12 +130,6 @@ func (s *Service) ResolveCommandPolicyRequest(requestID string, mode ai.CommandP
 	policy.CommandRules = normalizeCommandRules(policy.CommandRules); state.CommandPolicy = policy
 	if state.PendingNativeToolCall != nil && state.PendingNativeToolCall.RequestID == requestID {
 		pending := state.PendingNativeToolCall
-		if strings.TrimSpace(pending.ToolName) != request.ToolID {
-			return fmt.Errorf("pending tool %q does not match approved tool %q", pending.ToolName, request.ToolID)
-		}
-		if strings.TrimSpace(pending.SessionID) != request.SessionID {
-			return fmt.Errorf("pending tool session %q does not match approved session %q", pending.SessionID, request.SessionID)
-		}
 		state.PendingNativeToolCall = nil
 		if err := s.store.UpdateAIState(state); err != nil { return fmt.Errorf("persist approved command request: %w", err) }
 		result, err := s.executeSessionCommandResult(request.SessionID, request.Command)
