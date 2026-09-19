@@ -1,7 +1,6 @@
 package app
 
 import (
-	"regexp"
 	"strings"
 	"testing"
 
@@ -117,4 +116,3 @@ func TestRedactAuditValuePreservesSafeStatus(t *testing.T) {
 	}
 }
 
-var _ = regexp.MustCompile
