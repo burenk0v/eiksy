@@ -10,6 +10,7 @@ Eiksy documentation is organized around the permanent product and implementation
 
 - [architecture.md](architecture.md) — stable application boundaries, responsibilities and extension rules.
 - [ai.md](ai.md) — AI architecture, context boundaries, native tools, approval and execution flow.
+- [release-acceptance.md](release-acceptance.md) — final release acceptance gate for the product contract.
 
 ## Product acceptance
 
