@@ -91,6 +91,7 @@ type stateStore interface {
 	RuntimeTabs() []workspace.Tab
 	Events() []workspace.Event
 	UpdateAIState(ai.WorkspaceState) error
+	ClearAIHistory() error
 	UpdateSettings(settings.AppSettings) error
 	SecureStorageStatus() securestorage.Status
 	EnsureMasterPassword(string) error
@@ -179,6 +180,9 @@ func (s *Service) LockSecureStorage() {
 	state.CommandPolicy.PendingRequests = nil
 	if err := s.store.UpdateAIState(state); err != nil {
 		s.emitFn("app:log", map[string]string{"level": "error", "message": fmt.Sprintf("persist AI state after secure-storage lock: %v", err)})
+	}
+	if err := s.store.ClearAIHistory(); err != nil {
+		s.emitFn("app:log", map[string]string{"level": "error", "message": fmt.Sprintf("clear AI history from memory after secure-storage lock: %v", err)})
 	}
 	s.emitFn("secure-storage:status", map[string]bool{"unlocked": false})
 }
