@@ -45,7 +45,11 @@ func TestThinkConnectOperateAcceptance(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil { t.Fatalf("decode AI request: %v", err) }
 		mu.Lock(); requestCount++; count := requestCount; mu.Unlock()
 		if count == 1 {
-			body := `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"accept-call","type":"function","function":{"name":"ssh.exec","arguments":"{"sessionId":"` + tab.ID + `","command":"uname -a","reason":"inspect connected host"}"}}]}}]}`
+			args, err := json.Marshal(map[string]string{"sessionId": tab.ID, "command": "uname -a", "reason": "inspect connected host"})
+			if err != nil { t.Fatalf("marshal tool arguments: %v", err) }
+			response := map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": "", "tool_calls": []any{map[string]any{"id": "accept-call", "type": "function", "function": map[string]any{"name": "ssh.exec", "arguments": string(args)}}}}}}}
+			body, err := json.Marshal(response)
+			if err != nil { t.Fatalf("marshal AI response: %v", err) }
 			_, _ = w.Write([]byte(body)); return
 		}
 		foundResult := false
