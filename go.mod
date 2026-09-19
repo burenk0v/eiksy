@@ -3,6 +3,7 @@ module eiksy
 go 1.26.8
 
 require (
+	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/pkg/sftp v1.13.11
 	github.com/tobischo/gokeepasslib/v3 v3.7.0
 	github.com/wailsapp/wails/v2 v2.14.0
