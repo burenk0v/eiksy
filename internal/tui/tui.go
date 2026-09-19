@@ -42,14 +42,20 @@ type ToolCallView struct {
 	Status string
 }
 
+type ApprovalResolver interface {
+	ResolveApproval(requestID, mode string) error
+}
+
 type Model struct {
 	width     int
 	height    int
 	tabs      []Tab
 	activeTab int
 	messages  []ChatMessage
-	toolCalls []ToolCallView
-	input     string
+	toolCalls       []ToolCallView
+	input           string
+	approval        *agentai.ApprovalRequest
+	approvalResolver ApprovalResolver
 }
 
 func NewModel() Model {
@@ -63,6 +69,13 @@ func NewModel() Model {
 	}
 }
 
+// WithApprovalResolver connects the TUI to the existing backend approval
+// service without making the TUI responsible for policy or execution.
+func (m Model) WithApprovalResolver(resolver ApprovalResolver) Model {
+	m.approvalResolver = resolver
+	return m
+}
+
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -72,8 +85,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
-		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q') {
+		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil) {
 			return m, tea.Quit
+		}
+		if m.approval != nil && msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
+			switch msg.Runes[0] {
+			case 'y', 'Y':
+				return m, m.resolveApproval("now")
+			case 's', 'S':
+				return m, m.resolveApproval("session")
+			case 'a', 'A':
+				return m, m.resolveApproval("always")
+			case 'n', 'N':
+				return m, m.resolveApproval("deny")
+			}
 		}
 		switch msg.Type {
 		case tea.KeyLeft:
@@ -119,6 +144,11 @@ func (m *Model) handleAgentEvent(event agentai.Event) {
 				call.Name = strings.TrimSpace(event.Tool)
 			}
 		}
+	case agentai.EventApprovalRequired:
+		if event.Approval != nil {
+			request := *event.Approval
+			m.approval = &request
+		}
 	case agentai.EventError:
 		content := "AI error"
 		if event.Err != nil {
@@ -127,8 +157,34 @@ func (m *Model) handleAgentEvent(event agentai.Event) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: content})
 	case agentai.EventCancellation:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI request cancelled"})
+	case approvalResolutionDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval %s applied.", msg.mode)})
+	case approvalResolutionError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval failed: %v", msg.err)})
 	}
 }
+
+func (m *Model) resolveApproval(mode string) tea.Cmd {
+	if m.approval == nil {
+		return nil
+	}
+	requestID := m.approval.RequestID
+	m.approval = nil
+	if m.approvalResolver == nil {
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval %s queued for %s.", mode, requestID)})
+		return nil
+	}
+	resolver := m.approvalResolver
+	return func() tea.Msg {
+		if err := resolver.ResolveApproval(requestID, mode); err != nil {
+			return approvalResolutionError{err: err}
+		}
+		return approvalResolutionDone{mode: mode}
+	}
+}
+
+type approvalResolutionDone struct{ mode string }
+type approvalResolutionError struct{ err error }
 
 func (m *Model) submitChatInput() {
 	content := strings.TrimSpace(m.input)
@@ -183,6 +239,17 @@ func (m Model) View() string {
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
 	if active == "Chat" {
 		var chat strings.Builder
+		if m.approval != nil {
+			chat.WriteString("  EIKSY ACTION\\n\\n")
+			fmt.Fprintf(&chat, "  Tool: %s\\n", m.approval.ToolID)
+			fmt.Fprintf(&chat, "  Session: %s\\n", m.approval.SessionID)
+			fmt.Fprintf(&chat, "  Command: %s\\n", m.approval.Command)
+			if m.approval.Reason != "" {
+				fmt.Fprintf(&chat, "  Reason: %s\\n", m.approval.Reason)
+			}
+			chat.WriteString("  \\[Y\\] now  \\[S\\] session  \\[A\\] always  \\[N\\] deny\\n\\n")
+		}
+
 		if len(m.messages) == 0 && len(m.toolCalls) == 0 {
 			chat.WriteString("  No messages yet. Ask Eiksy something.")
 		} else {
@@ -199,6 +266,9 @@ func (m Model) View() string {
 		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
 	footer := "  enter send   ←/h previous   →/l/tab next   q quit"
+	if m.approval != nil {
+		footer = "  approval: y now   s session   a always   n deny"
+	}
 
 	return strings.Join([]string{
 		header,
