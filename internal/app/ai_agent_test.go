@@ -120,3 +120,64 @@ func TestAIBackendAgentRunReportsCancellation(t *testing.T) {
 		t.Fatalf("expected cancellation, got %q", event.Type)
 	}
 }
+
+
+func TestAIBackendAgentRunStreamsNativeToolLifecycle(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"diag-1","type":"function","function":{"name":"ssh.diagnostics","arguments":"{\"sessionId\":\"session-1\",\"operation\":\"summary\"}"}}]}}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"diagnostics complete"}}]}`))
+	}))
+	defer server.Close()
+
+	store := memory.NewStore()
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
+	state := store.AIState()
+	state.Messages = nil
+	state.ChatSessionID = "chat-1"
+	state.Providers = []domainai.ProviderDescriptor{{
+		ID: "provider-1", Class: domainai.ProviderClassOpenAICompatible, Model: "test-model",
+		Endpoint: server.URL + "/v1", Selected: true, Configured: true,
+	}}
+	state.CommandPolicy = domainai.CommandPolicy{Tools: []domainai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed AI state: %v", err)
+	}
+
+	service := NewService(store, &nativeTestSSHManager{}, nil)
+	events, err := NewAIBackendAgent(service).Run(context.Background(), "session-1", "inspect host")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	var got []agentai.Event
+	for event := range events {
+		got = append(got, event)
+	}
+	if len(got) != 6 {
+		t.Fatalf("expected 6 events, got %d: %#v", len(got), got)
+	}
+	wantTypes := []agentai.EventType{
+		agentai.EventMessageStarted, agentai.EventToolStarted, agentai.EventToolOutput,
+		agentai.EventToolFinished, agentai.EventTextDelta, agentai.EventMessageFinished,
+	}
+	for i, want := range wantTypes {
+		if got[i].Type != want {
+			t.Fatalf("event %d: expected %q, got %q", i, want, got[i].Type)
+		}
+	}
+	if got[1].Tool != nativeSSHDiagnosticsToolName || got[3].Tool != nativeSSHDiagnosticsToolName {
+		t.Fatalf("unexpected tool lifecycle events: %#v", got)
+	}
+	if got[2].Content == "" {
+		t.Fatal("expected bounded tool output event")
+	}
+	if got[4].Content != "diagnostics complete" || got[5].Content != "diagnostics complete" {
+		t.Fatalf("unexpected assistant events: %#v", got)
+	}
+}
