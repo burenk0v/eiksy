@@ -94,6 +94,7 @@ type stateStore interface {
 	ListChatSessions() []ai.ChatSession
 	CreateChatSession(string) (ai.ChatSession, error)
 	SelectChatSession(string) error
+	ForkChatSession(string, string) (ai.ChatSession, error)
 	ClearAIHistory() error
 	UpdateSettings(settings.AppSettings) error
 	SecureStorageStatus() securestorage.Status
