@@ -45,7 +45,7 @@ func NewStore() *Store {
 		runtimeOrder:        []string{},
 		launchHistory:       []sessions.HistoryEntry{},
 		credentialProviders: []credentials.ProviderDescriptor{},
-		aiState:             defaultAIState(),
+		aiState:             withDefaultChatSession(defaultAIState()),
 		settings:            defaultSettings(),
 		workspaceLayout:     defaultWorkspaceLayout(),
 		events:              []workspace.Event{},
@@ -148,9 +148,8 @@ func (s *Store) UpdateAIState(state ai.WorkspaceState) error {
 
 	s.aiState = cloneAIState(state)
 	if len(s.aiState.ChatSessions) == 0 && s.aiState.ChatSessionID != "" { s.aiState.ChatSessions = []ai.ChatSession{{ID: s.aiState.ChatSessionID, Title: "Main session"}} }
-	for i := range s.aiState.Providers {
-		s.aiState.Providers[i].Token = ""
-	}
+	for i := range s.aiState.Providers { s.aiState.Providers[i].Token = "" }
+	s.syncChatSessionLocked()
 	return nil
 }
 
@@ -385,6 +384,12 @@ func (s *Store) DeleteSecret(key string) error {
 func (s *Store) secretExistsLocked(key string) bool {
 	_, ok := s.secrets[key]
 	return ok
+}
+
+func withDefaultChatSession(state ai.WorkspaceState) ai.WorkspaceState {
+	now := time.Now().UTC().Format(time.RFC3339)
+	state.ChatSessions = []ai.ChatSession{{ID: state.ChatSessionID, Title: "Main session", CreatedAt: now, UpdatedAt: now, Messages: append([]ai.ChatMessage(nil), state.Messages...)}}
+	return state
 }
 
 func defaultProtocols() []protocols.Descriptor {
