@@ -393,6 +393,50 @@ func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
 
 func stopCloudAuthSessionForTest(service *Service) { service.authMu.Lock(); defer service.authMu.Unlock(); service.stopCloudAuthLocked() }
 
+func TestConnectionLifecycleUsesResourceSessionState(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-resource", Name: "ssh-resource", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+
+	tab, err := service.LaunchSession(profile.ID)
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+	if tab.Status != "connecting" {
+		t.Fatalf("expected initial connecting status, got %q", tab.Status)
+	}
+
+	if err := service.ConnectSession(tab.ID); err != nil {
+		t.Fatalf("connect session: %v", err)
+	}
+	connected, ok := service.runtimeTab(tab.ID)
+	if !ok || connected.Status != "connected" {
+		t.Fatalf("expected connected session status, got %+v", connected)
+	}
+
+	if err := service.DisconnectSession(tab.ID); err != nil {
+		t.Fatalf("disconnect session: %v", err)
+	}
+	disconnected, ok := service.runtimeTab(tab.ID)
+	if !ok || disconnected.Status != "disconnected" {
+		t.Fatalf("expected disconnected session status, got %+v", disconnected)
+	}
+}
+
+func TestConnectionLifecycleRejectsUnknownSession(t *testing.T) {
+	service := NewService(memory.NewStore(), &recordingSSHManager{}, nil)
+	if err := service.ConnectSession("missing"); err == nil {
+		t.Fatal("expected connect to reject unknown session")
+	}
+	if err := service.DisconnectSession("missing"); err == nil {
+		t.Fatal("expected disconnect to reject unknown session")
+	}
+}
+
 func seedStore(t *testing.T) *memory.Store {
 	t.Helper(); store := memory.NewStore(); profiles := []sessions.Profile{{ID: "artifact-mirror", Name: "artifact-mirror", Group: "Shared Services", Tags: []string{"sftp", "artifacts"}, ProtocolID: "sftp", Host: "mirror.internal", Port: 22, Username: "mirrorbot"}, {ID: "ops-linux-admin", Name: "ops-linux-admin", Group: "Production", Tags: []string{"linux", "ssh"}, ProtocolID: "ssh", Host: "prod-shell.internal", Port: 22, Username: "ops"}}
 	for _, profile := range profiles { if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed session profile: %v", err) } }; return store
