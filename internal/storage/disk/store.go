@@ -525,6 +525,10 @@ func (s *Store) loadSettings() error {
 		return err
 	} else if history != nil {
 		s.aiState.Messages = history
+	} else if len(s.aiState.ChatSessions) == 0 {
+		// Older settings files do not persist the session list. Recreate the
+		// default application-owned session before new sessions are created.
+		s.syncChatSessionLocked()
 	}
 	return nil
 }
