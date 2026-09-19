@@ -95,5 +95,10 @@ func TestThinkConnectOperateAcceptance(t *testing.T) {
 		t.Fatalf("unexpected final conversation: %#v", finalState.Messages)
 	}
 	audit := service.GetCommandAuditTrail()
-	if len(audit) < 2 { t.Fatalf("expected approval and execution audit events, got %d", len(audit)) }
+	if len(audit) < 1 {
+		t.Fatal("expected operation audit event")
+	}
+	if audit[0].SessionID != tab.ID || audit[0].Approval != string(ai.CommandPermissionModeNow) || audit[0].Result != "executed" {
+		t.Fatalf("unexpected operation audit event: %+v", audit[0])
+	}
 }
