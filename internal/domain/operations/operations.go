@@ -25,6 +25,37 @@ const (
 	StatusDenied Status = "denied"
 )
 
+
+const maxResultOutput = 16 << 10
+
+// Result is the bounded, transport-agnostic outcome of an operation.
+type Result struct {
+	Success    bool   `json:"success"`
+	ExitCode   int    `json:"exitCode"`
+	DurationMs int64  `json:"durationMs"`
+	Stdout    string `json:"stdout,omitempty"`
+	Stderr    string `json:"stderr,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+func boundResultOutput(value string) string {
+	if len(value) <= maxResultOutput {
+		return value
+	}
+	return value[:maxResultOutput] + "\n[output truncated]"
+}
+
+func NewResult(execution sessions.CommandExecutionResult) Result {
+	return Result{
+		Success: execution.Success,
+		ExitCode: execution.ExitCode,
+		DurationMs: execution.DurationMs,
+		Stdout: boundResultOutput(execution.Stdout),
+		Stderr: boundResultOutput(execution.Stderr),
+		Error: boundResultOutput(execution.Error),
+	}
+}
+
 type Operation struct {
 	ID               string                         `json:"id"`
 	Kind             Kind                           `json:"kind"`
@@ -36,7 +67,7 @@ type Operation struct {
 	CreatedAt        time.Time                      `json:"createdAt"`
 	StartedAt        *time.Time                     `json:"startedAt,omitempty"`
 	FinishedAt       *time.Time                     `json:"finishedAt,omitempty"`
-	Result           *sessions.CommandExecutionResult `json:"result,omitempty"`
+	Result           *Result                        `json:"result,omitempty"`
 	Error            string                         `json:"error,omitempty"`
 }
 
