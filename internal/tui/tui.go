@@ -61,21 +61,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q') {
 			return m, tea.Quit
-		case "left", "h":
+		}
+		switch msg.Type {
+		case tea.KeyLeft:
 			m.selectPreviousTab()
-		case "right", "l", "tab":
+		case tea.KeyRight, tea.KeyTab:
 			m.selectNextTab()
-		case "backspace":
+		case tea.KeyBackspace:
 			if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
-		case "enter":
+		case tea.KeyEnter:
 			m.submitChatInput()
-		default:
+		case tea.KeyRunes:
 			if len(msg.Runes) == 1 && msg.Runes[0] >= 32 {
 				m.input += string(msg.Runes)
 			}
