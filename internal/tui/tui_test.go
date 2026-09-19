@@ -252,7 +252,8 @@ func TestModelRendersAndResolvesApproval(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected approval result message")
 	}
-	m.Update(result)
+	next, _ = m.Update(result)
+	m = next.(Model)
 	if resolver.requestID != "cmdreq-1" || resolver.mode != "now" {
 		t.Fatalf("unexpected approval resolution: request=%q mode=%q", resolver.requestID, resolver.mode)
 	}
@@ -281,7 +282,7 @@ func TestModelDeniesApprovalWithoutResolver(t *testing.T) {
 	if m.approval != nil {
 		t.Fatal("expected approval prompt to clear")
 	}
-	if !strings.Contains(m.View(), "Approval deny queued for cmdreq-2.") {
+	if !strings.Contains(m.View(), "Approval unavailable for cmdreq-2.") {
 		t.Fatal("expected denial fallback message")
 	}
 }
