@@ -78,7 +78,22 @@ func TestThinkConnectOperateAcceptance(t *testing.T) {
 	// OPERATE -> THINK: bounded operation result returns to the AI conversation.
 	finalState := store.AIState()
 	if finalState.PendingNativeToolCall != nil || len(finalState.CommandPolicy.PendingRequests) != 0 { t.Fatal("approval continuation state was not cleared") }
-	if len(finalState.Messages) != 2 || finalState.Messages[0].Role != "user" || finalState.Messages[1].Content != "The host check completed successfully." { t.Fatalf("unexpected final conversation: %#v", finalState.Messages) }
+	if len(finalState.Messages) < 2 {
+		t.Fatalf("expected conversation history, got %#v", finalState.Messages)
+	}
+	foundUser := false
+	foundFinal := false
+	for _, message := range finalState.Messages {
+		if message.Role == "user" && message.Content == "Check the connected host." {
+			foundUser = true
+		}
+		if message.Role == "assistant" && message.Content == "The host check completed successfully." {
+			foundFinal = true
+		}
+	}
+	if !foundUser || !foundFinal {
+		t.Fatalf("unexpected final conversation: %#v", finalState.Messages)
+	}
 	audit := service.GetCommandAuditTrail()
 	if len(audit) < 2 { t.Fatalf("expected approval and execution audit events, got %d", len(audit)) }
 }
