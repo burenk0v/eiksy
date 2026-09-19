@@ -55,6 +55,8 @@ func (a *App) GetShellState() app.ShellState { return a.currentService().GetShel
 func (a *App) GetReleaseVersion() string { return resolveReleaseVersion() }
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) { return a.currentService().LaunchSession(profileID) }
 func (a *App) CloseSession(sessionID string) error { return a.currentService().CloseSession(sessionID) }
+func (a *App) ConnectSession(sessionID string) error { return a.currentService().ConnectSession(sessionID) }
+func (a *App) DisconnectSession(sessionID string) error { return a.currentService().DisconnectSession(sessionID) }
 func (a *App) ReconnectSession(sessionID string) error { return a.currentService().ReconnectSession(sessionID) }
 func (a *App) ExecuteCommand(sessionID, command string) (sessions.CommandExecutionResult, error) { return a.currentService().ExecuteCommand(sessionID, command) }
 func (a *App) CreateSessionProfile(input sessions.ProfileInput) error { return a.currentService().CreateSessionProfileInput(input) }
