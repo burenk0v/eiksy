@@ -82,7 +82,7 @@ The first implementation will support multiple tabs while keeping session owners
 
 The existing Eiksy session model remains the source of truth for connection/session state.
 
-The CLI may select, display and create sessions through application services, but it must not introduce an independent session database or connection registry.
+The CLI may select, display and create sessions through application services, but it must not introduce an independent session database or connection registry. Persistent AI conversations are application-owned and their message content remains in secure storage.
 
 Conversation state must follow the existing AI security rules and must never become a credential store.
 
@@ -173,6 +173,7 @@ The CLI must not introduce independent storage for:
 - audit records;
 - AI provider tokens;
 - AI conversation security state.
+- persistent AI conversation storage outside the application-owned secure storage.
 
 Persistent CLI-specific UI preferences may be added later as ordinary application configuration when justified.
 
