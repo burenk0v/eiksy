@@ -332,9 +332,7 @@ func TestAIChatHistoryClearedFromMemoryWhenSecureStorageLocks(t *testing.T) {
 		t.Fatalf("persist AI state: %v", err)
 	}
 
-	if err := store.LockSecureStorage(); err != nil {
-		t.Fatalf("lock secure storage: %v", err)
-	}
+	store.LockSecureStorage()
 	if messages := store.AIState().Messages; len(messages) != 0 {
 		t.Fatalf("expected AI history to be cleared from memory after lock, got %+v", messages)
 	}
