@@ -2,14 +2,6 @@ name: Copilot Setup Steps
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - .github/wails-cli-version
-      - .github/workflows/copilot-setup-steps.yml
-      - go.mod
-      - go.sum
-      - frontend/package.json
-      - frontend/package-lock.json
   pull_request:
     paths:
       - .github/wails-cli-version
