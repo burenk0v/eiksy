@@ -223,12 +223,12 @@ func (s *Service) dispatchNativeSFTPWrite(call nativeToolCall, activeSessionID, 
 	state.CommandPolicy = normalizeCommandPolicy(state.CommandPolicy)
 	state.CommandPolicy.PendingRequests = append(state.CommandPolicy.PendingRequests, request)
 	if err := s.store.UpdateAIState(state); err != nil { return "", false, fmt.Errorf("persist SFTP write approval: %w", err) }
-	s.emitNativeSFTPOperation("approval_required", args.SessionID, args.Path, len([]byte(args.Content)), "required", args.Reason, 0)
+	s.emitNativeSFTPOperation(nativeSFTPWriteToolName, "approval_required", args.SessionID, args.Path, len([]byte(args.Content)), "required", args.Reason, 0)
 	return fmt.Sprintf(`{"status":"approval_required","requestId":%q}`, request.ID), true, nil
 }
 
-func (s *Service) emitNativeSFTPOperation(status, sessionID, targetPath string, size int, approval, message string, durationMs int64) {
-	command := fmt.Sprintf("sftp.write %s (%d bytes)", targetPath, size)
+func (s *Service) emitNativeSFTPOperation(operation, status, sessionID, targetPath string, size int, approval, message string, durationMs int64) {
+	command := fmt.Sprintf("%s %s (%d bytes)", operation, targetPath, size)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
@@ -374,13 +374,18 @@ func (s *Service) dispatchNativeSFTPRead(call nativeToolCall, activeSessionID st
 	if !ok || tab.Status != "connected" || tab.ProtocolID != "ssh" {
 		return `{"error":{"type":"invalid_session","message":"active session is not a connected SSH session"}}`, false, nil
 	}
+	startedAt := time.Now()
 	content, err := s.ReadSFTPFile(args.SessionID, args.Path)
 	if err != nil {
+		s.emitNativeSFTPOperation(nativeSFTPReadToolName, "execution_failed", args.SessionID, args.Path, 0, "not_required", err.Error(), time.Since(startedAt).Milliseconds())
 		return marshalNativeToolError("SFTP read failed: %v", err), false, nil
 	}
 	contentBytes := []byte(content)
 	truncated := len(contentBytes) > maxNativeSFTPReadSize
 	if truncated { content = string(contentBytes[:maxNativeSFTPReadSize]) }
+	message := ""
+	if truncated { message = fmt.Sprintf("content truncated to %d bytes", maxNativeSFTPReadSize) }
+	s.emitNativeSFTPOperation(nativeSFTPReadToolName, "executed", args.SessionID, args.Path, len(contentBytes), "not_required", message, time.Since(startedAt).Milliseconds())
 	payload := map[string]any{"status":"ok","sessionId":args.SessionID,"path":args.Path,"content":content,"bytes":len(contentBytes),"truncated":truncated}
 	encoded, err := json.Marshal(payload)
 	if err != nil { return "", false, err }
