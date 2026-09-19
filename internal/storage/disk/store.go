@@ -679,11 +679,13 @@ func (s *Store) EnsureMasterPassword(password string) error {
 		return err
 	} else if history != nil {
 		s.aiState.Messages = history
+		s.syncChatSessionLocked()
 	} else if s.legacyAIChatHistory != nil {
 		if err := s.persistAIChatHistoryLocked(s.legacyAIChatHistory); err != nil {
 			return err
 		}
 		s.aiState.Messages = append([]ai.ChatMessage(nil), s.legacyAIChatHistory...)
+		s.syncChatSessionLocked()
 		s.legacyAIChatHistory = nil
 		if err := s.saveSettings(); err != nil {
 			return err
