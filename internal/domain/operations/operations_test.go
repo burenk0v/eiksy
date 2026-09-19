@@ -1,7 +1,5 @@
 package operations
 
-import "strings"
-
 import (
 	"strings"
 	"testing"
@@ -63,6 +61,7 @@ func TestOperationFailedAndDeniedStates(t *testing.T) {
 	if !strings.Contains(string(denied.Status), "denied") {
 		t.Fatalf("unexpected denied status: %q", denied.Status)
 	}
+}
 
 func TestNewResultBoundsDownstreamOutput(t *testing.T) {
 	long := strings.Repeat("x", maxResultOutput+100)
@@ -106,6 +105,4 @@ func TestOperationCompleteStoresBoundedResult(t *testing.T) {
 	if len(op.Result.Error) > maxResultOutput+len("\n[output truncated]") {
 		t.Fatalf("operation result error is unbounded: %d", len(op.Result.Error))
 	}
-}
-
 }
