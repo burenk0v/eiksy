@@ -369,6 +369,109 @@ func TestResolveCommandPolicyRequestPersistsAlwaysGrantOnExecutionFailure(t *tes
 	updated := store.AIState(); if len(updated.CommandPolicy.PendingRequests) != 0 { t.Fatalf("expected pending request to be removed, got %d", len(updated.CommandPolicy.PendingRequests)) }; if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", "", "hostname", ai.CommandPermissionAllow) { t.Fatalf("expected exact global command grant to persist, got %+v", updated.CommandPolicy.CommandRules) }
 }
 
+
+func TestResolveCommandPolicyRequestDenyDoesNotExecuteCommand(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-host-deny", Name: "ssh-host-deny", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-deny", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-deny", ToolID: "shell", SessionID: tab.ID, Command: "rm -f important.txt"}}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+
+	if err := service.ResolveCommandPolicyRequest("request-deny", ai.CommandPermissionModeDeny); err != nil {
+		t.Fatalf("deny request: %v", err)
+	}
+	updated := store.AIState()
+	if len(updated.CommandPolicy.PendingRequests) != 0 {
+		t.Fatalf("expected denied request to be cleared, got %d", len(updated.CommandPolicy.PendingRequests))
+	}
+	if len(ssh.inputs) != 0 {
+		t.Fatalf("denied command must not execute, got %d dispatches", len(ssh.inputs))
+	}
+	if hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "rm -f important.txt", ai.CommandPermissionAllow) {
+		t.Fatal("deny must not create an allow rule")
+	}
+}
+
+func TestResolveCommandPolicyRequestNowApprovalIsOneShot(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-host-now", Name: "ssh-host-now", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-now", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-now", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+
+	if err := service.ResolveCommandPolicyRequest("request-now", ai.CommandPermissionModeNow); err != nil {
+		t.Fatalf("approve request: %v", err)
+	}
+	updated := store.AIState()
+	if len(updated.CommandPolicy.PendingRequests) != 0 {
+		t.Fatalf("expected one-shot approval to be cleared, got %d", len(updated.CommandPolicy.PendingRequests))
+	}
+	if hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "uname -a", ai.CommandPermissionAllow) {
+		t.Fatal("now approval must not persist an allow rule")
+	}
+	if len(ssh.inputs) != 1 {
+		t.Fatalf("expected exactly one command dispatch, got %d", len(ssh.inputs))
+	}
+
+	if err := service.ResolveCommandPolicyRequest("request-now", ai.CommandPermissionModeNow); err == nil {
+		t.Fatal("expected consumed approval request to be unavailable")
+	}
+	if len(ssh.inputs) != 1 {
+		t.Fatalf("consumed approval must not execute again, got %d dispatches", len(ssh.inputs))
+	}
+}
+
+func TestResolveCommandPolicyRequestSessionApprovalScopesGrantToSession(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-host-scope", Name: "ssh-host-scope", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-scope", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-scope", ToolID: "shell", SessionID: tab.ID, Command: "systemctl status eiksy"}}
+	if err := store.UpdateAIState(state); err != nil {
+		t.Fatalf("seed pending approval: %v", err)
+	}
+
+	if err := service.ResolveCommandPolicyRequest("request-scope", ai.CommandPermissionModeSession); err != nil {
+		t.Fatalf("approve session request: %v", err)
+	}
+	updated := store.AIState()
+	if !hasCommandRule(updated.CommandPolicy.CommandRules, "shell", tab.ID, "systemctl status eiksy", ai.CommandPermissionAllow) {
+		t.Fatalf("expected session-scoped allow rule, got %+v", updated.CommandPolicy.CommandRules)
+	}
+	for _, rule := range updated.CommandPolicy.CommandRules {
+		if rule.Pattern == "systemctl status eiksy" && rule.SessionID == "" {
+			t.Fatal("session approval must not create a global allow rule")
+		}
+	}
+}
+
 func TestBuildPortForwardSpecsWithRemoteTarget(t *testing.T) { specs := buildPortForwardSpecs("8080,9000-9001", "db.internal", "5432"); if specs != "8080:db.internal:5432,9000:db.internal:5432,9001:db.internal:5432" { t.Fatalf("unexpected specs: %s", specs) } }
 func TestBuildPortForwardSpecsFallsBackToSamePortWhenRemotePortIsEmpty(t *testing.T) { specs := buildPortForwardSpecs("8080-8081", "db.internal", ""); if specs != "8080:db.internal:8080,8081:db.internal:8081" { t.Fatalf("unexpected specs: %s", specs) } }
 
