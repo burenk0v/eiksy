@@ -8,6 +8,20 @@ The backend owns authorization, capabilities, credentials, execution and audit. 
 
 This document is the permanent architecture reference for the project. It describes the current design, constraints and extension rules. It intentionally does not describe development phases or temporary implementation steps.
 
+## 1. Product-to-architecture mapping
+
+The product contract is defined in [`docs/product-contract.md`](product-contract.md). The architecture implements that contract through the following boundaries:
+
+| Product stage | Architectural responsibility |
+| --- | --- |
+| **Think** | AI application service, conversation state and backend-built context |
+| **Connect** | Session/resource configuration, connection managers and secure credential storage |
+| **Operate** | Policy, capability checks, approval, executors and bounded results |
+| **Operate → Think** | Operation results returned as bounded AI context |
+| **Security across all stages** | Backend authorization, secret isolation and centralized audit |
+
+Think, Connect and Operate are workflow boundaries, not separate application layers. A feature may participate in more than one stage, but it must preserve the same authority and data boundaries.
+
 ## 1. Architectural goals
 
 Eiksy combines remote connections and sessions, interactive terminal access, SFTP and remote file operations, AI assistance and diagnostics, controlled AI-assisted command execution, multiple AI providers and credential providers.

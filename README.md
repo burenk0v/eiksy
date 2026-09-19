@@ -116,6 +116,8 @@ Secure Storage and Audit are cross-cutting boundaries.
 
 The architecture is considered stable. New features should use the existing boundaries instead of introducing parallel execution, storage or credential paths.
 
+The product contract is **Think → Connect → Operate → Think**. See [`docs/product-contract.md`](docs/product-contract.md) for the product-level Definition of Done and [`docs/architecture.md`](docs/architecture.md) for the implementation boundaries.
+
 ## Download
 
 Download the latest release from GitHub:
