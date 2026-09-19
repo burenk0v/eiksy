@@ -247,7 +247,7 @@ func (m Model) View() string {
 			if m.approval.Reason != "" {
 				fmt.Fprintf(&chat, "  Reason: %s\\n", m.approval.Reason)
 			}
-			chat.WriteString("  \\[Y\\] now  \\[S\\] session  \\[A\\] always  \\[N\\] deny\\n\\n")
+			chat.WriteString("  [Y] now  [S] session  [A] always  [N] deny\n\n")
 		}
 
 		if len(m.messages) == 0 && len(m.toolCalls) == 0 {
