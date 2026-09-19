@@ -40,6 +40,7 @@ type nativeTestSFTPManager struct {
 func (m *nativeTestSFTPManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
 func (m *nativeTestSFTPManager) Connected(string) bool { return true }
 func (m *nativeTestSFTPManager) ListDir(string, string) ([]sftpdomain.FileEntry, error) { return m.entries, nil }
+func (m *nativeTestSFTPManager) Stat(string, string) (sftpdomain.FileEntry, error) { return sftpdomain.FileEntry{Name: "secret.conf", Path: "/etc/secret.conf", Size: 42, Mode: "-rw-------", ModTime: "2026-09-19T00:00:00Z"}, nil }
 func (m *nativeTestSFTPManager) ReadFile(string, string) (string, error) { return m.readContent, m.readErr }
 func (m *nativeTestSFTPManager) WriteFile(_ string, path, content string) error {
 	m.writes = append(m.writes, path+":"+content)
@@ -226,6 +227,31 @@ func TestDispatchNativeSFTPListRequiresSFTPPolicy(t *testing.T) {
 	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "list", nil)
 	if err != nil || pending { t.Fatalf("expected disabled-tool result: pending=%v err=%v", pending, err) }
 	if !strings.Contains(result, "disabled") { t.Fatalf("expected disabled-tool error, got %q", result) }
+}
+
+func TestDispatchNativeSFTPStatReturnsMetadataOnly(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID:"host-1", Name:"host-1", ProtocolID:"ssh", Host:"host", Port:22, Username:"ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatal(err) }
+	store.OpenRuntimeTab(workspace.Tab{ID:"session-1", ProfileID:profile.ID, ProtocolID:"ssh", Status:"connected"})
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy:ai.CommandPolicy{Tools:[]ai.CommandTool{{ID:"sftp", Enabled:true}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{})
+	call := nativeToolCall{ID:"call-stat", Type:"function"}; call.Function.Name=nativeSFTPStatToolName; call.Function.Arguments=`{"sessionId":"session-1","path":"/etc/secret.conf"}`
+	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "inspect metadata", nil)
+	if err != nil || pending { t.Fatalf("unexpected stat result: pending=%v err=%v", pending, err) }
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result), &payload); err != nil { t.Fatal(err) }
+	if payload["status"] != "ok" || payload["size"] != float64(42) || payload["isDir"] != false { t.Fatalf("unexpected metadata: %#v", payload) }
+	if _, ok := payload["content"]; ok { t.Fatal("stat must not return file content") }
+}
+
+func TestDispatchNativeSFTPStatRequiresSFTPPolicy(t *testing.T) {
+	store := memory.NewStore()
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy:ai.CommandPolicy{Tools:[]ai.CommandTool{{ID:"sftp", Enabled:false}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{})
+	call := nativeToolCall{ID:"call-stat", Type:"function"}; call.Function.Name=nativeSFTPStatToolName; call.Function.Arguments=`{"sessionId":"session-1","path":"/tmp/test"}`
+	result, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "stat", nil)
+	if err != nil || pending || !strings.Contains(result, "disabled") { t.Fatalf("expected disabled stat: pending=%v err=%v result=%q", pending, err, result) }
 }
 
 func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
