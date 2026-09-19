@@ -122,11 +122,11 @@ func (m *Manager) Connect(ctx context.Context, tabID, host string, port int, use
 	m.connections[tabID] = connState
 	m.mu.Unlock()
 
-\tgo m.streamOutput(tabID, stdout)
-\tgo func(expected *connection) {
-\t\t_ = session.Wait()
-\t\t_ = m.disconnectConnection(tabID, expected)
-\t}(connState)
+	go m.streamOutput(tabID, stdout)
+	go func(expected *connection) {
+		_ = session.Wait()
+		_ = m.disconnectConnection(tabID, expected)
+	}(connState)
 
 	return nil
 }
@@ -158,48 +158,48 @@ func (m *Manager) ResizeTerminal(tabID string, cols, rows int) error {
 }
 
 func (m *Manager) Disconnect(tabID string) error {
-\tm.mu.Lock()
-\tconn := m.connections[tabID]
-\tdelete(m.connections, tabID)
-\tdelete(m.handlers, tabID)
-\tdelete(m.pendingKeys, tabID)
-\tm.mu.Unlock()
-\treturn closeConnection(conn)
+	m.mu.Lock()
+	conn := m.connections[tabID]
+	delete(m.connections, tabID)
+	delete(m.handlers, tabID)
+	delete(m.pendingKeys, tabID)
+	m.mu.Unlock()
+	return closeConnection(conn)
 }
 
 // disconnectConnection closes a connection only if it is still the active
 // connection for the tab. This prevents an old session's Wait goroutine from
 // tearing down a newer connection after reconnecting the same tab.
 func (m *Manager) disconnectConnection(tabID string, expected *connection) error {
-\tm.mu.Lock()
-\tif current := m.connections[tabID]; current != expected {
-\t\tm.mu.Unlock()
-\t\treturn nil
-\t}
-\tdelete(m.connections, tabID)
-\tdelete(m.handlers, tabID)
-\tdelete(m.pendingKeys, tabID)
-\tm.mu.Unlock()
-\treturn closeConnection(expected)
+	m.mu.Lock()
+	if current := m.connections[tabID]; current != expected {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.connections, tabID)
+	delete(m.handlers, tabID)
+	delete(m.pendingKeys, tabID)
+	m.mu.Unlock()
+	return closeConnection(expected)
 }
 
 func closeConnection(conn *connection) error {
-\tif conn == nil {
-\t\treturn nil
-\t}
-\tfor _, listener := range conn.localListeners {
-\t\t_ = listener.Close()
-\t}
-\tif conn.stdin != nil {
-\t\t_ = conn.stdin.Close()
-\t}
-\tif conn.session != nil {
-\t\t_ = conn.session.Close()
-\t}
-\tif conn.client != nil {
-\t\t_ = conn.client.Close()
-\t}
-\treturn nil
+	if conn == nil {
+		return nil
+	}
+	for _, listener := range conn.localListeners {
+		_ = listener.Close()
+	}
+	if conn.stdin != nil {
+		_ = conn.stdin.Close()
+	}
+	if conn.session != nil {
+		_ = conn.session.Close()
+	}
+	if conn.client != nil {
+		_ = conn.client.Close()
+	}
+	return nil
 }
 
 func (m *Manager) SetOutputHandler(tabID string, fn func(data string)) {
