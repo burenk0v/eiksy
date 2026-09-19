@@ -286,3 +286,100 @@ func TestModelDeniesApprovalWithoutResolver(t *testing.T) {
 		t.Fatal("expected denial fallback message")
 	}
 }
+
+
+func TestModelChatInputStillSubmitsWithSessionBrowser(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}})
+	m.input = "hello"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected chat submission to remain local")
+	}
+	m = next.(Model)
+	if len(m.messages) != 1 || m.messages[0].Content != "hello" {
+		t.Fatalf("expected chat message, got %+v", m.messages)
+	}
+}
+
+func TestModelSessionBrowserNavigation(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{
+		{ID: "chat-1", Title: "API tests"},
+		{ID: "chat-2", Title: "Production debug"},
+		{ID: "chat-3", Title: "Deploy"},
+	})
+
+	if got := m.ActiveSession(); got == nil || got.ID != "chat-1" {
+		t.Fatalf("expected first active session, got %+v", got)
+	}
+	if m.tabs[0].Session == nil || m.tabs[0].Session.ID != "chat-1" {
+		t.Fatalf("expected chat tab to reference first session: %+v", m.tabs[0].Session)
+	}
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if got := m.ActiveSession(); got == nil || got.ID != "chat-2" {
+		t.Fatalf("expected second active session, got %+v", got)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	if got := m.ActiveSession(); got == nil || got.ID != "chat-1" {
+		t.Fatalf("expected navigation back to first session, got %+v", got)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = next.(Model)
+	if got := m.ActiveSession(); got == nil || got.ID != "chat-3" {
+		t.Fatalf("expected session navigation to wrap, got %+v", got)
+	}
+}
+
+type testSessionSelector struct {
+	sessionID string
+	err       error
+}
+
+func (s *testSessionSelector) SelectChatSession(sessionID string) error {
+	s.sessionID = sessionID
+	return s.err
+}
+
+func TestModelSessionBrowserSelectsThroughApplicationService(t *testing.T) {
+	selector := &testSessionSelector{}
+	m := NewModel().
+		WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}}).
+		WithSessionSelector(selector)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected session selection command")
+	}
+	m = next.(Model)
+	if selector.sessionID != "" {
+		t.Fatal("selection should be deferred to the command")
+	}
+
+	result := cmd()
+	if result == nil {
+		t.Fatal("expected session selection result")
+	}
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if selector.sessionID != "chat-1" {
+		t.Fatalf("expected application service to receive chat-1, got %q", selector.sessionID)
+	}
+	if !strings.Contains(m.View(), "Session chat-1 selected.") {
+		t.Fatal("expected selection confirmation")
+	}
+}
+
+func TestModelSessionBrowserView(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{
+		{ID: "chat-1", Title: "API tests"},
+		{ID: "chat-2", Title: "Production debug"},
+	})
+	view := m.View()
+	for _, want := range []string{"Sessions", "> API tests", "Production debug", "↑/↓ sessions"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got %q", want, view)
+		}
+	}
+}
