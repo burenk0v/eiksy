@@ -18,6 +18,7 @@ import (
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
+	"eiksy/internal/domain/resources"
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
 	"eiksy/internal/storage/memory"
@@ -487,5 +488,38 @@ func TestLockSecureStorageClearsPendingAIApproval(t *testing.T) {
 	}
 	if len(state.Messages) != 0 {
 		t.Fatal("AI history must be cleared from memory when storage locks")
+	}
+}
+
+func TestGetResourcesExcludesSecretsAndTracksActiveSession(t *testing.T) {
+	store := seedStore(t)
+	service := NewService(store, nil, nil)
+
+	items := service.GetResources()
+	if len(items) != 2 {
+		t.Fatalf("expected 2 resources, got %d", len(items))
+	}
+
+	var mirror resources.Resource
+	for _, item := range items {
+		if item.ID == "artifact-mirror" {
+			mirror = item
+			break
+		}
+	}
+	if mirror.ID == "" {
+		t.Fatal("expected artifact-mirror resource")
+	}
+	if mirror.Kind != "remote" {
+		t.Fatalf("expected remote resource kind, got %q", mirror.Kind)
+	}
+	if len(mirror.Capabilities) == 0 {
+		t.Fatal("expected resource capabilities")
+	}
+	if mirror.Status != "configured" {
+		t.Fatalf("expected configured resource status, got %q", mirror.Status)
+	}
+	if mirror.ActiveSessionID != "" {
+		t.Fatal("expected no active session")
 	}
 }
