@@ -398,6 +398,9 @@ func (s *Service) dispatchNativeSFTPRead(call nativeToolCall, activeSessionID st
 	return string(encoded), false, nil
 }
 func (s *Service) dispatchNativeSFTPList(call nativeToolCall, activeSessionID string) (string, bool, error) {
+	if !commandToolEnabled(s.store.AIState().CommandPolicy, "sftp") {
+		return marshalNativeToolError("tool %q is disabled in command policy", nativeSFTPListToolName), false, nil
+	}
 	var args struct {
 		SessionID string `json:"sessionId"`
 		Path      string `json:"path"`
