@@ -231,7 +231,8 @@ func (s *Service) emitNativeSFTPOperation(operation, status, sessionID, targetPa
 	command := fmt.Sprintf("%s %s (%d bytes)", operation, targetPath, size)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
-\nfunc (s *Service) emitNativeSFTPListOperation(status, sessionID, targetPath string, entries int, approval, message string, durationMs int64) {
+
+func (s *Service) emitNativeSFTPListOperation(status, sessionID, targetPath string, entries int, approval, message string, durationMs int64) {
 	command := fmt.Sprintf("%s %s (%d entries)", nativeSFTPListToolName, targetPath, entries)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
