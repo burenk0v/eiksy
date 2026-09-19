@@ -43,7 +43,7 @@ Conversation state represents the model interaction required to continue an AI w
 
 It must not become a general-purpose secret store. Credentials, decrypted Vault/KeePass values and provider authentication material remain outside conversation state.
 
-When a command requires approval, Eiksy preserves the pending native tool call and serialized conversation context so the same workflow can continue after the user's decision. The pending request is cleared before continuation to prevent repeated execution of the same approved operation.
+When a command requires approval, Eiksy preserves the pending native tool call and serialized conversation context so the same workflow can continue after the user's decision. The pending request is cleared before continuation to prevent repeated execution of the same approved operation. Starting a new chat clears the conversation, pending approval requests and pending native tool continuation state together, so an operation from the previous AI session cannot be resumed accidentally.
 
 ## 4. Infrastructure context
 

@@ -11,11 +11,18 @@ import (
 	"eiksy/internal/domain/sessions"
 )
 
-// ClearChat removes all messages from the AI chat history.
+// ClearChat starts a fresh AI session and discards all state that belongs
+// to the previous conversation, including pending approval continuations.
 func (s *Service) ClearChat() error {
 	state := s.store.AIState()
 	state.Messages = []ai.ChatMessage{}
 	state.ChatSessionID = fmt.Sprintf("chat-%d", time.Now().UTC().UnixNano())
+	state.PendingNativeToolCall = nil
+
+	policy := normalizeCommandPolicy(state.CommandPolicy)
+	policy.PendingRequests = []ai.CommandRequest{}
+	state.CommandPolicy = policy
+
 	if err := s.store.UpdateAIState(state); err != nil {
 		return fmt.Errorf("clear AI chat: %w", err)
 	}
