@@ -288,6 +288,19 @@ func TestModelDeniesApprovalWithoutResolver(t *testing.T) {
 }
 
 
+func TestModelChatInputStillSubmitsWithSessionBrowser(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}})
+	m.input = "hello"
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected chat submission to remain local")
+	}
+	m = next.(Model)
+	if len(m.messages) != 1 || m.messages[0].Content != "hello" {
+		t.Fatalf("expected chat message, got %+v", m.messages)
+	}
+}
+
 func TestModelSessionBrowserNavigation(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{
 		{ID: "chat-1", Title: "API tests"},
