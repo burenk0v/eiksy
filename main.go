@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"eiksy/internal/cli"
+	"eiksy/internal/tui"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -16,7 +17,7 @@ import (
 var assets embed.FS
 
 func main() {
-	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr); handled {
+	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr, tui.Run); handled {
 		os.Exit(exitCode)
 	}
 
