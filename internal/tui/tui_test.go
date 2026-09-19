@@ -486,6 +486,6 @@ func TestModelCommandPaletteQuit(t *testing.T) {
 	if cmd != nil { t.Fatal("expected no command while filtering") }
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil { t.Fatal("expected quit command from palette") }
+	m = next.(Model)
 	if m.palette != nil { t.Fatal("expected palette to close") }
-	_ = next
 }
