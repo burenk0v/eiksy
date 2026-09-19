@@ -576,6 +576,7 @@ func (s *Store) LockSecureStorage() {
 	if s.secretManager != nil {
 		s.secretManager.Lock()
 	}
+	_ = s.ClearAIHistory()
 }
 
 func (s *Store) SecureStorageStatus() securestorage.Status {
