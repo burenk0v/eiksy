@@ -117,6 +117,8 @@ func TestModelChatInput(t *testing.T) {
 		t.Fatalf("expected input %q, got %q", "hello", m.input)
 	}
 
+	// Printable h/l characters must be treated as chat input, not navigation.
+
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd != nil {
 		t.Fatal("expected no command")
