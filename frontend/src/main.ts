@@ -155,6 +155,9 @@ type AIActivity = {
   time: string;
 };
 
+const AI_ACTIVITY_HISTORY_KEY = "eiksy.ai-operate-history";
+const MAX_AI_ACTIVITY_HISTORY = 20;
+
 type MasterPasswordDialogMode = "create" | "unlock";
 
 type MasterPasswordDialogState = {
@@ -344,6 +347,7 @@ class EiksyShell {
       return;
     }
 
+    this.loadAIActivityHistory();
     this.registerGlobalEvents();
     await this.refreshAppVersion();
     await this.refresh();
@@ -400,9 +404,72 @@ class EiksyShell {
         message: String(data.message ?? ""),
         time: new Date().toISOString(),
       };
-      this.aiActivities = [...this.aiActivities.slice(-19), activity];
+      this.aiActivities = [...this.aiActivities.slice(-19), activity].map(
+        (entry) => ({
+          ...entry,
+          stdout: "",
+          stderr: "",
+        }),
+      );
+      this.persistAIActivityHistory();
       this.render();
     });
+  }
+
+  private loadAIActivityHistory(): void {
+    try {
+      const raw = localStorage.getItem(AI_ACTIVITY_HISTORY_KEY);
+      if (!raw) {
+        this.aiActivities = [];
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        this.aiActivities = [];
+        return;
+      }
+      this.aiActivities = parsed
+        .filter((entry): entry is AIActivity => entry && typeof entry === "object")
+        .slice(-MAX_AI_ACTIVITY_HISTORY)
+        .map((entry) => ({
+          id: String(entry.id ?? crypto.randomUUID()),
+          status: String(entry.status ?? "unknown"),
+          sessionId: String(entry.sessionId ?? ""),
+          command: String(entry.command ?? ""),
+          approval: String(entry.approval ?? ""),
+          exitCode: Number(entry.exitCode ?? -1),
+          durationMs: Number(entry.durationMs ?? 0),
+          stdout: "",
+          stderr: "",
+          errorType: String(entry.errorType ?? ""),
+          error: String(entry.error ?? ""),
+          message: String(entry.message ?? ""),
+          time: String(entry.time ?? new Date().toISOString()),
+        }));
+    } catch {
+      this.aiActivities = [];
+    }
+  }
+
+  private persistAIActivityHistory(): void {
+    try {
+      const safeHistory = this.aiActivities.slice(-MAX_AI_ACTIVITY_HISTORY).map((entry) => ({
+        id: entry.id,
+        status: entry.status,
+        sessionId: entry.sessionId,
+        command: entry.command,
+        approval: entry.approval,
+        exitCode: entry.exitCode,
+        durationMs: entry.durationMs,
+        errorType: entry.errorType,
+        error: entry.error,
+        message: entry.message,
+        time: entry.time,
+      }));
+      localStorage.setItem(AI_ACTIVITY_HISTORY_KEY, JSON.stringify(safeHistory));
+    } catch {
+      // Local storage is optional; live activity remains available.
+    }
   }
 
   private async refresh(errorMessage = this.errorMessage): Promise<void> {
