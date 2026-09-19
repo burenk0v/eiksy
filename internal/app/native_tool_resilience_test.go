@@ -1,0 +1,25 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"eiksy/internal/domain/ai"
+)
+
+func TestNativeToolCompletionPropagatesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	service := NewService(seedStore(t), nil, nil)
+	provider := &ai.ProviderDescriptor{ID: "test", Endpoint: "http://127.0.0.1:1", Model: "test"}
+	_, err := service.callNativeToolCompletion(ctx, provider, nil, "chat", nil)
+	if err == nil { t.Fatal("expected cancellation error") }
+	if !errors.Is(err, context.Canceled) { t.Fatalf("expected context cancellation, got %v", err) }
+}
+
+func TestNativeToolCompletionUsesBoundedHTTPTimeout(t *testing.T) {
+	service := NewService(seedStore(t), nil, nil)
+	if service.httpClient == nil { t.Fatal("expected HTTP client") }
+	if service.httpClient.Timeout <= 0 { t.Fatal("expected bounded AI HTTP client timeout") }
+}
