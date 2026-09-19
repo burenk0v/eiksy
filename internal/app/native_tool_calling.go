@@ -21,6 +21,7 @@ const nativeSSHExecPolicyToolID = "shell"
 const nativeSSHDiagnosticsToolName = "ssh.diagnostics"
 const nativeSFTPListToolName = "sftp.list"
 const nativeSFTPReadToolName = "sftp.read"
+const nativeSFTPStatToolName = "sftp.stat"
 const nativeSFTPWriteToolName = "sftp.write"
 const maxNativeSFTPWriteSize = 256 << 20
 const maxNativeSFTPReadSize = 64 << 10
@@ -232,6 +233,11 @@ func (s *Service) emitNativeSFTPOperation(operation, status, sessionID, targetPa
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
 
+func (s *Service) emitNativeSFTPStatOperation(status, sessionID, targetPath, approval, message string, durationMs int64) {
+	command := fmt.Sprintf("%s %s", nativeSFTPStatToolName, targetPath)
+	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
+}
+
 func (s *Service) emitNativeSFTPListOperation(status, sessionID, targetPath string, entries int, approval, message string, durationMs int64) {
 	command := fmt.Sprintf("%s %s (%d entries)", nativeSFTPListToolName, targetPath, entries)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
@@ -243,6 +249,9 @@ func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandP
 	}
 	if call.Function.Name == nativeSSHDiagnosticsToolName {
 		return s.dispatchNativeDiagnostics(call, policy, activeSessionID, providerID)
+	}
+	if call.Function.Name == nativeSFTPStatToolName {
+		return s.dispatchNativeSFTPStat(call, activeSessionID)
 	}
 	if call.Function.Name == nativeSFTPListToolName {
 		return s.dispatchNativeSFTPList(call, activeSessionID)
@@ -397,6 +406,24 @@ func (s *Service) dispatchNativeSFTPRead(call nativeToolCall, activeSessionID st
 	if err != nil { return "", false, err }
 	return string(encoded), false, nil
 }
+func (s *Service) dispatchNativeSFTPStat(call nativeToolCall, activeSessionID string) (string, bool, error) {
+	if !commandToolEnabled(s.store.AIState().CommandPolicy, "sftp") { return marshalNativeToolError("tool %q is disabled in command policy", nativeSFTPStatToolName), false, nil }
+	var args struct { SessionID string `json:"sessionId"`; Path string `json:"path"` }
+	decoder := json.NewDecoder(strings.NewReader(call.Function.Arguments)); decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil { return marshalNativeToolError("invalid arguments: %v", err), false, nil }
+	args.SessionID, args.Path, activeSessionID = strings.TrimSpace(args.SessionID), strings.TrimSpace(args.Path), strings.TrimSpace(activeSessionID)
+	if args.SessionID == "" { args.SessionID = activeSessionID }
+	if args.SessionID == "" || args.Path == "" { return `{"error":{"type":"invalid_request","message":"sessionId and path are required"}}`, false, nil }
+	if activeSessionID == "" || args.SessionID != activeSessionID { return marshalNativeToolError("sessionId %q does not match the active Eiksy session %q", args.SessionID, activeSessionID), false, nil }
+	if s.sftpManager == nil { return `{"error":{"type":"sftp_unavailable","message":"SFTP is not configured"}}`, false, nil }
+	tab, ok := s.runtimeTab(args.SessionID); if !ok || tab.Status != "connected" || tab.ProtocolID != "ssh" { return `{"error":{"type":"invalid_session","message":"active session is not a connected SSH session"}}`, false, nil }
+	startedAt := time.Now(); entry, err := s.sftpManager.Stat(args.SessionID, args.Path)
+	if err != nil { s.emitNativeSFTPOperation(nativeSFTPStatToolName, "execution_failed", args.SessionID, args.Path, 0, "not_required", err.Error(), time.Since(startedAt).Milliseconds()); return marshalNativeToolError("SFTP stat failed: %v", err), false, nil }
+	s.emitNativeSFTPStatOperation("executed", args.SessionID, args.Path, "not_required", "", time.Since(startedAt).Milliseconds())
+	payload := map[string]any{"status":"ok","sessionId":args.SessionID,"path":entry.Path,"name":entry.Name,"isDir":entry.IsDir,"size":entry.Size,"modTime":entry.ModTime,"mode":entry.Mode}
+	encoded, err := json.Marshal(payload); if err != nil { return "", false, err }; return string(encoded), false, nil
+}
+
 func (s *Service) dispatchNativeSFTPList(call nativeToolCall, activeSessionID string) (string, bool, error) {
 	if !commandToolEnabled(s.store.AIState().CommandPolicy, "sftp") {
 		return marshalNativeToolError("tool %q is disabled in command policy", nativeSFTPListToolName), false, nil
