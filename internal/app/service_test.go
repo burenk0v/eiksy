@@ -485,4 +485,7 @@ func TestLockSecureStorageClearsPendingAIApproval(t *testing.T) {
 	if len(state.CommandPolicy.PendingRequests) != 0 {
 		t.Fatal("pending command approvals must be cleared when storage locks")
 	}
+	if len(state.Messages) != 0 {
+		t.Fatal("AI history must be cleared from memory when storage locks")
+	}
 }
