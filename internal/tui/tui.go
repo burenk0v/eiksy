@@ -171,7 +171,7 @@ func (m *Model) resolveApproval(mode string) tea.Cmd {
 	requestID := m.approval.RequestID
 	m.approval = nil
 	if m.approvalResolver == nil {
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval %s queued for %s.", mode, requestID)})
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Approval unavailable for %s.", requestID)})
 		return nil
 	}
 	resolver := m.approvalResolver
