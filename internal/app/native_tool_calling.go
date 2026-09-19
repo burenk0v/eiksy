@@ -231,6 +231,11 @@ func (s *Service) emitNativeSFTPOperation(operation, status, sessionID, targetPa
 	command := fmt.Sprintf("%s %s (%d bytes)", operation, targetPath, size)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
+\nfunc (s *Service) emitNativeSFTPListOperation(status, sessionID, targetPath string, entries int, approval, message string, durationMs int64) {
+	command := fmt.Sprintf("%s %s (%d entries)", nativeSFTPListToolName, targetPath, entries)
+	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
+}
+
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
 	if call.Type != "function" && call.Type != "" {
 		return "", false, fmt.Errorf("unsupported tool call type %q", call.Type)
@@ -435,7 +440,7 @@ func (s *Service) dispatchNativeSFTPList(call nativeToolCall, activeSessionID st
 	if truncated {
 		message = fmt.Sprintf("listing truncated to %d entries", maxNativeSFTPListEntries)
 	}
-	s.emitNativeSFTPOperation(nativeSFTPListToolName, "executed", args.SessionID, args.Path, originalEntryCount, "not_required", message, time.Since(startedAt).Milliseconds())
+	s.emitNativeSFTPListOperation("executed", args.SessionID, args.Path, originalEntryCount, "not_required", message, time.Since(startedAt).Milliseconds())
 	payload := map[string]any{
 		"status": "ok",
 		"sessionId": args.SessionID,
