@@ -513,6 +513,33 @@ func TestDeleteSessionProfileRemovesCredentials(t *testing.T) {
 	}
 }
 
+func TestMemorySecureStorageRejectsSecretAccessWhenLocked(t *testing.T) {
+	store := memory.NewStore()
+	if err := store.StoreSecret("credential", "secret"); err != nil {
+		t.Fatalf("store secret: %v", err)
+	}
+
+	store.LockSecureStorage()
+
+	if _, err := store.LoadSecret("credential"); err == nil {
+		t.Fatal("expected locked secure storage to reject secret reads")
+	}
+	if err := store.StoreSecret("credential-2", "secret"); err == nil {
+		t.Fatal("expected locked secure storage to reject secret writes")
+	}
+
+	if err := store.EnsureMasterPassword("master-password"); err != nil {
+		t.Fatalf("unlock secure storage: %v", err)
+	}
+	value, err := store.LoadSecret("credential")
+	if err != nil {
+		t.Fatalf("load secret after unlock: %v", err)
+	}
+	if value != "secret" {
+		t.Fatalf("unexpected secret after unlock: %q", value)
+	}
+}
+
 func TestLockSecureStorageClearsPendingAIApproval(t *testing.T) {
 	store := memory.NewStore()
 	state := store.AIState()
