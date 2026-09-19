@@ -18,7 +18,7 @@ The three capabilities are distinct, but they must work together as one workflow
 
 ## THINK
 
-Think is the reasoning and planning stage.
+Think is the reasoning and planning workflow boundary.
 
 Eiksy must allow the user to:
 
@@ -40,7 +40,7 @@ AI must not become the security boundary. Authorization and execution control be
 
 ## CONNECT
 
-Connect is the stage where Eiksy makes the required context and resources available to the workflow.
+Connect is the workflow boundary where Eiksy makes the required context and resources available.
 
 Resources may include systems, remote hosts, AI providers, secret stores and other supported integrations.
 
@@ -65,7 +65,7 @@ Connect is done when a user can securely connect the resources required for a ta
 
 ## OPERATE
 
-Operate is the execution stage.
+Operate is the execution workflow boundary.
 
 Eiksy must allow the user to:
 
