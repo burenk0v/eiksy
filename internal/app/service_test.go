@@ -522,4 +522,19 @@ func TestGetResourcesExcludesSecretsAndTracksActiveSession(t *testing.T) {
 	if mirror.ActiveSessionID != "" {
 		t.Fatal("expected no active session")
 	}
+
+	launched, err := service.LaunchSession("artifact-mirror")
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+	active, err := service.GetResource("artifact-mirror")
+	if err != nil {
+		t.Fatalf("get active resource: %v", err)
+	}
+	if active.ActiveSessionID != launched.ID {
+		t.Fatalf("expected active session %q, got %q", launched.ID, active.ActiveSessionID)
+	}
+	if active.Status != "connecting" {
+		t.Fatalf("expected connecting resource status, got %q", active.Status)
+	}
 }
