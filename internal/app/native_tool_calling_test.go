@@ -174,7 +174,9 @@ func TestDispatchNativeSFTPReadRejectsDifferentSession(t *testing.T) {
 }
 
 func TestDispatchNativeSFTPReadRequiresSFTPPolicy(t *testing.T) {
-	service := NewService(memory.NewStore(), nil, &nativeTestSFTPManager{readContent: "secret"})
+	store := memory.NewStore()
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: false}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{readContent: "secret"})
 	call := nativeToolCall{ID: "call-read", Type: "function"}
 	call.Function.Name = nativeSFTPReadToolName
 	call.Function.Arguments = `{"sessionId":"session-1","path":"/tmp/test"}`
