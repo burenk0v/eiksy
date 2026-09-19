@@ -263,7 +263,7 @@ func TestDispatchNativeSFTPListEmitsRedactedActivity(t *testing.T) {
 	if payload["status"] != "executed" { t.Fatalf("expected executed status, got %#v", payload["status"]) }
 	if payload["sessionId"] != "session-1" { t.Fatalf("unexpected session id: %#v", payload["sessionId"]) }
 	command, ok := payload["command"].(string)
-	if !ok || !strings.Contains(command, "sftp.list /etc") || !strings.Contains(command, "2 bytes") {
+	if !ok || !strings.Contains(command, "sftp.list /etc") || !strings.Contains(command, "2 entries") {
 		t.Fatalf("unexpected list activity command: %#v", payload["command"])
 	}
 	if strings.Contains(fmt.Sprint(payload), "TOP-SECRET-CONFIG") || strings.Contains(fmt.Sprint(payload), "/etc/secret.conf") {
