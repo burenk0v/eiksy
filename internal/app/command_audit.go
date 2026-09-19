@@ -24,13 +24,16 @@ type persistentCommandAuditStore interface {
 	CommandAuditTrail() []ai.CommandAuditEvent
 }
 
-var sensitiveCommandPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key|authorization)\s*=\s*[^\s]+`),
-	regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key)\s+[^\s]+`),
-	regexp.MustCompile(`(?i)(authorization\s*:\s*(?:bearer|basic)\s+)[^\s'\"]+`),
-	regexp.MustCompile(`(?i)(--?(?:password|passwd|token|secret|api[-_]?key|authorization))(?:[=\s]+)[^\s]+`),
-	regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API_KEY|AUTHORIZATION)[A-Za-z0-9_]*)\s*=\s*[^\s]+`),
-	regexp.MustCompile(`(?i)(https?://[^\s/@:]+):[^\s/@]+@`),
+var sensitiveCommandPatterns = []struct {
+	pattern *regexp.Regexp
+	replacement string
+}{
+	{regexp.MustCompile(`(?i)(authorization\s*:\s*(?:bearer|basic)\s+)[^\s'"]+`), `$1[REDACTED]`},
+	{regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key|authorization)\s*[:=]\s*["']?[^\s,"']+["']?`), `$1=[REDACTED]`},
+	{regexp.MustCompile(`(?i)(password|passwd|token|secret|api[_-]?key)\s+[^\s]+`), `$1 [REDACTED]`},
+	{regexp.MustCompile(`(?i)(--?(?:password|passwd|token|secret|api[-_]?key|authorization))(?:[=\s]+)[^\s]+`), `$1=[REDACTED]`},
+	{regexp.MustCompile(`(?i)([A-Za-z_][A-Za-z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|API[_-]?KEY|AUTHORIZATION)[A-Za-z0-9_]*)\s*=\s*[^\s]+`), `$1=[REDACTED]`},
+	{regexp.MustCompile(`(?i)(https?://[^\s/@:]+:)[^\s/@]+(@)`), `$1[REDACTED]$2`},
 }
 
 func (s *Service) recordCommandAudit(providerID, sessionID, command, policyDecision, approval, result string, exitCode int, durationMs int64, extra ai.CommandAuditEvent) {
@@ -91,12 +94,8 @@ func redactAuditValue(value string) string {
 
 func redactCommand(command string) string {
 	redacted := strings.TrimSpace(command)
-	for _, pattern := range sensitiveCommandPatterns {
-		redacted = pattern.ReplaceAllStringFunc(redacted, func(match string) string {
-			if index := strings.IndexAny(match, "=:" ); index >= 0 { return match[:index+1] + "[REDACTED]" }
-			parts := strings.Fields(match); if len(parts) > 1 { return parts[0] + " [REDACTED]" }
-			return "[REDACTED]"
-		})
+	for _, rule := range sensitiveCommandPatterns {
+		redacted = rule.pattern.ReplaceAllString(redacted, rule.replacement)
 	}
 	return redacted
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"eiksy/internal/domain/ai"
+	"eiksy/internal/storage/disk"
 	"eiksy/internal/storage/memory"
 )
 
@@ -19,6 +20,20 @@ func TestRedactAuditValueRedactsSensitiveText(t *testing.T) {
 	}
 	if !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("expected redaction marker, got %q", got)
+	}
+}
+
+func TestRedactAuditValueRedactsDelimitedAndCamelCaseSecrets(t *testing.T) {
+	input := `token: "secret-token" apiKey: "secret-api-key" MY_AUTHORIZATION="secret-auth"`
+	got := redactAuditValue(input)
+
+	for _, secret := range []string{"secret-token", "secret-api-key", "secret-auth"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redacted audit value contains secret %q: %q", secret, got)
+		}
+	}
+	if got == input {
+		t.Fatalf("expected sensitive values to be redacted")
 	}
 }
 
@@ -57,6 +72,42 @@ func TestRecordCommandAuditRedactsBeforePersistence(t *testing.T) {
 	}
 }
 
+func TestRecordCommandAuditPersistsOnlyRedactedValues(t *testing.T) {
+	dir := t.TempDir()
+	store, err := disk.NewStoreAt(dir)
+	if err != nil {
+		t.Fatalf("create disk store: %v", err)
+	}
+
+	service := NewService(store, nil, nil)
+	service.recordCommandAudit(
+		"",
+		"session",
+		`curl --token=super-secret --header "X-Api-Key: another-secret"`,
+		"ask",
+		"denied",
+		"policy_denied",
+		1,
+		2,
+		ai.CommandAuditEvent{Error: "password=hunter2"},
+	)
+
+	reloaded, err := disk.NewStoreAt(dir)
+	if err != nil {
+		t.Fatalf("reload disk store: %v", err)
+	}
+	trail := NewService(reloaded, nil, nil).GetCommandAuditTrail()
+	if len(trail) != 1 {
+		t.Fatalf("expected one persisted audit event, got %d", len(trail))
+	}
+	event := trail[0]
+	for _, secret := range []string{"super-secret", "another-secret", "hunter2"} {
+		if strings.Contains(event.Command, secret) || strings.Contains(event.Error, secret) {
+			t.Fatalf("persisted audit event leaked secret %q: %+v", secret, event)
+		}
+	}
+}
+
 func TestRedactAuditValuePreservesSafeStatus(t *testing.T) {
 	for _, value := range []string{"executed", "execution_failed", "approval_required", "policy_denied"} {
 		if got := redactAuditValue(value); got != value {
@@ -64,3 +115,4 @@ func TestRedactAuditValuePreservesSafeStatus(t *testing.T) {
 		}
 	}
 }
+
