@@ -191,3 +191,97 @@ func TestModelRendersAgentErrorsAndCancellation(t *testing.T) {
 type testError string
 
 func (e testError) Error() string { return string(e) }
+
+
+type testApprovalResolver struct {
+	requestID string
+	mode      string
+	err       error
+}
+
+func (r *testApprovalResolver) ResolveApproval(requestID, mode string) error {
+	r.requestID = requestID
+	r.mode = mode
+	return r.err
+}
+
+func TestModelRendersAndResolvesApproval(t *testing.T) {
+	resolver := &testApprovalResolver{}
+	m := NewModel().WithApprovalResolver(resolver)
+
+	next, cmd := m.Update(agentai.Event{
+		Type: agentai.EventApprovalRequired,
+		Tool: "ssh.exec",
+		Approval: &agentai.ApprovalRequest{
+			RequestID: "cmdreq-1",
+			ToolID:    "shell",
+			SessionID: "session-1",
+			Command:   "systemctl restart nginx",
+			Reason:    "restart the service after configuration change",
+		},
+	})
+	if cmd != nil {
+		t.Fatal("expected no command while rendering approval")
+	}
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{
+		"EIKSY ACTION",
+		"systemctl restart nginx",
+		"restart the service after configuration change",
+		"[Y] now",
+		"[S] session",
+		"[A] always",
+		"[N] deny",
+	} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected approval view to contain %q, got %q", want, view)
+		}
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if cmd == nil {
+		t.Fatal("expected approval command")
+	}
+	m = next.(Model)
+	if m.approval != nil {
+		t.Fatal("expected approval prompt to clear immediately")
+	}
+	result := cmd()
+	if result == nil {
+		t.Fatal("expected approval result message")
+	}
+	m.Update(result)
+	if resolver.requestID != "cmdreq-1" || resolver.mode != "now" {
+		t.Fatalf("unexpected approval resolution: request=%q mode=%q", resolver.requestID, resolver.mode)
+	}
+	if !strings.Contains(m.View(), "Approval now applied.") {
+		t.Fatal("expected approval result in chat")
+	}
+}
+
+func TestModelDeniesApprovalWithoutResolver(t *testing.T) {
+	m := NewModel()
+	next, _ := m.Update(agentai.Event{
+		Type: agentai.EventApprovalRequired,
+		Approval: &agentai.ApprovalRequest{
+			RequestID: "cmdreq-2",
+			ToolID:    "shell",
+			SessionID: "session-1",
+			Command:   "uname -a",
+		},
+	})
+	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if cmd != nil {
+		t.Fatal("expected local fallback without resolver")
+	}
+	m = next.(Model)
+	if m.approval != nil {
+		t.Fatal("expected approval prompt to clear")
+	}
+	if !strings.Contains(m.View(), "Approval deny queued for cmdreq-2.") {
+		t.Fatal("expected denial fallback message")
+	}
+}
