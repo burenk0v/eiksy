@@ -3,6 +3,9 @@ package app
 import (
 	"strings"
 	"testing"
+
+	"eiksy/internal/domain/ai"
+	"eiksy/internal/storage/memory"
 )
 
 func TestRedactAuditValueRedactsSensitiveText(t *testing.T) {
@@ -31,6 +34,26 @@ func TestRedactAuditValueNormalizesAndBoundsText(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "...[TRUNCATED]") {
 		t.Fatalf("missing truncation marker: %q", got[len(got)-20:])
+	}
+}
+
+func TestRecordCommandAuditKeepsBoundedInMemoryTrail(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	for i := 0; i < maxCommandAuditEvents+25; i++ {
+		service.recordCommandAudit("", "session", "hostname", "allow", "not_required", "success", 0, 1, ai.CommandAuditEvent{})
+	}
+	trail := service.GetCommandAuditTrail()
+	if len(trail) != maxCommandAuditEvents {
+		t.Fatalf("expected %d audit events, got %d", maxCommandAuditEvents, len(trail))
+	}
+}
+
+func TestRecordCommandAuditRedactsBeforePersistence(t *testing.T) {
+	service := NewService(memory.NewStore(), nil, nil)
+	service.recordCommandAudit("", "session", "curl --token=super-secret", "ask", "denied", "policy_denied", 1, 2, ai.CommandAuditEvent{Error: "password=hunter2"})
+	event := service.GetCommandAuditTrail()[0]
+	if strings.Contains(event.Command, "super-secret") || strings.Contains(event.Error, "hunter2") {
+		t.Fatalf("audit event leaked secret: %+v", event)
 	}
 }
 
