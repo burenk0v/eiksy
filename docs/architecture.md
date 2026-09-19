@@ -83,7 +83,7 @@ The primary goals are:
 
 The diagram is logical rather than a strict package dependency graph. Some domain contracts intentionally exist ahead of broad concrete runtime adoption. They define stable extension boundaries; they should not be forced into every implementation until a real second implementation or capability requires them.
 
-The important property is the direction of authority: UI and AI request operations; backend policy and capability checks decide what may happen; executors perform the operation; audit records the lifecycle.
+The important property is the direction of authority: UI and AI request operations; backend policy and capability checks decide what may happen; executors perform the operation; audit records the lifecycle. The operation domain model represents this unit of work independently from any specific transport or UI flow.
 
 ## 3. Core boundaries
 
