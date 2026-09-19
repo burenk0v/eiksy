@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	agentai "eiksy/internal/ai"
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/securestorage"
@@ -65,6 +66,10 @@ func (s *Service) sendChatMessageWithNativeTools(ctx context.Context, provider *
 }
 
 func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDescriptor, chatSessionID string, policy ai.CommandPolicy, activeSessionID, userMessage string, messages []nativeChatMessage, tools []map[string]any) (string, bool, error) {
+	return s.runNativeToolLoopWithEvents(ctx, provider, chatSessionID, policy, activeSessionID, userMessage, messages, tools, nil)
+}
+
+func (s *Service) runNativeToolLoopWithEvents(ctx context.Context, provider *ai.ProviderDescriptor, chatSessionID string, policy ai.CommandPolicy, activeSessionID, userMessage string, messages []nativeChatMessage, tools []map[string]any, emitEvent func(agentai.Event)) (string, bool, error) {
 	toolPolicy := normalizeCommandPolicy(policy)
 
 	for turn := 0; turn < 4; turn++ {
@@ -93,12 +98,21 @@ func (s *Service) runNativeToolLoop(ctx context.Context, provider *ai.ProviderDe
 		}
 		messages = append(messages, nativeChatMessage{Role: "assistant", Content: response.Content, ToolCalls: response.ToolCalls})
 		for _, call := range response.ToolCalls {
+			if emitEvent != nil {
+				emitEvent(agentai.Event{Type: agentai.EventToolStarted, Tool: call.Function.Name})
+			}
 			result, pending, err := s.dispatchNativeToolCall(call, toolPolicy, activeSessionID, provider.ID, userMessage, messages)
+			if emitEvent != nil && result != "" {
+				emitEvent(agentai.Event{Type: agentai.EventToolOutput, Tool: call.Function.Name, Content: result})
+			}
 			if err != nil {
 				return "", true, err
 			}
 			if pending {
 				return result, true, nil
+			}
+			if emitEvent != nil {
+				emitEvent(agentai.Event{Type: agentai.EventToolFinished, Tool: call.Function.Name})
 			}
 			messages = append(messages, nativeChatMessage{Role: "tool", ToolCallID: call.ID, Content: result})
 		}

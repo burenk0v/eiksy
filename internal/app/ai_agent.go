@@ -50,12 +50,22 @@ func (a *AIBackendAgent) run(ctx context.Context, events chan<- agentai.Event, s
 		return
 	}
 
-	_, _, err = a.service.sendChatMessageWithNativeTools(
+	tools := []map[string]any(nil)
+	if commandToolEnabled(state.CommandPolicy, nativeSSHExecPolicyToolID) || commandToolEnabled(state.CommandPolicy, "sftp") {
+		tools = openAIToolDefinitions()
+	}
+	messages := a.service.nativeMessagesFromState(state, sessionID)
+	messages = append(messages, nativeChatMessage{Role: "user", Content: input})
+	_, _, err = a.service.runNativeToolLoopWithEvents(
 		ctx,
 		provider,
-		state,
+		state.ChatSessionID,
+		state.CommandPolicy,
 		sessionID,
 		input,
+		messages,
+		tools,
+		func(event agentai.Event) { events <- event },
 	)
 	if err != nil {
 		if ctx.Err() != nil {
