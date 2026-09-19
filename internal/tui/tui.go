@@ -30,11 +30,18 @@ func (t *Tab) UnbindSession() {
 	t.Session = nil
 }
 
+type ChatMessage struct {
+	Role    string
+	Content string
+}
+
 type Model struct {
 	width     int
 	height    int
 	tabs      []Tab
 	activeTab int
+	messages  []ChatMessage
+	input     string
 }
 
 func NewModel() Model {
@@ -54,7 +61,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-	case tea.KeyMsg:
+case tea.KeyMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -62,9 +69,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectPreviousTab()
 		case "right", "l", "tab":
 			m.selectNextTab()
+		case "backspace":
+			if len(m.input) > 0 {
+				m.input = m.input[:len(m.input)-1]
+			}
+		case "enter":
+			m.submitChatInput()
+		default:
+			if len(msg.Runes) == 1 && msg.Runes[0] >= 32 {
+				m.input += string(msg.Runes)
+			}
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) submitChatInput() {
+	content := strings.TrimSpace(m.input)
+	if content == "" || m.activeTab != 0 {
+		return
+	}
+	m.messages = append(m.messages, ChatMessage{Role: "You", Content: content})
+	m.input = ""
 }
 
 func (m *Model) selectNextTab() {
@@ -109,7 +135,18 @@ func (m Model) View() string {
 
 	header := " EIKSY  Think. Connect. Operate."
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
-	footer := "  ←/h previous   →/l/tab next   q quit"
+	if active == "Chat" {
+		var chat strings.Builder
+		if len(m.messages) == 0 {
+			chat.WriteString("  No messages yet. Ask Eiksy something.")
+		} else {
+			for _, message := range m.messages {
+				fmt.Fprintf(&chat, "  %s: %s\\n", message.Role, message.Content)
+			}
+		}
+		content = "  Chat\\n\\n" + chat.String() + fmt.Sprintf("\\n  > %s", m.input)
+	}
+	footer := "  enter send   ←/h previous   →/l/tab next   q quit"
 
 	return strings.Join([]string{
 		header,
