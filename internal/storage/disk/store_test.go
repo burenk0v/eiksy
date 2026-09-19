@@ -403,7 +403,7 @@ func TestChatSessionsPersistEncryptedAndRestore(t *testing.T) {
 
 	rawSettings, err := os.ReadFile(filepath.Join(baseDir, "settings.json"))
 	if err != nil { t.Fatalf("read settings: %v", err) }
-	if strings.Contains(string(rawSettings), "private conversation") || strings.Contains(string(rawSettings), "Persistent debug") == false { t.Fatal("settings should contain metadata but not message content") }
+	if strings.Contains(string(rawSettings), "private conversation") || strings.Contains(string(rawSettings), "Persistent debug") { t.Fatal("settings.json must not contain chat content or titles") }
 
 	reopened, err := NewStoreAtWithKeyring(baseDir, keyring)
 	if err != nil { t.Fatalf("reopen store: %v", err) }
