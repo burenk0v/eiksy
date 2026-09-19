@@ -157,8 +157,18 @@ func TestSecretsMoveToEncryptedSQLiteStorage(t *testing.T) {
 			t.Fatalf("secret row %q contains plaintext payload: %s", name, value)
 		}
 	}
-	if len(names) != 5 {
-		t.Fatalf("expected 5 encrypted secrets, got %d (%v)", len(names), names)
+	if len(names) != 6 {
+		t.Fatalf("expected 6 encrypted secrets, got %d (%v)", len(names), names)
+	}
+	foundChatHistory := false
+	for _, name := range names {
+		if name == securestorage.AIChatHistoryKey() {
+			foundChatHistory = true
+			break
+		}
+	}
+	if !foundChatHistory {
+		t.Fatalf("expected encrypted AI chat history secret, got %v", names)
 	}
 
 	reloaded, err := NewStoreAtWithKeyring(baseDir, keyring)
