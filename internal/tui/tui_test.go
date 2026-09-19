@@ -383,3 +383,55 @@ func TestModelSessionBrowserView(t *testing.T) {
 		}
 	}
 }
+
+type testSessionForker struct {
+	sessionID string
+	title     string
+	result    SessionRef
+	err       error
+}
+
+func (f *testSessionForker) ForkChatSession(sessionID, title string) (SessionRef, error) {
+	f.sessionID = sessionID
+	f.title = title
+	return f.result, f.err
+}
+
+func TestModelForksActiveSessionThroughApplicationService(t *testing.T) {
+	forker := &testSessionForker{result: SessionRef{ID: "chat-2", Title: "API tests (fork)"}}
+	m := NewModel().
+		WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}}).
+		WithSessionForker(forker)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if cmd == nil { t.Fatal("expected fork command") }
+	m = next.(Model)
+	result := cmd()
+	if result == nil { t.Fatal("expected fork result") }
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if forker.sessionID != "chat-1" || forker.title != "API tests (fork)" {
+		t.Fatalf("unexpected fork request: id=%q title=%q", forker.sessionID, forker.title)
+	}
+	if len(m.sessions) != 2 || m.activeSession != 1 {
+		t.Fatalf("expected fork to become active session: %+v active=%d", m.sessions, m.activeSession)
+	}
+	if m.tabs[0].Session == nil || m.tabs[0].Session.ID != "chat-2" {
+		t.Fatalf("expected chat tab to follow fork: %+v", m.tabs[0].Session)
+	}
+	if !strings.Contains(m.View(), "Session API tests (fork) forked.") {
+		t.Fatal("expected fork confirmation")
+	}
+}
+
+func TestModelForkUnavailable(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	if cmd != nil { t.Fatal("expected local fallback") }
+	m = next.(Model)
+	if !strings.Contains(m.View(), "Session forking unavailable.") {
+		t.Fatal("expected unavailable message")
+	}
+}
+
