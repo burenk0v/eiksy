@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	agentai "eiksy/internal/ai"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -143,3 +144,50 @@ func TestModelChatIgnoresEmptyInput(t *testing.T) {
 		t.Fatal("expected empty input not to create a message")
 	}
 }
+
+
+func TestModelRendersAgentToolEvents(t *testing.T) {
+	m := NewModel()
+
+	next, cmd := m.Update(agentai.Event{Type: agentai.EventToolStarted, Tool: "ssh.exec"})
+	if cmd != nil {
+		t.Fatal("expected no command")
+	}
+	m = next.(Model)
+
+	next, _ = m.Update(agentai.Event{Type: agentai.EventToolOutput, Content: "systemctl status nginx"})
+	m = next.(Model)
+
+	next, _ = m.Update(agentai.Event{Type: agentai.EventToolFinished, Tool: "ssh.exec"})
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{"[tool:ssh.exec] finished", "output: systemctl status nginx"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got %q", want, view)
+		}
+	}
+	if len(m.messages) != 0 {
+		t.Fatal("tool events must not create chat messages")
+	}
+}
+
+func TestModelRendersAgentErrorsAndCancellation(t *testing.T) {
+	m := NewModel()
+
+	next, _ := m.Update(agentai.Event{Type: agentai.EventError, Err: testError("provider unavailable")})
+	m = next.(Model)
+	next, _ = m.Update(agentai.Event{Type: agentai.EventCancellation})
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{"System: provider unavailable", "System: AI request cancelled"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got %q", want, view)
+		}
+	}
+}
+
+type testError string
+
+func (e testError) Error() string { return string(e) }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	agentai "eiksy/internal/ai"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -35,12 +36,19 @@ type ChatMessage struct {
 	Content string
 }
 
+type ToolCallView struct {
+	Name   string
+	Output string
+	Status string
+}
+
 type Model struct {
 	width     int
 	height    int
 	tabs      []Tab
 	activeTab int
 	messages  []ChatMessage
+	toolCalls []ToolCallView
 	input     string
 }
 
@@ -59,6 +67,8 @@ func (m Model) Init() tea.Cmd { return nil }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case agentai.Event:
+		m.handleAgentEvent(msg)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyMsg:
@@ -83,6 +93,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m *Model) handleAgentEvent(event agentai.Event) {
+	switch event.Type {
+	case agentai.EventTextDelta:
+		if event.Content != "" {
+			m.messages = append(m.messages, ChatMessage{Role: "AI", Content: event.Content})
+		}
+	case agentai.EventToolStarted:
+		name := strings.TrimSpace(event.Tool)
+		if name == "" {
+			name = "unknown"
+		}
+		m.toolCalls = append(m.toolCalls, ToolCallView{Name: name, Status: "running"})
+	case agentai.EventToolOutput:
+		if len(m.toolCalls) > 0 {
+			m.toolCalls[len(m.toolCalls)-1].Output = event.Content
+		}
+	case agentai.EventToolFinished:
+		if len(m.toolCalls) > 0 {
+			call := &m.toolCalls[len(m.toolCalls)-1]
+			call.Status = "finished"
+			if strings.TrimSpace(event.Tool) != "" {
+				call.Name = strings.TrimSpace(event.Tool)
+			}
+		}
+	case agentai.EventError:
+		content := "AI error"
+		if event.Err != nil {
+			content = event.Err.Error()
+		}
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: content})
+	case agentai.EventCancellation:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI request cancelled"})
+	}
 }
 
 func (m *Model) submitChatInput() {
@@ -138,14 +183,20 @@ func (m Model) View() string {
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
 	if active == "Chat" {
 		var chat strings.Builder
-		if len(m.messages) == 0 {
+		if len(m.messages) == 0 && len(m.toolCalls) == 0 {
 			chat.WriteString("  No messages yet. Ask Eiksy something.")
 		} else {
 			for _, message := range m.messages {
-				fmt.Fprintf(&chat, "  %s: %s\\n", message.Role, message.Content)
+				fmt.Fprintf(&chat, "  %s: %s\n", message.Role, message.Content)
 			}
 		}
-		content = "  Chat\\n\\n" + chat.String() + fmt.Sprintf("\\n  > %s", m.input)
+		for _, tool := range m.toolCalls {
+			fmt.Fprintf(&chat, "  [tool:%s] %s\n", tool.Name, tool.Status)
+			if tool.Output != "" {
+				fmt.Fprintf(&chat, "    output: %s\n", tool.Output)
+			}
+		}
+		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
 	}
 	footer := "  enter send   ←/h previous   →/l/tab next   q quit"
 
