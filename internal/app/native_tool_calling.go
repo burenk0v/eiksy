@@ -231,6 +231,12 @@ func (s *Service) emitNativeSFTPOperation(operation, status, sessionID, targetPa
 	command := fmt.Sprintf("%s %s (%d bytes)", operation, targetPath, size)
 	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
 }
+
+func (s *Service) emitNativeSFTPListOperation(status, sessionID, targetPath string, entries int, approval, message string, durationMs int64) {
+	command := fmt.Sprintf("%s %s (%d entries)", nativeSFTPListToolName, targetPath, entries)
+	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
+}
+
 func (s *Service) dispatchNativeToolCall(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID, userMessage string, messages []nativeChatMessage) (string, bool, error) {
 	if call.Type != "function" && call.Type != "" {
 		return "", false, fmt.Errorf("unsupported tool call type %q", call.Type)
@@ -420,14 +426,22 @@ func (s *Service) dispatchNativeSFTPList(call nativeToolCall, activeSessionID st
 	if !ok || tab.Status != "connected" || tab.ProtocolID != "ssh" {
 		return `{"error":{"type":"invalid_session","message":"active session is not a connected SSH session"}}`, false, nil
 	}
+	startedAt := time.Now()
 	entries, err := s.ListSFTPFiles(args.SessionID, args.Path)
 	if err != nil {
+		s.emitNativeSFTPOperation(nativeSFTPListToolName, "execution_failed", args.SessionID, args.Path, 0, "not_required", err.Error(), time.Since(startedAt).Milliseconds())
 		return marshalNativeToolError("SFTP listing failed: %v", err), false, nil
 	}
-	truncated := len(entries) > maxNativeSFTPListEntries
+	originalEntryCount := len(entries)
+	truncated := originalEntryCount > maxNativeSFTPListEntries
 	if truncated {
 		entries = entries[:maxNativeSFTPListEntries]
 	}
+	message := ""
+	if truncated {
+		message = fmt.Sprintf("listing truncated to %d entries", maxNativeSFTPListEntries)
+	}
+	s.emitNativeSFTPListOperation("executed", args.SessionID, args.Path, originalEntryCount, "not_required", message, time.Since(startedAt).Milliseconds())
 	payload := map[string]any{
 		"status": "ok",
 		"sessionId": args.SessionID,

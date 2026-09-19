@@ -235,6 +235,43 @@ func TestDispatchNativeSFTPListReturnsBoundedEntries(t *testing.T) {
 	if len(payload.Entries) != maxNativeSFTPListEntries || !payload.Truncated { t.Fatalf("expected bounded/truncated result, got len=%d truncated=%v", len(payload.Entries), payload.Truncated) }
 }
 
+func TestDispatchNativeSFTPListEmitsRedactedActivity(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "host-1", Name: "host-1", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"})
+	entries := []sftpdomain.FileEntry{
+		{Name: "TOP-SECRET-CONFIG", Path: "/etc/secret.conf"},
+		{Name: "public.conf", Path: "/etc/public.conf"},
+	}
+	store.UpdateAIState(ai.WorkspaceState{CommandPolicy: ai.CommandPolicy{Tools: []ai.CommandTool{{ID: "sftp", Enabled: true}}}})
+	service := NewService(store, nil, &nativeTestSFTPManager{entries: entries})
+	var eventName string
+	var eventData any
+	service.SetRuntimeContext(context.Background(), func(name string, data ...interface{}) {
+		eventName = name
+		if len(data) > 0 { eventData = data[0] }
+	})
+	call := nativeToolCall{ID: "call-list", Type: "function"}
+	call.Function.Name = nativeSFTPListToolName
+	call.Function.Arguments = `{"sessionId":"session-1","path":"/etc"}`
+	_, pending, err := service.dispatchNativeToolCall(call, store.AIState().CommandPolicy, "session-1", "provider-1", "inspect files", nil)
+	if err != nil || pending { t.Fatalf("expected successful read-only listing: pending=%v err=%v", pending, err) }
+	if eventName != "ai:operate" { t.Fatalf("expected ai:operate event, got %q", eventName) }
+	payload, ok := eventData.(map[string]any)
+	if !ok { t.Fatalf("unexpected event payload type %T", eventData) }
+	if payload["status"] != "executed" { t.Fatalf("expected executed status, got %#v", payload["status"]) }
+	if payload["sessionId"] != "session-1" { t.Fatalf("unexpected session id: %#v", payload["sessionId"]) }
+	command, ok := payload["command"].(string)
+	if !ok || !strings.Contains(command, "sftp.list /etc") || !strings.Contains(command, "2 entries") {
+		t.Fatalf("unexpected list activity command: %#v", payload["command"])
+	}
+	if strings.Contains(fmt.Sprint(payload), "TOP-SECRET-CONFIG") || strings.Contains(fmt.Sprint(payload), "/etc/secret.conf") {
+		t.Fatal("SFTP list activity leaked directory entry data")
+	}
+	if payload["stdout"] != "" || payload["stderr"] != "" { t.Fatal("SFTP list activity must not expose directory entries as output") }
+}
+
 func TestDispatchNativeSFTPListRejectsDifferentSession(t *testing.T) {
 	service := NewService(memory.NewStore(), nil, &nativeTestSFTPManager{})
 	call := nativeToolCall{ID: "call-sftp", Type: "function"}
