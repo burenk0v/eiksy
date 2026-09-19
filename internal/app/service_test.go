@@ -472,6 +472,46 @@ func TestResolveCommandPolicyRequestSessionApprovalScopesGrantToSession(t *testi
 	}
 }
 
+func TestResolveCommandPolicyRequestFailsClosedOnPendingToolMismatch(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-pending-mismatch", Name: "ssh-pending-mismatch", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-pending-mismatch", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-mismatch", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}
+	state.PendingNativeToolCall = &ai.PendingNativeToolCall{RequestID: "request-mismatch", ToolName: nativeSFTPWriteToolName, SessionID: tab.ID, ToolArguments: `{"sessionId":"runtime-pending-mismatch","path":"/tmp/file","content":"unexpected"}`}
+	if err := store.UpdateAIState(state); err != nil { t.Fatalf("seed pending state: %v", err) }
+
+	if err := service.ResolveCommandPolicyRequest("request-mismatch", ai.CommandPermissionModeNow); err == nil { t.Fatal("expected mismatched pending tool to be rejected") }
+	updated := store.AIState()
+	if len(ssh.inputs) != 0 { t.Fatalf("mismatched pending tool must not execute, got %d dispatches", len(ssh.inputs)) }
+	if hasCommandRule(updated.CommandPolicy.CommandRules, "shell", "", "uname -a", ai.CommandPermissionAllow) { t.Fatal("mismatched pending tool must not create an allow rule") }
+	if updated.PendingNativeToolCall == nil { t.Fatal("expected pending continuation to remain for explicit recovery") }
+}
+
+func TestResolveCommandPolicyRequestFailsClosedOnPendingSessionMismatch(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{ID: "ssh-pending-session", Name: "ssh-pending-session", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
+	if err := store.UpsertSessionProfile(profile); err != nil { t.Fatalf("seed profile: %v", err) }
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	tab := workspace.Tab{ID: "runtime-pending-session", ProfileID: profile.ID, ProtocolID: "ssh", Status: "connected"}
+	store.OpenRuntimeTab(tab)
+
+	state := store.AIState()
+	state.CommandPolicy.PendingRequests = []ai.CommandRequest{{ID: "request-session-mismatch", ToolID: "shell", SessionID: tab.ID, Command: "uname -a"}}
+	state.PendingNativeToolCall = &ai.PendingNativeToolCall{RequestID: "request-session-mismatch", ToolName: "shell", SessionID: "different-session"}
+	if err := store.UpdateAIState(state); err != nil { t.Fatalf("seed pending state: %v", err) }
+
+	if err := service.ResolveCommandPolicyRequest("request-session-mismatch", ai.CommandPermissionModeNow); err == nil { t.Fatal("expected mismatched pending session to be rejected") }
+	updated := store.AIState()
+	if len(ssh.inputs) != 0 { t.Fatalf("mismatched pending session must not execute, got %d dispatches", len(ssh.inputs)) }
+	if hasCommandRule(updated.CommandPolicy.CommandRules, "shell", "", "uname -a", ai.CommandPermissionAllow) { t.Fatal("mismatched pending session must not create an allow rule") }
+}
 func TestBuildPortForwardSpecsWithRemoteTarget(t *testing.T) { specs := buildPortForwardSpecs("8080,9000-9001", "db.internal", "5432"); if specs != "8080:db.internal:5432,9000:db.internal:5432,9001:db.internal:5432" { t.Fatalf("unexpected specs: %s", specs) } }
 func TestBuildPortForwardSpecsFallsBackToSamePortWhenRemotePortIsEmpty(t *testing.T) { specs := buildPortForwardSpecs("8080-8081", "db.internal", ""); if specs != "8080:db.internal:8080,8081:db.internal:8081" { t.Fatalf("unexpected specs: %s", specs) } }
 
