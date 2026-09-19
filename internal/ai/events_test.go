@@ -12,6 +12,7 @@ func TestEventTypes(t *testing.T) {
 		EventToolStarted,
 		EventToolOutput,
 		EventToolFinished,
+		EventApprovalRequired,
 		EventMessageFinished,
 		EventError,
 		EventCancellation,

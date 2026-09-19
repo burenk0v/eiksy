@@ -11,6 +11,7 @@ const (
 	EventToolStarted     EventType = "tool_started"
 	EventToolOutput      EventType = "tool_output"
 	EventToolFinished    EventType = "tool_finished"
+	EventApprovalRequired EventType = "approval_required"
 	EventMessageFinished EventType = "message_finished"
 	EventError           EventType = "error"
 	EventCancellation    EventType = "cancellation"
@@ -18,11 +19,20 @@ const (
 
 // Event is a normalized, transport-agnostic agent event.
 // Payload is intentionally opaque to keep the protocol independent of any TUI framework.
+type ApprovalRequest struct {
+	RequestID string
+	ToolID    string
+	SessionID string
+	Command   string
+	Reason    string
+}
+
 type Event struct {
-	Type    EventType
-	Content string
-	Tool    string
-	Err     error
+	Type     EventType
+	Content  string
+	Tool     string
+	Err      error
+	Approval *ApprovalRequest
 }
 
 // Agent starts an AI interaction and emits normalized lifecycle events.
