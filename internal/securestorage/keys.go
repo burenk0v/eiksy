@@ -27,3 +27,7 @@ func AIProviderTokenKey(providerID string) string {
 func AIChatHistoryKey() string {
 	return "ai-chat-history"
 }
+
+func AIChatSessionsKey() string {
+	return "ai-chat-sessions"
+}
