@@ -502,13 +502,21 @@ func (s *Store) loadAIChatHistory() ([]ai.ChatMessage, error) {
 	}
 	var envelope persistedChatHistory
 	if err := json.Unmarshal([]byte(payload), &envelope); err == nil && envelope.Sessions != nil {
-		return activeChatSessionMessages(envelope.Sessions, s.aiState.ChatSessionID), nil
+		s.aiState.ChatSessions = cloneChatSessions(envelope.Sessions)
+		if s.aiState.ChatSessionID == "" && len(s.aiState.ChatSessions) > 0 { s.aiState.ChatSessionID = s.aiState.ChatSessions[0].ID }
+		return activeChatSessionMessages(s.aiState.ChatSessions, s.aiState.ChatSessionID), nil
 	}
 	var messages []ai.ChatMessage
 	if err := json.Unmarshal([]byte(payload), &messages); err != nil {
 		return nil, fmt.Errorf("decode encrypted AI chat history: %w", err)
 	}
 	return messages, nil
+}
+
+func cloneChatSessions(sessions []ai.ChatSession) []ai.ChatSession {
+	result := make([]ai.ChatSession, len(sessions))
+	for i, session := range sessions { result[i] = session; result[i].Messages = append([]ai.ChatMessage(nil), session.Messages...) }
+	return result
 }
 
 func activeChatSessionMessages(sessions []ai.ChatSession, id string) []ai.ChatMessage {
