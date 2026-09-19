@@ -21,6 +21,11 @@ type aiDiagnosticCheck struct {
 // dispatchNativeDiagnostics executes a fixed read-only diagnostic set. The AI
 // never supplies the commands themselves; every fixed command is still passed
 // through the existing Command Policy before execution.
+func (s *Service) emitNativeDiagnosticsOperation(status, sessionID string, checks int, approval, message string, durationMs int64) {
+	command := fmt.Sprintf("%s summary (%d checks)", nativeSSHDiagnosticsToolName, checks)
+	s.emitNativeOperation(status, sessionID, command, sessions.CommandExecutionResult{ExitCode: -1, DurationMs: durationMs}, approval, message)
+}
+
 func (s *Service) dispatchNativeDiagnostics(call nativeToolCall, policy ai.CommandPolicy, activeSessionID, providerID string) (string, bool, error) {
 	var args struct {
 		SessionID string `json:"sessionId"`
@@ -44,6 +49,7 @@ func (s *Service) dispatchNativeDiagnostics(call nativeToolCall, policy ai.Comma
 	}
 	if !commandToolEnabled(policy, nativeSSHExecPolicyToolID) {
 		s.recordCommandAudit(providerID, args.SessionID, "ssh.diagnostics:summary", "deny", "not_required", "policy_denied", 0, 0, ai.CommandAuditEvent{ErrorType: "policy_denied", Error: "shell tool is disabled"})
+		s.emitNativeDiagnosticsOperation("policy_denied", args.SessionID, 0, "not_required", "shell tool is disabled", 0)
 		return `{"error":{"type":"policy_denied","message":"SSH command execution is disabled by Command Policy"}}`, false, nil
 	}
 
@@ -67,6 +73,7 @@ func (s *Service) dispatchNativeDiagnostics(call nativeToolCall, policy ai.Comma
 				status = "approval_required"
 			}
 			s.recordCommandAudit(providerID, args.SessionID, check.command, string(decision), "not_required", status, 0, 0, ai.CommandAuditEvent{ErrorType: status, Error: strings.TrimSpace(reason)})
+			s.emitNativeDiagnosticsOperation(status, args.SessionID, len(checks), "not_required", strings.TrimSpace(reason), 0)
 			return marshalDiagnosticPolicyResult(args.SessionID, check.command, decision, reason), false, nil
 		}
 	}
@@ -93,6 +100,7 @@ func (s *Service) dispatchNativeDiagnostics(call nativeToolCall, policy ai.Comma
 		"checks":     results,
 		"health":     analyzeInfrastructureHealth(results),
 	}
+	s.emitNativeDiagnosticsOperation("executed", args.SessionID, len(results), "not_required", "", time.Since(started).Milliseconds())
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", false, fmt.Errorf("marshal diagnostics result: %w", err)

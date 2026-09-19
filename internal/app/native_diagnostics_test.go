@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -15,6 +16,14 @@ func TestDispatchNativeDiagnosticsSummaryUsesFixedCommands(t *testing.T) {
 	ssh := &nativeTestSSHManager{}
 	store.OpenRuntimeTab(workspace.Tab{ID: "session-1", ProtocolID: "ssh", Status: "connected"})
 	service := NewService(store, ssh, nil)
+	var eventName string
+	var eventData any
+	service.SetRuntimeContext(context.Background(), func(name string, data ...interface{}) {
+		eventName = name
+		if len(data) > 0 {
+			eventData = data[0]
+		}
+	})
 	policy := ai.CommandPolicy{Tools: []ai.CommandTool{{ID: nativeSSHExecPolicyToolID, Enabled: true}}, CommandRules: defaultCommandRules()}
 
 	call := nativeToolCall{ID: "diag-1", Type: "function"}
@@ -54,6 +63,23 @@ func TestDispatchNativeDiagnosticsSummaryUsesFixedCommands(t *testing.T) {
 	}
 	if len(ssh.commands) != 6 {
 		t.Fatalf("expected six SSH executions, got %#v", ssh.commands)
+	}
+	if eventName != "ai:operate" {
+		t.Fatalf("expected ai:operate event, got %q", eventName)
+	}
+	eventPayload, ok := eventData.(map[string]any)
+	if !ok {
+		t.Fatalf("unexpected event payload type %T", eventData)
+	}
+	if eventPayload["status"] != "executed" || eventPayload["sessionId"] != "session-1" {
+		t.Fatalf("unexpected diagnostics activity: %#v", eventPayload)
+	}
+	command, ok := eventPayload["command"].(string)
+	if !ok || !strings.Contains(command, "ssh.diagnostics summary") || !strings.Contains(command, "6 checks") {
+		t.Fatalf("unexpected diagnostics activity command: %#v", eventPayload["command"])
+	}
+	if eventPayload["stdout"] != "" || eventPayload["stderr"] != "" {
+		t.Fatal("diagnostics activity must not expose command output")
 	}
 }
 
