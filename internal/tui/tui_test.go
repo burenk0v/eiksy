@@ -78,3 +78,28 @@ func TestModelViewContainsTabs(t *testing.T) {
 		}
 	}
 }
+
+func TestTabSessionReference(t *testing.T) {
+	tab := Tab{Title: "Chat"}
+
+	tab.BindSession("session-1", "server-01")
+	if tab.Session == nil {
+		t.Fatal("expected session reference")
+	}
+	if tab.Session.ID != "session-1" || tab.Session.Title != "server-01" {
+		t.Fatalf("unexpected session reference: %+v", tab.Session)
+	}
+
+	tab.UnbindSession()
+	if tab.Session != nil {
+		t.Fatal("expected session reference to be cleared")
+	}
+}
+
+func TestTabBindSessionIgnoresEmptyID(t *testing.T) {
+	tab := Tab{Title: "Chat"}
+	tab.BindSession("  ", "server-01")
+	if tab.Session != nil {
+		t.Fatal("expected empty session ID not to create a reference")
+	}
+}

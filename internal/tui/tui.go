@@ -7,8 +7,27 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type Tab struct {
+type SessionRef struct {
+	ID    string
 	Title string
+}
+
+type Tab struct {
+	Title   string
+	Session *SessionRef
+}
+
+func (t *Tab) BindSession(sessionID, title string) {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		t.Session = nil
+		return
+	}
+	t.Session = &SessionRef{ID: sessionID, Title: strings.TrimSpace(title)}
+}
+
+func (t *Tab) UnbindSession() {
+	t.Session = nil
 }
 
 type Model struct {
