@@ -386,3 +386,31 @@ func TestCommandAuditPersistsAcrossStoreReload(t *testing.T) {
 	trail := reloaded.CommandAuditTrail()
 	if len(trail) != 1 || trail[0].ID != "audit-1" { t.Fatalf("unexpected persisted audit trail: %+v", trail) }
 }
+
+func TestChatSessionsPersistEncryptedAndRestore(t *testing.T) {
+	baseDir := t.TempDir()
+	keyring := newMemoryKeyring()
+	store, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("create store: %v", err) }
+	service := app.NewService(store, nil, nil)
+	if err := service.EnsureMasterPassword("master-password"); err != nil { t.Fatalf("unlock: %v", err) }
+	created, err := service.CreateChatSession("Persistent debug")
+	if err != nil { t.Fatalf("create chat session: %v", err) }
+	state := store.AIState()
+	state.Messages = []ai.ChatMessage{{Role: "user", Content: "private conversation"}}
+	if err := store.UpdateAIState(state); err != nil { t.Fatalf("update chat: %v", err) }
+	if err := service.SelectChatSession(created.ID); err != nil { t.Fatalf("select chat: %v", err) }
+
+	rawSettings, err := os.ReadFile(filepath.Join(baseDir, "settings.json"))
+	if err != nil { t.Fatalf("read settings: %v", err) }
+	if strings.Contains(string(rawSettings), "private conversation") || strings.Contains(string(rawSettings), "Persistent debug") == false { t.Fatal("settings should contain metadata but not message content") }
+
+	reopened, err := NewStoreAtWithKeyring(baseDir, keyring)
+	if err != nil { t.Fatalf("reopen store: %v", err) }
+	reopenedService := app.NewService(reopened, nil, nil)
+	if err := reopenedService.EnsureMasterPassword("master-password"); err != nil { t.Fatalf("unlock reopened store: %v", err) }
+	found := reopenedService.ListChatSessions()
+	if len(found) != 2 { t.Fatalf("expected two chat sessions, got %d", len(found)) }
+	if err := reopenedService.SelectChatSession(created.ID); err != nil { t.Fatalf("select restored chat: %v", err) }
+	if got := reopened.AIState().Messages; len(got) != 1 || got[0].Content != "private conversation" { t.Fatalf("restored messages mismatch: %+v", got) }
+}
