@@ -592,3 +592,37 @@ func TestModelTerminalViewShowsActiveSession(t *testing.T) {
 		}
 	}
 }
+
+
+func TestModelFilesViewShowsEmptyStateAndSession(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{"Files", "Session: Production", "Path: .", "No files loaded yet."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected files view to contain %q, got %q", want, view)
+		}
+	}
+}
+
+func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
+	m := NewModel().WithFileEntries("/etc/eiksy", []FileEntry{
+		{Name: "config.yaml", Kind: "file"},
+		{Name: "sessions", Kind: "dir"},
+	})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{"Path: /etc/eiksy", "[file] config.yaml", "[dir] sessions"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected files view to contain %q, got %q", want, view)
+		}
+	}
+}
