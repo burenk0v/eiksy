@@ -54,7 +54,8 @@ A release candidate requires green validation for:
 
 1. backend tests;
 2. security checks;
-3. desktop binary build.
+3. desktop binary build;
+4. Linux amd64 and Windows amd64 CLI binary builds.
 
 The gate does not introduce a second execution path or a test-only product implementation.
 
