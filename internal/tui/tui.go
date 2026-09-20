@@ -62,6 +62,8 @@ type Model struct {
 	messages  []ChatMessage
 	toolCalls []ToolCallView
 	input     string
+	terminalLines []string
+	terminalInput string
 	palette   *CommandPalette
 	shortcuts bool
 	approval  *agentai.ApprovalRequest
@@ -182,7 +184,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.palette != nil {
 			return m.updateCommandPalette(msg)
 		}
-		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil && strings.TrimSpace(m.input) == "") {
+		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil && m.activeTab == 0 && strings.TrimSpace(m.input) == "") {
 			return m, tea.Quit
 		}
 		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '?' && m.approval == nil && strings.TrimSpace(m.input) == "" {
@@ -213,7 +215,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyDown:
 			m.selectNextSession()
 		case tea.KeyEnter:
-			if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
+			if m.activeTab == 1 {
+				m.submitTerminalInput()
+			} else if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectActiveSession(); cmd != nil {
 					return m, cmd
 				}
@@ -221,10 +225,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.submitChatInput()
 			}
 		case tea.KeyBackspace:
-			if len(m.input) > 0 {
+			if m.activeTab == 1 {
+				if len(m.terminalInput) > 0 {
+					m.terminalInput = m.terminalInput[:len(m.terminalInput)-1]
+				}
+			} else if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
 		case tea.KeyRunes:
+			if m.activeTab == 1 {
+				for _, r := range msg.Runes {
+					if r >= 32 { m.terminalInput += string(r) }
+				}
+				break
+			}
 			if len(msg.Runes) == 1 && (msg.Runes[0] == 'f' || msg.Runes[0] == 'F') && m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 				break
@@ -414,6 +428,13 @@ func (m *Model) forkActiveSession() tea.Cmd {
 type sessionForkDone struct{ session SessionRef }
 type sessionForkError struct{ err error }
 
+func (m *Model) submitTerminalInput() {
+	content := strings.TrimSpace(m.terminalInput)
+	if content == "" { return }
+	m.terminalLines = append(m.terminalLines, "$ "+content)
+	m.terminalInput = ""
+}
+
 func (m *Model) submitChatInput() {
 	content := strings.TrimSpace(m.input)
 	if content == "" || m.activeTab != 0 {
@@ -476,6 +497,17 @@ func (m Model) View() string {
 			fmt.Fprintf(&palette, "  %s%s\n", marker, command.Title)
 		}
 		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
+	}
+	if active == "Terminal" {
+		var terminal strings.Builder
+		terminal.WriteString("  Terminal\n\n")
+		if len(m.sessions) > 0 { fmt.Fprintf(&terminal, "  Session: %s\n\n", m.sessions[m.activeSession].Title) }
+		if len(m.terminalLines) == 0 { terminal.WriteString("  No terminal input yet.\n") } else {
+			for _, line := range m.terminalLines { fmt.Fprintf(&terminal, "  %s\n", line) }
+		}
+		terminal.WriteString("\n  > ")
+		terminal.WriteString(m.terminalInput)
+		content = terminal.String()
 	}
 	if active == "Chat" {
 		var chat strings.Builder
@@ -544,7 +576,7 @@ func (m Model) View() string {
 			"  Esc        close overlay",
 		}, "\n")
 	}
-	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   ? shortcuts   q quit"
+	footer := "  enter submit   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   ? shortcuts   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
