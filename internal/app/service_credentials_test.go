@@ -3,9 +3,12 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"eiksy/internal/securestorage"
+	"github.com/tobischo/gokeepasslib/v3"
 	"eiksy/internal/storage/memory"
 )
 
@@ -46,6 +49,58 @@ func TestParseCredentialReferenceNormalizesPath(t *testing.T) {
 	}
 	if ref.ProviderID != "vault" || ref.Path != "team/prod/password" || ref.Field != "password" {
 		t.Fatalf("unexpected normalized reference: %#v", ref)
+	}
+}
+
+func TestLoadKeePassCredentialResolvesNestedEntry(t *testing.T) {
+	db := gokeepasslib.NewDatabase()
+	db.Credentials = gokeepasslib.NewPasswordCredentials("master-password")
+
+	root := gokeepasslib.NewGroup()
+	root.Name = "Root"
+	production := gokeepasslib.NewGroup()
+	production.Name = "Production"
+	entry := gokeepasslib.NewEntry()
+	entry.Values = []gokeepasslib.ValueData{
+		{Key: "Title", Value: gokeepasslib.V{Content: "SSH"}},
+		{Key: "UserName", Value: gokeepasslib.V{Content: "alice"}},
+		{Key: "Password", Value: gokeepasslib.V{Content: "keepass-secret"}},
+	}
+	production.Entries = []gokeepasslib.Entry{entry}
+	root.Groups = []gokeepasslib.Group{production}
+	db.Content.Root.Groups = []gokeepasslib.Group{root}
+
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "credentials.kdbx")
+	file, err := os.Create(dbPath)
+	if err != nil {
+		t.Fatalf("create KeePass database: %v", err)
+	}
+	if err := gokeepasslib.NewEncoder(file).Encode(db); err != nil {
+		_ = file.Close()
+		t.Fatalf("encode KeePass database: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close KeePass database: %v", err)
+	}
+
+	store := memory.NewStore()
+	cfg := store.Settings()
+	cfg.KeePassDatabasePath = dbPath
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	if err := store.StoreSecret(securestorage.KeePassPasswordKey(), "master-password"); err != nil {
+		t.Fatalf("store KeePass password: %v", err)
+	}
+
+	service := NewService(store, nil, nil)
+	value, err := service.resolveCredentialReference("keepass:Production/SSH")
+	if err != nil {
+		t.Fatalf("resolve KeePass credential: %v", err)
+	}
+	if value != "keepass-secret" {
+		t.Fatalf("unexpected KeePass credential: %q", value)
 	}
 }
 
