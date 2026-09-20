@@ -25,6 +25,38 @@ import (
 )
 
 
+func TestConnectSSHMarksSessionErrorWhenCredentialsCannotBeLoaded(t *testing.T) {
+	store := memory.NewStore()
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	profile := sessions.Profile{
+		ID: "ssh-error",
+		Name: "ssh-error",
+		ProtocolID: "ssh",
+		Host: "host",
+		Port: 22,
+		Username: "ops",
+		Options: map[string]string{"auth_method": "password"},
+	}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+	tab, err := service.LaunchSession(profile.ID)
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+	if err := service.ConnectSSH(context.Background(), tab.ID, profile.ID); err == nil {
+		t.Fatal("expected credential loading error")
+	}
+	updated, ok := service.runtimeTab(tab.ID)
+	if !ok {
+		t.Fatal("runtime tab not found")
+	}
+	if updated.Status != "error" {
+		t.Fatalf("expected session status error, got %q", updated.Status)
+	}
+}
+
 func TestLoginVaultRejectsOversizedResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
