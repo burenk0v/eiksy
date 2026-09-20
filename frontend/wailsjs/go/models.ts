@@ -280,7 +280,6 @@ export namespace app {
 	    sessionProfiles: sessions.Profile[];
 	    activeSessions: RuntimeSessionView[];
 	    sessionHistory: sessions.HistoryEntry[];
-	    credentialProviders: credentials.ProviderDescriptor[];
 	    ai: ai.WorkspaceState;
 	    workspace: WorkspaceView;
 	    settings: settings.AppSettings;
@@ -295,71 +294,9 @@ export namespace app {
 	        this.sessionProfiles = this.convertValues(source["sessionProfiles"], sessions.Profile);
 	        this.activeSessions = this.convertValues(source["activeSessions"], RuntimeSessionView);
 	        this.sessionHistory = this.convertValues(source["sessionHistory"], sessions.HistoryEntry);
-	        this.credentialProviders = this.convertValues(source["credentialProviders"], credentials.ProviderDescriptor);
 	        this.ai = this.convertValues(source["ai"], ai.WorkspaceState);
 	        this.workspace = this.convertValues(source["workspace"], WorkspaceView);
 	        this.settings = this.convertValues(source["settings"], settings.AppSettings);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-
-}
-
-export namespace credentials {
-	
-	export class AuthStatus {
-	    state: string;
-	    expiresAt?: string;
-	    renewable: boolean;
-	    authenticated: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new AuthStatus(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.state = source["state"];
-	        this.expiresAt = source["expiresAt"];
-	        this.renewable = source["renewable"];
-	        this.authenticated = source["authenticated"];
-	    }
-	}
-	export class ProviderDescriptor {
-	    id: string;
-	    name: string;
-	    type: string;
-	    capabilities: string[];
-	    status: AuthStatus;
-	
-	    static createFrom(source: any = {}) {
-	        return new ProviderDescriptor(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.type = source["type"];
-	        this.capabilities = source["capabilities"];
-	        this.status = this.convertValues(source["status"], AuthStatus);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
