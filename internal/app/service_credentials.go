@@ -42,6 +42,9 @@ func parseCredentialReference(reference string) (credentials.SecretReference, er
 	if !ok || provider == "" || pathValue == "" {
 		return credentials.SecretReference{}, fmt.Errorf("credential reference must use provider:path format")
 	}
+	if provider != "vault" && provider != "keepass" {
+		return credentials.SecretReference{}, fmt.Errorf("unsupported credential provider %q", provider)
+	}
 
 	field := "password"
 	if pathPart, fieldPart, hasField := strings.Cut(pathValue, "#"); hasField {
@@ -51,8 +54,9 @@ func parseCredentialReference(reference string) (credentials.SecretReference, er
 			return credentials.SecretReference{}, fmt.Errorf("credential reference field is empty")
 		}
 	}
-	if pathValue == "" {
-		return credentials.SecretReference{}, fmt.Errorf("credential reference path is empty")
+	pathValue, err := normalizeCredentialPath(pathValue)
+	if err != nil {
+		return credentials.SecretReference{}, err
 	}
 	return credentials.SecretReference{ProviderID: provider, Path: pathValue, Field: field}, nil
 }
