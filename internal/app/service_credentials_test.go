@@ -28,10 +28,24 @@ func TestParseCredentialReference(t *testing.T) {
 }
 
 func TestParseCredentialReferenceRejectsInvalidReference(t *testing.T) {
-	for _, reference := range []string{"", "vault", ":secret", "vault:", "vault:secret#"} {
+	for _, reference := range []string{
+		"", "vault", ":secret", "vault:", "vault:secret#",
+		"unknown:secret", "vault:../secret", "vault:team/../secret",
+		"vault:team/secret\x00name", "vault:.", "vault:./secret",
+	} {
 		if _, err := parseCredentialReference(reference); err == nil {
 			t.Fatalf("expected invalid reference %q to fail", reference)
 		}
+	}
+}
+
+func TestParseCredentialReferenceNormalizesPath(t *testing.T) {
+	ref, err := parseCredentialReference("VAULT:/team/prod/password/")
+	if err != nil {
+		t.Fatalf("parse reference: %v", err)
+	}
+	if ref.ProviderID != "vault" || ref.Path != "team/prod/password" || ref.Field != "password" {
+		t.Fatalf("unexpected normalized reference: %#v", ref)
 	}
 }
 
