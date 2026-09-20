@@ -613,13 +613,18 @@ func (m Model) View() string {
 			"  Esc        close overlay",
 		}, "\n")
 	}
-	footer := "  enter submit   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   ? shortcuts   q quit"
+	footer := "  Enter submit   ↑/↓ sessions   f fork   ←/→/Tab tabs   Ctrl+P commands   ? shortcuts   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
 
+	status := fmt.Sprintf("  %s  •  session %d/%d", active, m.activeSession+1, len(m.sessions))
+	if len(m.sessions) == 0 {
+		status = fmt.Sprintf("  %s  •  no session selected", active)
+	}
 	return strings.Join([]string{
 		header,
+		status,
 		"",
 		"  " + tabBar.String(),
 		"",

@@ -626,3 +626,14 @@ func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
 		}
 	}
 }
+
+
+func TestModelViewShowsContextStatus(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})
+	view := m.View()
+	for _, want := range []string{"Chat", "session 1/2", "↑/↓ sessions"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected view to contain %q, got %q", want, view)
+		}
+	}
+}
