@@ -5,11 +5,11 @@ import (
 	"io"
 )
 
-const usage = "Eiksy — Think. Connect. Operate.\n\nUsage:\n  eiksy [command]\n\nCommands:\n  tui       Start the terminal UI\n  version   Print the Eiksy version\n\nOptions:\n  -h, --help       Show this help\n  -v, --version    Print the Eiksy version\n\nRunning eiksy without arguments starts the desktop application.\n"
+const usage = "Eiksy — Think. Connect. Operate.\n\nUsage:\n  eiksy [command]\n\nCommands:\n  tui       Start the terminal UI\n            --no-alt-screen  Keep the current terminal screen\n            --view <view>    Start in chat, terminal, files, or tools\n  version   Print the Eiksy version\n\nOptions:\n  -h, --help       Show this help\n  -v, --version    Print the Eiksy version\n\nRunning eiksy without arguments starts the desktop application.\n"
 
 // Run handles CLI-only arguments.
 // It returns handled=true when the process should exit instead of starting the desktop application.
-func Run(args []string, version string, stdout, stderr io.Writer, runTUI func() error) (handled bool, exitCode int) {
+func Run(args []string, version string, stdout, stderr io.Writer, runTUI func(TUIConfig) error) (handled bool, exitCode int) {
 	if len(args) == 0 {
 		return false, 0
 	}
