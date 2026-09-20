@@ -634,7 +634,26 @@ func (m Model) View() string {
 	}, "\n")
 }
 
-func Run() error {
-	_, err := tea.NewProgram(NewModel(), tea.WithAltScreen()).Run()
+// Config contains presentation/runtime options for the terminal UI.
+type Config struct {
+	AltScreen   bool
+	InitialView string
+}
+
+func Run(config Config) error {
+	model := NewModel()
+	switch config.InitialView {
+	case "terminal":
+		model.activeTab = 1
+	case "files":
+		model.activeTab = 2
+	case "tools":
+		model.activeTab = 3
+	}
+	options := []tea.ProgramOption{}
+	if config.AltScreen {
+		options = append(options, tea.WithAltScreen())
+	}
+	_, err := tea.NewProgram(model, options...).Run()
 	return err
 }
