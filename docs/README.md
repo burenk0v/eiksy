@@ -13,6 +13,7 @@ Eiksy documentation is organized around the permanent product and implementation
 - [cli.md](cli.md) — CLI commands, TUI options, navigation and operational boundaries.
 - [ai.md](ai.md) — AI architecture, context boundaries, native tools, approval and execution flow.
 - [release-acceptance.md](release-acceptance.md) — final release acceptance gate for the product contract.
+- [release-readiness.md](release-readiness.md) — engineering checklist for the exact release candidate.
 
 ## Product acceptance
 
