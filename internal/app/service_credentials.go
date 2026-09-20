@@ -166,7 +166,7 @@ func (s *Service) loadKeePassCredential(secretPath, field string) (string, error
 	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
 		return "", fmt.Errorf("keepass credential path is empty")
 	}
-	group := &database.Content.Root
+	group := database.Content.Root
 	for _, part := range parts[:len(parts)-1] {
 		found := false
 		for index := range group.Groups {
