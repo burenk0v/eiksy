@@ -660,11 +660,13 @@ func (s *Service) AcceptSSHHostKey(tabID string) error {
 	return s.sshManager.AcceptHostKey(tabID)
 }
 func (s *Service) profileWithSecrets(profile sessions.Profile) (sessions.Profile, error) {
-	if _, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
-		return sessions.Profile{}, err
-	}
-	if _, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
-		return sessions.Profile{}, err
+	if strings.TrimSpace(profile.SecretRef) == "" {
+		if _, err := s.store.LoadSecret(securestorage.SessionPasswordKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+			return sessions.Profile{}, err
+		}
+		if _, err := s.store.LoadSecret(securestorage.SessionKeyPassphraseKey(profile.ID)); err != nil && !errors.Is(err, securestorage.ErrMasterPasswordRequired) {
+			return sessions.Profile{}, err
+		}
 	}
 	profile.Options = cloneProfileOptionsWithoutCredentialSecrets(profile.Options)
 	return profile, nil
@@ -682,6 +684,9 @@ func (s *Service) scrubProfilesForShell(profiles []sessions.Profile) []sessions.
 }
 
 func (s *Service) profileCredential(profile sessions.Profile) (string, error) {
+	if strings.TrimSpace(profile.SecretRef) != "" {
+		return s.resolveCredentialReference(profile.SecretRef)
+	}
 	key := securestorage.SessionPasswordKey(profile.ID)
 	if strings.EqualFold(strings.TrimSpace(profile.Options["auth_method"]), "key") {
 		key = securestorage.SessionKeyPassphraseKey(profile.ID)
