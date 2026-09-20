@@ -9,7 +9,7 @@ type TUIConfig struct {
 }
 
 func defaultTUIConfig() TUIConfig {
-	return TUIConfig{AltScreen: true, InitialView: "Chat"}
+	return TUIConfig{AltScreen: true, InitialView: "chat"}
 }
 
 func parseTUIArgs(args []string) (TUIConfig, error) {
