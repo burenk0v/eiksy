@@ -64,7 +64,9 @@ The key design principle is simple:
 
 ### Credentials
 
-Eiksy keeps credential material separate from ordinary application state and supports credential-provider integrations including Vault, KeePass and local encrypted storage.
+Eiksy keeps credential material separate from ordinary application state. Credentials can be resolved at connection time from supported sources including Vault and KeePass, while local application secrets are protected by encrypted secure storage.
+
+Vault and KeePass are credential sources, not secret-browsing interfaces: Eiksy does not expose general secret enumeration to the UI or AI.
 
 Sensitive local data is protected with OS keychain-backed master-password flow, Argon2id key derivation and XChaCha20-Poly1305 encryption.
 
@@ -211,22 +213,17 @@ wails build \
 
 ## Project status
 
-Eiksy is an actively developed open-source project. The current focus is feature development on top of the established security and application architecture.
+Eiksy is in release stabilization. The current architecture, security boundaries and product contract are considered established.
 
-### Roadmap
+The project is intentionally focused on:
 
-Planned areas include:
+- correctness and regression fixes;
+- security hardening;
+- documentation accuracy;
+- CI and release reliability;
+- maintaining the existing architecture.
 
-- [ ] Expanded AI-assisted operations
-- [ ] Advanced Vault integration
-- [ ] Additional credential providers
-- [ ] Improved connection import/export
-- [ ] More Linux distributions
-- [ ] macOS support
-- [ ] Automated security testing
-- [ ] Improved UI/UX
-
-The roadmap intentionally contains future work only; implemented AI command execution, diagnostics, approval and audit capabilities are documented under **Current capabilities** above.
+New product capabilities are not part of the current stabilization scope.
 
 ## Configuration and secrets
 
@@ -234,7 +231,7 @@ Never commit sensitive information to the repository.
 
 Do not commit passwords, API tokens, Vault tokens, SSH private keys or certificates.
 
-Use Eiksy's encrypted storage or an external credential provider for sensitive data.
+Use Eiksy's encrypted storage or a supported external credential provider for sensitive data.
 
 ## Contributing
 
