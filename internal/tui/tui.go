@@ -42,6 +42,11 @@ type ToolCallView struct {
 	Status string
 }
 
+type FileEntry struct {
+	Name string
+	Kind string
+}
+
 type SessionSelector interface {
 	SelectChatSession(sessionID string) error
 }
@@ -64,6 +69,8 @@ type Model struct {
 	input     string
 	terminalLines []string
 	terminalInput string
+	fileEntries []FileEntry
+	filePath    string
 	palette   *CommandPalette
 	shortcuts bool
 	approval  *agentai.ApprovalRequest
@@ -428,6 +435,12 @@ func (m *Model) forkActiveSession() tea.Cmd {
 type sessionForkDone struct{ session SessionRef }
 type sessionForkError struct{ err error }
 
+func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
+	m.filePath = strings.TrimSpace(path)
+	m.fileEntries = append([]FileEntry(nil), entries...)
+	return m
+}
+
 func (m *Model) submitTerminalInput() {
 	content := strings.TrimSpace(m.terminalInput)
 	if content == "" { return }
@@ -508,6 +521,30 @@ func (m Model) View() string {
 		terminal.WriteString("\n  > ")
 		terminal.WriteString(m.terminalInput)
 		content = terminal.String()
+	}
+	if active == "Files" {
+		var files strings.Builder
+		files.WriteString("  Files\n\n")
+		if len(m.sessions) > 0 {
+			fmt.Fprintf(&files, "  Session: %s\n", m.sessions[m.activeSession].Title)
+		}
+		path := m.filePath
+		if path == "" {
+			path = "."
+		}
+		fmt.Fprintf(&files, "  Path: %s\n\n", path)
+		if len(m.fileEntries) == 0 {
+			files.WriteString("  No files loaded yet.\n")
+		} else {
+			for _, entry := range m.fileEntries {
+				kind := entry.Kind
+				if kind == "" {
+					kind = "file"
+				}
+				fmt.Fprintf(&files, "  [%s] %s\n", kind, entry.Name)
+			}
+		}
+		content = files.String()
 	}
 	if active == "Chat" {
 		var chat strings.Builder
