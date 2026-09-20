@@ -45,6 +45,7 @@ func TestConnectSSHMarksSessionErrorWhenCredentialsCannotBeLoaded(t *testing.T) 
 	if err != nil {
 		t.Fatalf("launch session: %v", err)
 	}
+	store.LockSecureStorage()
 	if err := service.ConnectSSH(context.Background(), tab.ID, profile.ID); err == nil {
 		t.Fatal("expected credential loading error")
 	}
