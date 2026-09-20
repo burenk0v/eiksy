@@ -63,6 +63,7 @@ type Model struct {
 	toolCalls []ToolCallView
 	input     string
 	palette   *CommandPalette
+	shortcuts bool
 	approval  *agentai.ApprovalRequest
 
 	sessions        []SessionRef
@@ -168,14 +169,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session fork failed: %v", msg.err)})
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlP {
+			m.shortcuts = false
 			if m.palette == nil { m.palette = &CommandPalette{} } else { m.palette = nil }
+			return m, nil
+		}
+		if m.shortcuts {
+			if msg.Type == tea.KeyEsc || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '?') {
+				m.shortcuts = false
+			}
 			return m, nil
 		}
 		if m.palette != nil {
 			return m.updateCommandPalette(msg)
 		}
-		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil) {
+		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil && strings.TrimSpace(m.input) == "") {
 			return m, tea.Quit
+		}
+		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '?' && m.approval == nil && strings.TrimSpace(m.input) == "" {
+			m.shortcuts = true
+			return m, nil
 		}
 		if m.approval != nil && msg.Type == tea.KeyRunes && len(msg.Runes) == 1 {
 			switch msg.Runes[0] {
@@ -194,6 +206,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectPreviousTab()
 		case tea.KeyRight, tea.KeyTab:
 			m.selectNextTab()
+		case tea.KeyShiftTab:
+			m.selectPreviousTab()
 		case tea.KeyUp:
 			m.selectPreviousSession()
 		case tea.KeyDown:
@@ -514,7 +528,23 @@ func (m Model) View() string {
 		}
 		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
 	}
-	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   q quit"
+	if m.shortcuts {
+		content = strings.Join([]string{
+			"  KEYBOARD SHORTCUTS",
+			"",
+			"  ←/→        previous/next tab",
+			"  Tab        next tab",
+			"  Shift+Tab  previous tab",
+			"  ↑/↓        previous/next session",
+			"  Enter      select session / send message",
+			"  f          fork active session (when input is empty)",
+			"  Ctrl+P     command palette",
+			"  ?          keyboard shortcuts",
+			"  q          quit (when input is empty)",
+			"  Esc        close overlay",
+		}, "\n")
+	}
+	footer := "  enter send   ↑/↓ sessions   f fork   ←/→/tab tabs   ctrl+p commands   ? shortcuts   q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
