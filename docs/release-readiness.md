@@ -97,8 +97,9 @@ Before tagging the release:
 - [ ] Release version is decided and follows the repository's versioning convention.
 - [ ] Release notes describe user-visible changes only.
 - [ ] Release notes do not describe removed or deprecated functionality as available.
-- [ ] Linux and Windows artifacts are produced by the release build process.
+- [ ] The tagged release workflow produces Linux amd64 and Windows amd64 artifacts.
 - [ ] Artifact names and platforms are verified before publication.
+- [ ] The release workflow publishes only from an explicit `vMAJOR.MINOR.PATCH` tag (or an explicitly supplied tag when manually dispatched).
 - [ ] Release assets do not contain temporary build or test files.
 - [ ] The release tag points to the exact validated commit.
 
