@@ -507,15 +507,15 @@ func TestModelNavigationShortcuts(t *testing.T) {
 
 func TestModelQuitShortcutDoesNotConsumeChatInput(t *testing.T) {
 	m := NewModel()
-	for _, r := range []rune{'q', 'u', 'i', 't'} {
+	for _, r := range []rune{'h', 'q', 'u', 'i', 't'} {
 		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		if cmd != nil {
 			t.Fatalf("expected chat input, got quit command for %q", r)
 		}
 		m = next.(Model)
 	}
-	if m.input != "quit" {
-		t.Fatalf("expected q to remain chat input, got %q", m.input)
+	if m.input != "hquit" {
+		t.Fatalf("expected q to remain chat input when input is non-empty, got %q", m.input)
 	}
 }
 
