@@ -244,12 +244,16 @@ func (s *Service) ConnectSSH(ctx context.Context, tabID, profileID string) error
 	_ = s.updateTabStatus(tabID, "connecting")
 	profile, err := s.profileWithSecrets(profile)
 	if err != nil {
+		_ = s.updateTabStatus(tabID, "error")
 		return err
 	}
 	profile = s.applySSHForwardingSettings(profile)
 	s.EmitLog("info", fmt.Sprintf("Connecting SSH to %s@%s:%d", profile.Username, profile.Host, profile.Port))
 	credential, err := s.profileCredential(profile)
-	if err != nil { return err }
+	if err != nil {
+		_ = s.updateTabStatus(tabID, "error")
+		return err
+	}
 	if err := s.sshManager.Connect(s.resolveContext(ctx), tabID, profile.Host, profile.Port, profile.Username, credential, profile.Options); err != nil {
 		s.EmitLog("error", fmt.Sprintf("SSH connection to %s@%s:%d failed: %v", profile.Username, profile.Host, profile.Port, err))
 		_ = s.updateTabStatus(tabID, "error")
