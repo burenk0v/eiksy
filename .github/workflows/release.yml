@@ -109,6 +109,24 @@ jobs:
           path: build/bin/${{ matrix.artifact }}
           if-no-files-found: error
 
+      - name: Build CLI binary
+        shell: bash
+        run: |
+          RELEASE_VERSION="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          mkdir -p cli-bin
+          CLI_ARTIFACT="eiksy-cli-${{ matrix.platform }}"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            CLI_ARTIFACT="${CLI_ARTIFACT}.exe"
+          fi
+          go build -trimpath -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o "cli-bin/$CLI_ARTIFACT" .
+
+      - name: Upload CLI release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eiksy-cli-${{ matrix.platform }}
+          path: cli-bin/eiksy-cli-${{ matrix.platform }}*
+          if-no-files-found: error
+
   publish:
     name: Publish GitHub release
     needs: build
