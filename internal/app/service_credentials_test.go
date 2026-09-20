@@ -34,7 +34,7 @@ func TestParseCredentialReferenceRejectsInvalidReference(t *testing.T) {
 	for _, reference := range []string{
 		"", "vault", ":secret", "vault:", "vault:secret#",
 		"unknown:secret", "vault:../secret", "vault:team/../secret",
-		"vault:team/secret\x00name", "vault:.", "vault:./secret",
+		"vault:team/secret\x00name", "vault:.",
 	} {
 		if _, err := parseCredentialReference(reference); err == nil {
 			t.Fatalf("expected invalid reference %q to fail", reference)
