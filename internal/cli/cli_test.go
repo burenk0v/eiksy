@@ -20,7 +20,7 @@ func TestRunWithoutArgumentsStartsDesktopApp(t *testing.T) {
 
 func TestRunHelp(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	handled, exitCode := Run([]string{"--help"}, "v1.2.3", &stdout, &stderr, func() error { return nil })
+	handled, exitCode := Run([]string{"--help"}, "v1.2.3", &stdout, &stderr, func(TUIConfig) error { return nil })
 	if !handled || exitCode != 0 {
 		t.Fatalf("expected handled success, got handled=%v exitCode=%d", handled, exitCode)
 	}
@@ -34,7 +34,7 @@ func TestRunHelp(t *testing.T) {
 
 func TestRunVersion(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	handled, exitCode := Run([]string{"--version"}, "v1.2.3", &stdout, &stderr, func() error { return nil })
+	handled, exitCode := Run([]string{"--version"}, "v1.2.3", &stdout, &stderr, func(TUIConfig) error { return nil })
 	if !handled || exitCode != 0 {
 		t.Fatalf("expected handled success, got handled=%v exitCode=%d", handled, exitCode)
 	}
@@ -70,7 +70,7 @@ func TestRunTUIError(t *testing.T) {
 
 func TestRunUnknownArgument(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	handled, exitCode := Run([]string{"--unknown"}, "v1.2.3", &stdout, &stderr, func() error { return nil })
+	handled, exitCode := Run([]string{"--unknown"}, "v1.2.3", &stdout, &stderr, func(TUIConfig) error { return nil })
 	if !handled || exitCode != 2 {
 		t.Fatalf("expected handled error, got handled=%v exitCode=%d", handled, exitCode)
 	}
