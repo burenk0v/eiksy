@@ -22,7 +22,12 @@ func Run(args []string, version string, stdout, stderr io.Writer, runTUI func(TU
 		_, _ = fmt.Fprintln(stdout, version)
 		return true, 0
 	case "tui":
-		if err := runTUI(); err != nil {
+		config, err := parseTUIArgs(args[1:])
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "eiksy: tui: %v\n", err)
+			return true, 2
+		}
+		if err := runTUI(config); err != nil {
 			_, _ = fmt.Fprintf(stderr, "eiksy: tui: %v\n", err)
 			return true, 1
 		}
