@@ -1,4 +1,4 @@
-name: Build desktop binary
+name: Build desktop and CLI binaries
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Linux binary
+    name: Build Linux desktop and CLI binaries
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -69,9 +69,17 @@ jobs:
         shell: bash
         run: wails build -clean -platform linux/amd64 -tags webkit2_41 -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o eiksy-linux-amd64
 
-      - name: Upload workflow artifact
+      - name: Build CLI binary
+        shell: bash
+        run: |
+          mkdir -p cli-bin
+          go build -trimpath -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o cli-bin/eiksy-cli-linux-amd64 .
+
+      - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: eiksy-linux-amd64
-          path: build/bin/eiksy-linux-amd64
+          path: |
+            build/bin/eiksy-linux-amd64
+            cli-bin/eiksy-cli-linux-amd64
           if-no-files-found: error
