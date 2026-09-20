@@ -46,7 +46,7 @@ func TestRunVersion(t *testing.T) {
 func TestRunTUI(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	called := false
-	handled, exitCode := Run([]string{"tui"}, "v1.2.3", &stdout, &stderr, func() error {
+	handled, exitCode := Run([]string{"tui"}, "v1.2.3", &stdout, &stderr, func(TUIConfig) error {
 		called = true
 		return nil
 	})
@@ -57,7 +57,7 @@ func TestRunTUI(t *testing.T) {
 
 func TestRunTUIError(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	handled, exitCode := Run([]string{"tui"}, "v1.2.3", &stdout, &stderr, func() error {
+	handled, exitCode := Run([]string{"tui"}, "v1.2.3", &stdout, &stderr, func(TUIConfig) error {
 		return errors.New("terminal unavailable")
 	})
 	if !handled || exitCode != 1 {
