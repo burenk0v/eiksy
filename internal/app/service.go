@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
-	"eiksy/internal/domain/credentials"
 	"eiksy/internal/domain/protocols"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
@@ -24,7 +23,6 @@ type ShellState struct {
 	SessionProfiles     []sessions.Profile               `json:"sessionProfiles"`
 	ActiveSessions      []RuntimeSessionView             `json:"activeSessions"`
 	SessionHistory      []sessions.HistoryEntry          `json:"sessionHistory"`
-	CredentialProviders []credentials.ProviderDescriptor `json:"credentialProviders"`
 	AI                  ai.WorkspaceState                `json:"ai"`
 	Workspace           WorkspaceView                    `json:"workspace"`
 	Settings            settings.AppSettings             `json:"settings"`
@@ -84,7 +82,6 @@ type stateStore interface {
 	SessionProfiles() []sessions.Profile
 	SessionProfile(string) (sessions.Profile, bool)
 	LaunchHistory() []sessions.HistoryEntry
-	CredentialProviders() []credentials.ProviderDescriptor
 	AIState() ai.WorkspaceState
 	Settings() settings.AppSettings
 	WorkspaceLayout() workspace.Layout
@@ -206,7 +203,6 @@ func (s *Service) GetShellState() ShellState {
 		SessionProfiles:     profiles,
 		ActiveSessions:      activeSessions,
 		SessionHistory:      s.store.LaunchHistory(),
-		CredentialProviders: s.store.CredentialProviders(),
 		AI:                  aiState,
 		Workspace: WorkspaceView{
 			Layout:       s.store.WorkspaceLayout(),

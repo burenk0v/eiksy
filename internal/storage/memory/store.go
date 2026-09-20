@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"eiksy/internal/domain/ai"
-	"eiksy/internal/domain/credentials"
 	"eiksy/internal/domain/protocols"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
@@ -25,7 +24,6 @@ type Store struct {
 	runtimeTabs         map[string]workspace.Tab
 	runtimeOrder        []string
 	launchHistory       []sessions.HistoryEntry
-	credentialProviders []credentials.ProviderDescriptor
 	aiState             ai.WorkspaceState
 	settings            settings.AppSettings
 	workspaceLayout     workspace.Layout
@@ -44,7 +42,6 @@ func NewStore() *Store {
 		runtimeTabs:         map[string]workspace.Tab{},
 		runtimeOrder:        []string{},
 		launchHistory:       []sessions.HistoryEntry{},
-		credentialProviders: []credentials.ProviderDescriptor{},
 		aiState:             withDefaultChatSession(defaultAIState()),
 		settings:            defaultSettings(),
 		workspaceLayout:     defaultWorkspaceLayout(),
@@ -126,13 +123,6 @@ func (s *Store) LaunchHistory() []sessions.HistoryEntry {
 	}
 
 	return result
-}
-
-func (s *Store) CredentialProviders() []credentials.ProviderDescriptor {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	return append([]credentials.ProviderDescriptor(nil), s.credentialProviders...)
 }
 
 func (s *Store) AIState() ai.WorkspaceState {
