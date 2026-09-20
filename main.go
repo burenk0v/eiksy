@@ -17,7 +17,7 @@ import (
 var assets embed.FS
 
 func main() {
-	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr, tui.Run); handled {
+	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr, func(config cli.TUIConfig) error {\n\t\treturn tui.Run(tui.Config{AltScreen: config.AltScreen, InitialView: config.InitialView})\n\t}); handled {
 		os.Exit(exitCode)
 	}
 
