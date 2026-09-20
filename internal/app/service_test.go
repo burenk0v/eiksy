@@ -569,6 +569,70 @@ func TestApplySSHForwardingSettingsUsesRemoteHostAndPort(t *testing.T) {
 
 func stopCloudAuthSessionForTest(service *Service) { service.authMu.Lock(); defer service.authMu.Unlock(); service.stopCloudAuthLocked() }
 
+func TestConnectSSHResolvesSecretRefCredential(t *testing.T) {
+	store := memory.NewStore()
+	profile := sessions.Profile{
+		ID: "ssh-vault-ref",
+		Name: "ssh-vault-ref",
+		ProtocolID: "ssh",
+		Host: "host",
+		Port: 22,
+		Username: "ops",
+		SecretRef: "vault:team/database#password",
+		Options: map[string]string{"auth_method": "password"},
+	}
+	if err := store.UpsertSessionProfile(profile); err != nil {
+		t.Fatalf("seed profile: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/secret/data/team/database" {
+			t.Fatalf("unexpected Vault path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"password":"runtime-secret"}}`))
+	}))
+	defer server.Close()
+
+	cfg := store.Settings()
+	cfg.VaultAddress = server.URL
+	cfg.VaultMountPoint = "secret"
+	if err := store.UpdateSettings(cfg); err != nil {
+		t.Fatalf("update settings: %v", err)
+	}
+	if err := store.StoreSecret(securestorage.VaultTokenKey(), "test-token"); err != nil {
+		t.Fatalf("store Vault token: %v", err)
+	}
+
+	ssh := &recordingSSHManager{}
+	service := NewService(store, ssh, nil)
+	service.httpClient = server.Client()
+
+	tab, err := service.LaunchSession(profile.ID)
+	if err != nil {
+		t.Fatalf("launch session: %v", err)
+	}
+	if err := service.ConnectSSH(context.Background(), tab.ID, profile.ID); err != nil {
+		t.Fatalf("connect SSH: %v", err)
+	}
+	if len(ssh.connectCalls) != 1 {
+		t.Fatalf("expected one SSH connect call, got %d", len(ssh.connectCalls))
+	}
+	if ssh.connectCalls[0].credential != "runtime-secret" {
+		t.Fatalf("expected resolved credential, got %q", ssh.connectCalls[0].credential)
+	}
+	saved, ok := store.SessionProfile(profile.ID)
+	if !ok {
+		t.Fatal("session profile not found")
+	}
+	if saved.SecretRef != profile.SecretRef {
+		t.Fatalf("expected SecretRef to remain unchanged, got %q", saved.SecretRef)
+	}
+	if saved.HasPassword {
+		t.Fatal("Vault-backed credential must not create a local password flag")
+	}
+}
+
 func TestConnectionLifecycleUsesResourceSessionState(t *testing.T) {
 	store := memory.NewStore()
 	profile := sessions.Profile{ID: "ssh-resource", Name: "ssh-resource", ProtocolID: "ssh", Host: "host", Port: 22, Username: "ops"}
@@ -623,8 +687,22 @@ func mustFindProviderByID(t *testing.T, state ShellState, providerID string) ai.
 func hasCommandRule(rules []ai.CommandRule, toolID, sessionID, pattern string, action ai.CommandPermissionAction) bool { for _, rule := range rules { if rule.ToolID == toolID && rule.SessionID == sessionID && rule.Pattern == pattern && rule.Action == action { return true } }; return false }
 
 type sshInputCall struct { tabID string; payload string }
-type recordingSSHManager struct { inputs []sshInputCall; sendInputErr error }
-func (m *recordingSSHManager) Connect(context.Context, string, string, int, string, string, map[string]string) error { return nil }
+type recordingSSHManager struct {
+	inputs []sshInputCall
+	connectCalls []sshConnectCall
+	sendInputErr error
+}
+type sshConnectCall struct {
+	tabID string
+	host string
+	port int
+	username string
+	credential string
+}
+func (m *recordingSSHManager) Connect(_ context.Context, tabID, host string, port int, username, credential string, _ map[string]string) error {
+	m.connectCalls = append(m.connectCalls, sshConnectCall{tabID: tabID, host: host, port: port, username: username, credential: credential})
+	return nil
+}
 func (m *recordingSSHManager) SendInput(tabID, data string) error { m.inputs = append(m.inputs, sshInputCall{tabID: tabID, payload: data}); return m.sendInputErr }
 func (m *recordingSSHManager) ResizeTerminal(string, int, int) error { return nil }
 func (m *recordingSSHManager) Disconnect(string) error { return nil }
