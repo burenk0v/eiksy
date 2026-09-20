@@ -489,3 +489,55 @@ func TestModelCommandPaletteQuit(t *testing.T) {
 	m = next.(Model)
 	if m.palette != nil { t.Fatal("expected palette to close") }
 }
+
+
+func TestModelNavigationShortcuts(t *testing.T) {
+	m := NewModel()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+	m = next.(Model)
+	if m.activeTab != 3 {
+		t.Fatalf("expected shift+tab to select previous tab, got %d", m.activeTab)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = next.(Model)
+	if m.activeTab != 0 {
+		t.Fatalf("expected tab to select next tab, got %d", m.activeTab)
+	}
+}
+
+func TestModelQuitShortcutDoesNotConsumeChatInput(t *testing.T) {
+	m := NewModel()
+	for _, r := range []rune{'h', 'q', 'u', 'i', 't'} {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			t.Fatalf("expected chat input, got quit command for %q", r)
+		}
+		m = next.(Model)
+	}
+	if m.input != "hquit" {
+		t.Fatalf("expected q to remain chat input when input is non-empty, got %q", m.input)
+	}
+}
+
+func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
+	m := NewModel()
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+	if cmd != nil {
+		t.Fatal("expected no command")
+	}
+	m = next.(Model)
+	if !m.shortcuts {
+		t.Fatal("expected shortcut help to open")
+	}
+	view := m.View()
+	for _, want := range []string{"KEYBOARD SHORTCUTS", "Ctrl+P", "Shift+Tab", "q"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected shortcut help to contain %q, got %q", want, view)
+		}
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = next.(Model)
+	if m.shortcuts {
+		t.Fatal("expected shortcut help to close")
+	}
+}
