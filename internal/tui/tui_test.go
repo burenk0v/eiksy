@@ -541,3 +541,54 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 		t.Fatal("expected shortcut help to close")
 	}
 }
+
+func TestModelTerminalViewAcceptsInput(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}})
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+	if m.activeTab != 1 {
+		t.Fatalf("expected terminal tab, got %d", m.activeTab)
+	}
+
+	for _, r := range []rune("qecho status") {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			t.Fatalf("expected terminal input, got command for %q", r)
+		}
+		m = next.(Model)
+	}
+
+	if m.terminalInput != "qecho status" {
+		t.Fatalf("expected terminal input to be preserved, got %q", m.terminalInput)
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Fatal("expected local terminal submission")
+	}
+	m = next.(Model)
+
+	if m.terminalInput != "" {
+		t.Fatalf("expected terminal input to clear, got %q", m.terminalInput)
+	}
+	if len(m.terminalLines) != 1 || m.terminalLines[0] != "$ qecho status" {
+		t.Fatalf("unexpected terminal lines: %+v", m.terminalLines)
+	}
+	if !strings.Contains(m.View(), "Terminal") || !strings.Contains(m.View(), "$ qecho status") {
+		t.Fatalf("expected terminal content in view, got %q", m.View())
+	}
+}
+
+func TestModelTerminalViewShowsActiveSession(t *testing.T) {
+	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+
+	view := m.View()
+	for _, want := range []string{"Terminal", "Session: Production", "No terminal input yet."} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected terminal view to contain %q, got %q", want, view)
+		}
+	}
+}
