@@ -31,6 +31,15 @@ jobs:
             artifact: eiksy-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Validate release tag
+        shell: bash
+        run: |
+          RELEASE_TAG="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG"
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
