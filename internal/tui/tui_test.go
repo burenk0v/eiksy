@@ -715,7 +715,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	if m.activeView != "ai" || !strings.Contains(m.View(), "  AI") {
 		t.Fatalf("expected AI mode, got view=%q", m.View())
 	}
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyF10})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF10})
 	if cmd == nil {
 		t.Fatal("expected F10 to quit")
 	}
