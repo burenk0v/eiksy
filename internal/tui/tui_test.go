@@ -21,9 +21,17 @@ func TestModelHandlesWindowSize(t *testing.T) {
 	}
 }
 
-func TestModelQuitsOnQ(t *testing.T) {
+func TestModelDoesNotQuitOnQ(t *testing.T) {
 	m := NewModel()
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd != nil {
+		t.Fatal("q must remain ordinary input")
+	}
+}
+
+func TestModelQuitsOnCtrlQ(t *testing.T) {
+	m := NewModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlQ})
 	if cmd == nil {
 		t.Fatal("expected quit command")
 	}
@@ -73,7 +81,7 @@ func TestModelNavigatesTabs(t *testing.T) {
 func TestModelViewContainsTabs(t *testing.T) {
 	m := NewModel()
 	view := m.View()
-	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "[Chat]", "Terminal", "Files", "Tools", "q quit"} {
+	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "[Chat]", "Terminal", "Files", "Tools", "Ctrl+Q quit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -403,7 +411,7 @@ func TestModelForksActiveSessionThroughApplicationService(t *testing.T) {
 		WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}}).
 		WithSessionForker(forker)
 
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
 	if cmd == nil { t.Fatal("expected fork command") }
 	m = next.(Model)
 	result := cmd()
@@ -530,7 +538,7 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 		t.Fatal("expected shortcut help to open")
 	}
 	view := m.View()
-	for _, want := range []string{"KEYBOARD SHORTCUTS", "Ctrl+P", "Shift+Tab", "q"} {
+	for _, want := range []string{"KEYBOARD SHORTCUTS", "Ctrl+P", "Ctrl+F", "Ctrl+Q"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected shortcut help to contain %q, got %q", want, view)
 		}
@@ -543,7 +551,7 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 }
 
 func TestModelTerminalViewAcceptsInput(t *testing.T) {
-	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}})
+	m := NewModel().WithTerminalSession("runtime-1", "Production")
 
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
@@ -581,7 +589,7 @@ func TestModelTerminalViewAcceptsInput(t *testing.T) {
 }
 
 func TestModelTerminalViewShowsActiveSession(t *testing.T) {
-	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}})
+	m := NewModel().WithTerminalSession("runtime-1", "Production")
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
 
