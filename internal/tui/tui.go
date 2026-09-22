@@ -124,6 +124,18 @@ func (m Model) WithChatSessions(sessions []SessionRef) Model {
 	return m
 }
 
+// WithTerminalSession binds a connected runtime session to the Terminal view.
+func (m Model) WithTerminalSession(sessionID, title string) Model {
+	if len(m.tabs) > 1 {
+		m.tabs[1].BindSession(sessionID, title)
+	}
+	return m
+}
+
+func (m Model) hasTerminalSession() bool {
+	return len(m.tabs) > 1 && m.tabs[1].Session != nil
+}
+
 // WithSessionSelector connects session selection to the application service.
 func (m Model) WithSessionSelector(selector SessionSelector) Model {
 	m.sessionSelector = selector
@@ -191,7 +203,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.palette != nil {
 			return m.updateCommandPalette(msg)
 		}
-		if msg.Type == tea.KeyCtrlC || (msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == 'q' && m.approval == nil && m.activeTab == 0 && strings.TrimSpace(m.input) == "") {
+		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlQ {
 			return m, tea.Quit
 		}
 		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '?' && m.approval == nil && strings.TrimSpace(m.input) == "" {
@@ -246,7 +258,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				break
 			}
-			if len(msg.Runes) == 1 && (msg.Runes[0] == 'f' || msg.Runes[0] == 'F') && m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
+			if msg.Type == tea.KeyCtrlF && m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 				break
 			}
@@ -442,6 +454,9 @@ func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
 }
 
 func (m *Model) submitTerminalInput() {
+	if !m.hasTerminalSession() {
+		return
+	}
 	content := strings.TrimSpace(m.terminalInput)
 	if content == "" { return }
 	m.terminalLines = append(m.terminalLines, "$ "+content)
@@ -514,12 +529,19 @@ func (m Model) View() string {
 	if active == "Terminal" {
 		var terminal strings.Builder
 		terminal.WriteString("  Terminal\n\n")
-		if len(m.sessions) > 0 { fmt.Fprintf(&terminal, "  Session: %s\n\n", m.sessions[m.activeSession].Title) }
-		if len(m.terminalLines) == 0 { terminal.WriteString("  No terminal input yet.\n") } else {
-			for _, line := range m.terminalLines { fmt.Fprintf(&terminal, "  %s\n", line) }
+		if !m.hasTerminalSession() {
+			terminal.WriteString("  No active terminal session.\n\n")
+			terminal.WriteString("  Connect or select a runtime session to use the terminal.\n")
+		} else {
+			fmt.Fprintf(&terminal, "  Session: %s\n\n", m.tabs[1].Session.Title)
+			if len(m.terminalLines) == 0 {
+				terminal.WriteString("  Connected. Ready for input.\n")
+			} else {
+				for _, line := range m.terminalLines { fmt.Fprintf(&terminal, "  %s\n", line) }
+			}
+			terminal.WriteString("\n  > ")
+			terminal.WriteString(m.terminalInput)
 		}
-		terminal.WriteString("\n  > ")
-		terminal.WriteString(m.terminalInput)
 		content = terminal.String()
 	}
 	if active == "Files" {
@@ -606,14 +628,14 @@ func (m Model) View() string {
 			"  Shift+Tab  previous tab",
 			"  ↑/↓        previous/next session",
 			"  Enter      select session / send message",
-			"  f          fork active session (when input is empty)",
+			"  Ctrl+F     fork active session (when input is empty)",
 			"  Ctrl+P     command palette",
 			"  ?          keyboard shortcuts",
-			"  q          quit (when input is empty)",
+			"  Ctrl+Q     quit",
 			"  Esc        close overlay",
 		}, "\n")
 	}
-	footer := "  Enter submit   ↑/↓ sessions   f fork   ←/→/Tab tabs   Ctrl+P commands   ? shortcuts   q quit"
+	footer := "  Enter submit   ↑/↓ sessions   Ctrl+F fork   ←/→/Tab tabs   Ctrl+P commands   ? shortcuts   Ctrl+Q quit"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
