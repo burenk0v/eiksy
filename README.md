@@ -148,6 +148,52 @@ https://github.com/burenk0v/eiksy/releases/latest
 
 Currently available platforms include Windows x64 and Linux x64.
 
+## Installation
+
+### Desktop application
+
+The easiest way to install Eiksy is to use a release binary. No Go, Node.js or Wails installation is required for end users.
+
+1. Open the [latest release](https://github.com/burenk0v/eiksy/releases/latest).
+2. Download the binary for your platform:
+   - **Windows x64:** `eiksy-windows-amd64.exe`
+   - **Linux x64:** `eiksy-linux-amd64`
+3. Start Eiksy.
+
+#### Windows
+
+Download `eiksy-windows-amd64.exe` and run it. Windows may display a security warning for an application downloaded from the Internet; verify that the file came from the official Eiksy GitHub release before allowing it to run.
+
+#### Linux
+
+Download `eiksy-linux-amd64`, make it executable and start it:
+
+```bash
+chmod +x eiksy-linux-amd64
+./eiksy-linux-amd64
+``
+
+You can also place the binary in a directory included in your `PATH` if you want to start it as `eiksy` from a terminal.
+
+### CLI / TUI
+
+Release assets also include platform-specific CLI binaries:
+
+- **Windows x64:** `eiksy-cli-windows-amd64.exe`
+- **Linux x64:** `eiksy-cli-linux-amd64`
+
+The CLI provides the terminal UI and uses the same application core and security boundaries as the desktop application. After installing the CLI binary, run:
+
+```bash
+eiksy-cli tui
+```
+
+See [the CLI guide](docs/cli.md) for available commands and TUI options.
+
+### Building from source
+
+If you are developing Eiksy or need to build it yourself, see the [Development](#development) section below.
+
 ## Development
 
 ### Requirements
