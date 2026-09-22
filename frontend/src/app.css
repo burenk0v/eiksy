@@ -1452,3 +1452,11 @@ small {
     color: var(--color-text);
     overflow-wrap: anywhere;
 }
+
+.startup-state{min-height:100vh;display:grid;place-items:center;padding:32px;box-sizing:border-box}
+.startup-state-card,.empty-workspace-card{max-width:620px;width:min(100%,620px);padding:28px;border:1px solid var(--border-color);border-radius:12px;background:var(--panel-background);box-shadow:0 18px 50px rgba(0,0,0,.24);box-sizing:border-box}
+.startup-state-title,.empty-workspace-title{font-size:20px;font-weight:700;margin-bottom:10px}
+.startup-state-message,.empty-workspace-message{line-height:1.5}
+.startup-state-hint{margin-top:14px;color:var(--muted-text);line-height:1.5}
+.empty-workspace{min-height:0;height:100%;display:grid;place-items:center;padding:32px;box-sizing:border-box}
+.empty-workspace-card{width:min(100%,520px);text-align:center}
