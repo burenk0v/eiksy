@@ -347,12 +347,54 @@ class EiksyShell {
       return;
     }
 
+    this.renderStartupState("Starting Eiksy…");
+    this.installStartupDiagnostics();
     this.loadAIActivityHistory();
     this.registerGlobalEvents();
-    await this.refreshAppVersion();
-    await this.refresh();
-    void this.promptForMasterPasswordOnStartup();
-    window.addEventListener("resize", () => this.fitActiveTerminal());
+
+    try {
+      await this.refreshAppVersion();
+      await this.refresh();
+      void this.promptForMasterPasswordOnStartup();
+      window.addEventListener("resize", () => this.fitActiveTerminal());
+    } catch (error) {
+      const message = formatError("Eiksy could not start", error);
+      this.errorMessage = message;
+      this.renderStartupState(message, true);
+      console.error(message, error);
+    }
+  }
+
+  private installStartupDiagnostics(): void {
+    window.addEventListener("error", (event) => {
+      const message = event.error instanceof Error ? event.error.message : event.message;
+      if (!message) return;
+      this.errorMessage = `Frontend error: ${message}`;
+      this.renderStartupState(this.errorMessage, true);
+      console.error("Eiksy frontend error", event.error ?? event.message);
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      const message = formatError("Unhandled startup error", event.reason);
+      this.errorMessage = message;
+      this.renderStartupState(message, true);
+      console.error("Eiksy unhandled rejection", event.reason);
+    });
+  }
+
+  private renderStartupState(message: string, failed = false): void {
+    if (!root) return;
+    root.innerHTML = `
+      <div class="startup-state">
+        <div class="startup-state-title">Eiksy</div>
+        <div class="startup-state-message">${escapeHtml(message)}</div>
+        ${failed ? `
+          <div class="startup-state-hint">
+            The application backend did not become available. Check the application logs or reinstall the Windows WebView2 Runtime, then start Eiksy again.
+          </div>
+        ` : ""}
+      </div>
+    `;
   }
 
   private async refreshAppVersion(): Promise<void> {
