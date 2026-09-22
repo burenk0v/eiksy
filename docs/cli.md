@@ -99,14 +99,16 @@ The TUI provides keyboard navigation without requiring a separate command mode.
 | `Shift+Tab` | Previous tab |
 | `↑` / `↓` | Previous / next session |
 | `Enter` | Select a session or submit the active input |
-| `f` | Fork the active chat session when the input is empty |
+| `Ctrl+F` | Fork the active chat session when the input is empty |
 | `Ctrl+P` | Open the command palette |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close an active overlay |
-| `q` | Quit from the Chat view when the input is empty |
+| `Ctrl+Q` | Quit Eiksy |
 | `Ctrl+C` | Quit |
 
-The exact actions available in a view depend on the active interaction state. For example, terminal input accepts ordinary characters instead of treating them as global shortcuts.
+The exact actions available in a view depend on the active interaction state. Ordinary printable characters belong to the active input field. Global destructive/navigation actions use control key combinations so that normal terminal or chat text is never consumed as a command.
+
+The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, the view shows an explicit empty state and does not accept or submit terminal input. Chat sessions and runtime terminal sessions are separate concepts.
 
 ## Sessions
 
