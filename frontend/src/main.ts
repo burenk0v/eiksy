@@ -568,6 +568,7 @@ class EiksyShell {
                         `
                             : ""
                         }
+                        ${this.activeTab() ? `
                         <div class="terminal-shell ${this.sessionInnerTab === "console" ? "" : "hidden"}">
                             <div id="terminal-host" class="terminal-container"></div>
                         </div>
@@ -579,6 +580,14 @@ class EiksyShell {
                             </div>
                             ${this.renderSFTPBrowser()}
                         </div>
+                    ` : `
+                        <div class="empty-workspace">
+                            <div class="empty-workspace-card">
+                                <div class="empty-workspace-title">No active session</div>
+                                <div class="empty-workspace-message">Select a saved session from the sidebar to open a terminal.</div>
+                            </div>
+                        </div>
+                    `}
                     </main>
 
                     ${this.renderAssistantPanel()}
