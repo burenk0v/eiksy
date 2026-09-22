@@ -251,15 +251,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if len(m.input) > 0 {
 				m.input = m.input[:len(m.input)-1]
 			}
+		case tea.KeyCtrlF:
+			if m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
+				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
+			}
 		case tea.KeyRunes:
 			if m.activeTab == 1 {
+				if !m.hasTerminalSession() {
+					break
+				}
 				for _, r := range msg.Runes {
 					if r >= 32 { m.terminalInput += string(r) }
 				}
-				break
-			}
-			if msg.Type == tea.KeyCtrlF && m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
-				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 				break
 			}
 			if len(msg.Runes) == 1 && msg.Runes[0] >= 32 {
