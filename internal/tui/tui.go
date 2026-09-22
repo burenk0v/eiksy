@@ -71,6 +71,10 @@ type Model struct {
 	terminalInput string
 	fileEntries []FileEntry
 	filePath    string
+	editorPath  string
+	editorLines []string
+	editorInput string
+	activePane  int
 	palette   *CommandPalette
 	shortcuts bool
 	approval  *agentai.ApprovalRequest
@@ -105,7 +109,7 @@ var paletteCommands = []PaletteCommand{
 func NewModel() Model {
 	return Model{
 		tabs: []Tab{
-			{Title: "Chat"},
+			{Title: "Sessions"},
 			{Title: "Terminal"},
 			{Title: "Files"},
 			{Title: "Tools"},
@@ -189,6 +193,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionForkError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session fork failed: %v", msg.err)})
 	case tea.KeyMsg:
+		switch msg.Type {
+		case tea.KeyF2:
+			m.activeTab = 0
+			return m, nil
+		case tea.KeyF3:
+			m.activeTab = 1
+			return m, nil
+		case tea.KeyF4:
+			m.activeTab = 2
+			return m, nil
+		case tea.KeyF5:
+			m.activeTab = 3
+			return m, nil
+		case tea.KeyF6:
+			m.activeTab = 0
+			return m, nil
+		}
 		if msg.Type == tea.KeyCtrlP {
 			m.shortcuts = false
 			if m.palette == nil { m.palette = &CommandPalette{} } else { m.palette = nil }
@@ -203,7 +224,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.palette != nil {
 			return m.updateCommandPalette(msg)
 		}
-		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlQ {
+		if msg.Type == tea.KeyCtrlC || msg.Type == tea.KeyCtrlQ || msg.Type == tea.KeyF10 {
 			return m, tea.Quit
 		}
 		if msg.Type == tea.KeyRunes && len(msg.Runes) == 1 && msg.Runes[0] == '?' && m.approval == nil && strings.TrimSpace(m.input) == "" {
@@ -510,13 +531,21 @@ func (m Model) View() string {
 		}
 	}
 
-	active := "Chat"
+	active := "Sessions"
 	if len(m.tabs) > 0 && m.activeTab >= 0 && m.activeTab < len(m.tabs) {
 		active = m.tabs[m.activeTab].Title
 	}
 
-	header := " EIKSY  Think. Connect. Operate."
+	header := fmt.Sprintf(" EIKSY  Think. Connect. Operate.   %s", active)
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
+	if active == "Tools" {
+		var tools strings.Builder
+		tools.WriteString("  AI / Tools\n\n")
+		tools.WriteString("  Select an AI action or tool from the command palette.\n\n")
+		tools.WriteString("  Ctrl+P  Command palette\n")
+		tools.WriteString("  F6      AI / Tools\n")
+		content = tools.String()
+	}
 	if m.palette != nil {
 		var palette strings.Builder
 		palette.WriteString("  COMMAND PALETTE\n\n")
@@ -571,7 +600,7 @@ func (m Model) View() string {
 		}
 		content = files.String()
 	}
-	if active == "Chat" {
+	if active == "Sessions" {
 		var chat strings.Builder
 		if len(m.sessions) > 0 {
 			chat.WriteString("  Sessions\n")
@@ -608,7 +637,7 @@ func (m Model) View() string {
 				fmt.Fprintf(&chat, "    output: %s\n", tool.Output)
 			}
 		}
-		content = "  Chat\n\n" + chat.String() + fmt.Sprintf("\n  > %s", m.input)
+		content = "  Sessions\n\n" + chat.String() + fmt.Sprintf("\n  Search/chat: %s", m.input)
 	}
 	if m.palette != nil {
 		var palette strings.Builder
@@ -626,7 +655,13 @@ func (m Model) View() string {
 		content = strings.Join([]string{
 			"  KEYBOARD SHORTCUTS",
 			"",
-			"  ←/→        previous/next tab",
+			"  F2         Sessions",
+			"  F3         Terminal",
+			"  F4         Files",
+			"  F5         Tools",
+			"  F6         AI",
+			"  F10        Exit",
+			"  ←/→        previous/next view",
 			"  Tab        next tab",
 			"  Shift+Tab  previous tab",
 			"  ↑/↓        previous/next session",
@@ -638,7 +673,7 @@ func (m Model) View() string {
 			"  Esc        close overlay",
 		}, "\n")
 	}
-	footer := "  Enter submit   ↑/↓ sessions   Ctrl+F fork   ←/→/Tab tabs   Ctrl+P commands   ? shortcuts   Ctrl+Q quit"
+	footer := "  F2 Sessions  F3 Terminal  F4 Files  F5 Tools  F6 AI  F10 Exit  Ctrl+P Menu"
 	if m.approval != nil {
 		footer = "  approval: y now   s session   a always   n deny"
 	}
@@ -668,11 +703,13 @@ type Config struct {
 func Run(config Config) error {
 	model := NewModel()
 	switch config.InitialView {
+	case "sessions", "chat":
+		model.activeTab = 0
 	case "terminal":
 		model.activeTab = 1
 	case "files":
 		model.activeTab = 2
-	case "tools":
+	case "tools", "ai":
 		model.activeTab = 3
 	}
 	options := []tea.ProgramOption{}
