@@ -645,3 +645,41 @@ func TestModelViewShowsContextStatus(t *testing.T) {
 		}
 	}
 }
+
+
+func TestModelTerminalDoesNotAcceptInputWithoutRuntimeSession(t *testing.T) {
+	m := NewModel()
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+
+	for _, r := range []rune("echo status") {
+		next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		if cmd != nil {
+			t.Fatal("expected no command")
+		}
+		m = next.(Model)
+	}
+
+	if m.terminalInput != "" {
+		t.Fatalf("terminal must remain read-only without a runtime session, got %q", m.terminalInput)
+	}
+	if !strings.Contains(m.View(), "No active terminal session.") {
+		t.Fatal("expected terminal empty state")
+	}
+}
+
+func TestModelTerminalBindsRuntimeSessionSeparatelyFromChatSessions(t *testing.T) {
+	m := NewModel().
+		WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Conversation"}}).
+		WithTerminalSession("runtime-1", "Production")
+
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = next.(Model)
+
+	if !m.hasTerminalSession() || m.tabs[1].Session.ID != "runtime-1" {
+		t.Fatalf("expected runtime terminal session, got %+v", m.tabs[1].Session)
+	}
+	if m.tabs[0].Session == nil || m.tabs[0].Session.ID != "chat-1" {
+		t.Fatalf("expected chat session to remain separate, got %+v", m.tabs[0].Session)
+	}
+}
