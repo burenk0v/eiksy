@@ -106,7 +106,9 @@ The TUI provides keyboard navigation without requiring a separate command mode.
 | `Ctrl+Q` | Quit Eiksy |
 | `Ctrl+C` | Quit |
 
-The exact actions available in a view depend on the active interaction state. Ordinary printable characters belong to the active input field. Global destructive/navigation actions use control key combinations so that normal terminal or chat text is never consumed as a command.\n\nThe Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, the view shows an explicit empty state and does not accept or submit terminal input. Chat sessions and runtime terminal sessions are separate concepts.
+The exact actions available in a view depend on the active interaction state. Ordinary printable characters belong to the active input field. Global destructive/navigation actions use control key combinations so that normal terminal or chat text is never consumed as a command.
+
+The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, the view shows an explicit empty state and does not accept or submit terminal input. Chat sessions and runtime terminal sessions are separate concepts.
 
 ## Sessions
 
