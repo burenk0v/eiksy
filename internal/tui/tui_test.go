@@ -435,7 +435,7 @@ func TestModelForksActiveSessionThroughApplicationService(t *testing.T) {
 
 func TestModelForkUnavailable(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "API tests"}})
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'f'}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlF})
 	if cmd != nil { t.Fatal("expected local fallback") }
 	m = next.(Model)
 	if !strings.Contains(m.View(), "Session forking unavailable.") {
@@ -594,7 +594,7 @@ func TestModelTerminalViewShowsActiveSession(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Terminal", "Session: Production", "No terminal input yet."} {
+	for _, want := range []string{"Terminal", "Session: Production", "Connected. Ready for input."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected terminal view to contain %q, got %q", want, view)
 		}
