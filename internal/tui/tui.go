@@ -75,6 +75,7 @@ type Model struct {
 	editorLines []string
 	editorInput string
 	activePane  int
+	activeView  string
 	palette   *CommandPalette
 	shortcuts bool
 	approval  *agentai.ApprovalRequest
@@ -196,18 +197,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyF2:
 			m.activeTab = 0
+			m.activeView = ""
 			return m, nil
 		case tea.KeyF3:
 			m.activeTab = 1
+			m.activeView = ""
 			return m, nil
 		case tea.KeyF4:
 			m.activeTab = 2
+			m.activeView = ""
 			return m, nil
 		case tea.KeyF5:
 			m.activeTab = 3
+			m.activeView = "tools"
 			return m, nil
 		case tea.KeyF6:
 			m.activeTab = 0
+			m.activeView = "ai"
 			return m, nil
 		}
 		if msg.Type == tea.KeyCtrlP {
@@ -245,10 +251,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Type {
 		case tea.KeyLeft:
+			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyRight, tea.KeyTab:
+			m.activeView = ""
 			m.selectNextTab()
 		case tea.KeyShiftTab:
+			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
 			m.selectPreviousSession()
@@ -532,12 +541,25 @@ func (m Model) View() string {
 	}
 
 	active := "Sessions"
-	if len(m.tabs) > 0 && m.activeTab >= 0 && m.activeTab < len(m.tabs) {
+	if m.activeView == "ai" {
+		active = "AI"
+	} else if m.activeView == "tools" {
+		active = "Tools"
+	}
+	if len(m.tabs) > 0 && m.activeView == "" && m.activeTab >= 0 && m.activeTab < len(m.tabs) {
 		active = m.tabs[m.activeTab].Title
 	}
 
 	header := fmt.Sprintf(" EIKSY  Think. Connect. Operate.   %s", active)
 	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
+	if active == "AI" {
+		var aiView strings.Builder
+		aiView.WriteString("  AI\n\n")
+		aiView.WriteString("  Ask Eiksy to inspect, connect, or operate.\n\n")
+		aiView.WriteString("  > ")
+		aiView.WriteString(m.input)
+		content = aiView.String()
+	}
 	if active == "Tools" {
 		var tools strings.Builder
 		tools.WriteString("  AI / Tools\n\n")
@@ -600,7 +622,7 @@ func (m Model) View() string {
 		}
 		content = files.String()
 	}
-	if active == "Sessions" {
+	if active == "Sessions" && m.activeView == "" {
 		var chat strings.Builder
 		if len(m.sessions) > 0 {
 			chat.WriteString("  Sessions\n")
