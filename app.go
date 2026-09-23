@@ -65,8 +65,17 @@ func (a *App) startup(ctx context.Context) {
 	debuglog.Printf("startup: complete")
 }
 
-func (a *App) GetShellState() app.ShellState { return a.currentService().GetShellState() }
-func (a *App) GetReleaseVersion() string { return resolveReleaseVersion() }
+func (a *App) GetShellState() app.ShellState {
+	debuglog.Printf("wails: GetShellState called")
+	state := a.currentService().GetShellState()
+	debuglog.Printf("wails: GetShellState completed; profiles=%d activeSessions=%d history=%d", len(state.SessionProfiles), len(state.ActiveSessions), len(state.SessionHistory))
+	return state
+}
+func (a *App) GetReleaseVersion() string {
+	version := resolveReleaseVersion()
+	debuglog.Printf("wails: GetReleaseVersion called; version=%q", version)
+	return version
+}
 func (a *App) LaunchSession(profileID string) (app.RuntimeSessionView, error) { return a.currentService().LaunchSession(profileID) }
 func (a *App) CloseSession(sessionID string) error { return a.currentService().CloseSession(sessionID) }
 func (a *App) ConnectSession(sessionID string) error { return a.currentService().ConnectSession(sessionID) }
