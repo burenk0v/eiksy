@@ -2,6 +2,7 @@ package securestorage
 
 import (
 	"crypto/rand"
+	"eiksy/internal/debuglog"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -74,11 +75,14 @@ func New(dbPath string) (*Manager, error) {
 }
 
 func NewWithKeyring(dbPath string, keyring Keyring) (*Manager, error) {
+	debuglog.Printf("secure storage: initializing database=%q", dbPath)
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
+		debuglog.Printf("secure storage: create directory failed: %v", err)
 		return nil, fmt.Errorf("create secure storage directory: %w", err)
 	}
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
+		debuglog.Printf("secure storage: open database failed: %v", err)
 		return nil, fmt.Errorf("open secrets database: %w", err)
 	}
 	manager := &Manager{
@@ -88,9 +92,11 @@ func NewWithKeyring(dbPath string, keyring Keyring) (*Manager, error) {
 		keyringUser: defaultKeyringUser,
 	}
 	if err := manager.initSchema(); err != nil {
+		debuglog.Printf("secure storage: initialize schema failed: %v", err)
 		_ = db.Close()
 		return nil, err
 	}
+	debuglog.Printf("secure storage: initialization complete")
 	return manager, nil
 }
 

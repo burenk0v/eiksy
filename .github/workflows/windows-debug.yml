@@ -59,7 +59,7 @@ jobs:
       - name: Build Windows GUI debug binary
         shell: bash
         run: |
-          wails build -clean -debug -platform windows/amd64 \
+          wails build -clean -debug -platform windows/amd64 -tags eiksy_debug \
             -ldflags "-X main.releaseVersion=$DEBUG_VERSION -X main.buildMode=debug" \
             -o eiksy-windows-amd64-debug.exe
 

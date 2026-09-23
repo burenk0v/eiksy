@@ -67,7 +67,7 @@ jobs:
 
       - name: Build Linux binary
         shell: bash
-        run: wails build -clean -platform linux/amd64 -tags webkit2_41 -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o eiksy-linux-amd64
+        run: wails build -clean -platform linux/amd64 -tags "webkit2_41 eiksy_debug" -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o eiksy-linux-amd64
 
       - name: Build CLI binary
         shell: bash

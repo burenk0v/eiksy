@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"eiksy/internal/debuglog"
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/protocols"
 	"eiksy/internal/domain/sessions"
@@ -76,10 +77,13 @@ type persistedAIProviderDescriptor struct {
 }
 
 func NewStore() (*Store, error) {
+	debuglog.Printf("disk store: resolving base directory")
 	baseDir, err := eiksyDir()
 	if err != nil {
+		debuglog.Printf("disk store: resolve base directory failed: %v", err)
 		return nil, err
 	}
+	debuglog.Printf("disk store: base directory=%q", baseDir)
 	return NewStoreAt(baseDir)
 }
 
@@ -96,10 +100,14 @@ func NewStoreAt(baseDir string) (*Store, error) {
 }
 
 func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Store, error) {
+	debuglog.Printf("disk store: initializing at %q", baseDir)
 	if err := os.MkdirAll(filepath.Join(baseDir, "models"), 0o700); err != nil {
+		debuglog.Printf("disk store: create directory failed: %v", err)
 		return nil, fmt.Errorf("create eiksy directory: %w", err)
 	}
+	debuglog.Printf("disk store: directory created")
 	if err := os.Chmod(baseDir, 0o700); err != nil {
+		debuglog.Printf("disk store: chmod failed: %v", err)
 		return nil, fmt.Errorf("secure eiksy directory permissions: %w", err)
 	}
 
@@ -113,8 +121,10 @@ func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Stor
 		secretManager, err = securestorage.NewWithKeyring(filepath.Join(baseDir, "secrets.db"), keyring)
 	}
 	if err != nil {
+		debuglog.Printf("disk store: secure storage initialization failed: %v", err)
 		return nil, err
 	}
+	debuglog.Printf("disk store: secure storage initialized")
 
 	store := &Store{
 		baseDir:             baseDir,
@@ -135,15 +145,22 @@ func NewStoreAtWithKeyring(baseDir string, keyring securestorage.Keyring) (*Stor
 	store.aiState.ChatSessions = []ai.ChatSession{{ID: store.aiState.ChatSessionID, Title: "Main session", CreatedAt: time.Now().UTC().Format(time.RFC3339), UpdatedAt: time.Now().UTC().Format(time.RFC3339), Messages: append([]ai.ChatMessage(nil), store.aiState.Messages...)}}
 
 	if err := store.ensureFiles(); err != nil {
+		debuglog.Printf("disk store: ensure files failed: %v", err)
 		return nil, err
 	}
+	debuglog.Printf("disk store: files ensured")
 	if err := store.loadSessionProfiles(); err != nil {
+		debuglog.Printf("disk store: load session profiles failed: %v", err)
 		return nil, err
 	}
+	debuglog.Printf("disk store: session profiles loaded")
 	if err := store.loadSettings(); err != nil {
+		debuglog.Printf("disk store: load settings failed: %v", err)
 		return nil, err
 	}
+	debuglog.Printf("disk store: settings loaded")
 
+	debuglog.Printf("disk store: initialization complete")
 	return store, nil
 }
 
