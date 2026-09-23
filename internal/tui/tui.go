@@ -71,10 +71,6 @@ type Model struct {
 	terminalInput string
 	fileEntries []FileEntry
 	filePath    string
-	editorPath  string
-	editorLines []string
-	editorInput string
-	activePane  int
 	activeView  string
 	palette   *CommandPalette
 	shortcuts bool
@@ -731,8 +727,11 @@ func Run(config Config) error {
 		model.activeTab = 1
 	case "files":
 		model.activeTab = 2
-	case "tools", "ai":
+	case "tools":
 		model.activeTab = 3
+	case "ai":
+		model.activeTab = 0
+		model.activeView = "ai"
 	}
 	options := []tea.ProgramOption{}
 	if config.AltScreen {
