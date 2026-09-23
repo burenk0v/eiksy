@@ -212,6 +212,7 @@ class EiksyShell {
   private shellState: ShellState | null = null;
   private activeTabId = "";
   private errorMessage = "";
+  private startupComplete = false;
   private showSessionModal = false;
   private sessionModalTab: SessionModalTab = "host";
   private editingProfileID = "";
@@ -355,6 +356,7 @@ class EiksyShell {
     try {
       await this.refreshAppVersion();
       await this.refresh();
+      this.startupComplete = true;
       void this.promptForMasterPasswordOnStartup();
       window.addEventListener("resize", () => this.fitActiveTerminal());
     } catch (error) {
@@ -370,13 +372,24 @@ class EiksyShell {
       const message = event.error instanceof Error ? event.error.message : event.message;
       if (!message) return;
       this.errorMessage = `Frontend error: ${message}`;
+      if (this.startupComplete) {
+        this.setErrorMessage(this.errorMessage);
+        return;
+      }
       this.renderStartupState(this.errorMessage, true);
       console.error("Eiksy frontend error", event.error ?? event.message);
     });
 
     window.addEventListener("unhandledrejection", (event) => {
-      const message = formatError("Unhandled startup error", event.reason);
+      const message = formatError(
+        this.startupComplete ? "Unhandled UI error" : "Frontend startup error",
+        event.reason,
+      );
       this.errorMessage = message;
+      if (this.startupComplete) {
+        this.setErrorMessage(message);
+        return;
+      }
       this.renderStartupState(message, true);
       console.error("Eiksy unhandled rejection", event.reason);
     });
@@ -390,7 +403,7 @@ class EiksyShell {
         <div class="startup-state-message">${escapeHtml(message)}</div>
         ${failed ? `
           <div class="startup-state-hint">
-            The application backend did not become available. Check the application logs or reinstall the Windows WebView2 Runtime, then start Eiksy again.
+            Check the application logs and restart Eiksy. If the problem persists on Windows, verify that the WebView2 Runtime is installed.
           </div>
         ` : ""}
       </div>
