@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"eiksy/internal/app"
+	"eiksy/internal/debuglog"
 	"eiksy/internal/domain/ai"
 	"eiksy/internal/domain/sessions"
 	"eiksy/internal/domain/settings"
@@ -29,26 +30,39 @@ type App struct {
 func NewApp() *App { return &App{} }
 
 func (a *App) startup(ctx context.Context) {
+	debuglog.Printf("startup: begin; debug log=%q", debuglog.Path())
 	a.ctx = ctx
+	debuglog.Printf("startup: context initialized")
+
+	debuglog.Printf("startup: initializing disk store")
 	store, storeErr := disk.NewStore()
 	if storeErr != nil {
+		debuglog.Printf("startup: disk store initialization failed: %v", storeErr)
 		log.Printf("disk store unavailable, falling back to memory store: %v", storeErr)
 		store = nil
+	} else {
+		debuglog.Printf("startup: disk store initialized successfully")
 	}
+
 	if store != nil {
 		a.service = app.NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
 	} else {
 		a.service = app.NewService(memory.NewStore(), sshmanager.NewManager(), sftpmanager.NewManager())
 	}
+	debuglog.Printf("startup: service initialized; persistent=%t", store != nil)
+
 	a.service.SetRuntimeContext(ctx, func(eventName string, data ...interface{}) {
 		runtime.EventsEmit(ctx, eventName, data...)
 	})
+	debuglog.Printf("startup: runtime context configured")
+
 	if storeErr != nil {
 		a.service.EmitLog("warn", "Disk store unavailable; running with in-memory defaults.")
 	} else {
 		a.service.EmitLog("info", "Application started with disk storage.")
 		a.autoImportInitialSSHConfig()
 	}
+	debuglog.Printf("startup: complete")
 }
 
 func (a *App) GetShellState() app.ShellState { return a.currentService().GetShellState() }
@@ -84,7 +98,7 @@ func (a *App) SaveCloudProvider(model, endpoint, token string) error { return a.
 func (a *App) SaveLocalProvider(downloadURL string) error { return a.currentService().SaveLocalProvider(downloadURL) }
 func (a *App) DownloadLocalModel(downloadURL string) error { return a.currentService().DownloadLocalModel(downloadURL) }
 func (a *App) StartLocalModel() error { return a.currentService().StartLocalModel() }
-func (a *App) StopLocalModel() error { return a.currentService().StopLocalModel() }
+func (a *App) StopLocalModel() { return a.currentService().StopLocalModel() }
 func (a *App) ListCloudModels(endpoint, token string) ([]string, error) { return a.currentService().ListCloudModels(endpoint, token) }
 func (a *App) StartCloudProviderAuth(endpoint string) (app.CloudProviderAuthSession, error) { return a.currentService().StartCloudProviderAuth(endpoint) }
 func (a *App) GetCloudProviderAuthSession(sessionID string) (app.CloudProviderAuthSession, error) { return a.currentService().GetCloudProviderAuthSession(sessionID) }
@@ -115,6 +129,7 @@ func (a *App) AcceptSSHHostKey(tabID string) error { return a.currentService().A
 
 func (a *App) currentService() *app.Service {
 	if a.service == nil {
+		debuglog.Printf("currentService: service was nil; creating memory service")
 		svc := app.NewService(memory.NewStore(), sshmanager.NewManager(), sftpmanager.NewManager())
 		svc.SetRuntimeContext(a.ctx, func(eventName string, data ...interface{}) { runtime.EventsEmit(a.ctx, eventName, data...) })
 		a.service = svc
@@ -123,17 +138,20 @@ func (a *App) currentService() *app.Service {
 }
 
 func (a *App) autoImportInitialSSHConfig() {
+	debuglog.Printf("startup: checking automatic SSH config import")
 	state := a.service.GetShellState()
-	if len(state.SessionProfiles) > 0 || state.Settings.SSHConfigAutoLoaded { return }
+	if len(state.SessionProfiles) > 0 || state.Settings.SSHConfigAutoLoaded { debuglog.Printf("startup: SSH auto-import not needed"); return }
 	settingsSnapshot := state.Settings
 	settingsSnapshot.SSHConfigAutoLoaded = true
-	if err := a.service.UpdateSettings(settingsSnapshot); err != nil { a.service.EmitLog("warn", "Unable to persist SSH auto-import marker.") }
+	if err := a.service.UpdateSettings(settingsSnapshot); err != nil { debuglog.Printf("startup: unable to persist SSH auto-import marker: %v", err); a.service.EmitLog("warn", "Unable to persist SSH auto-import marker.") }
 	homeDir, err := os.UserHomeDir()
-	if err != nil || homeDir == "" { return }
+	if err != nil || homeDir == "" { debuglog.Printf("startup: unable to resolve home directory: %v", err); return }
 	configPath := filepath.Join(homeDir, ".ssh", "config")
+	debuglog.Printf("startup: checking SSH config path %q", configPath)
 	content, err := os.ReadFile(configPath)
-	if err != nil || len(content) == 0 { return }
+	if err != nil || len(content) == 0 { debuglog.Printf("startup: SSH config unavailable or empty: %v", err); return }
 	imported, err := a.service.ImportSSHConfig(string(content))
-	if err != nil { a.service.EmitLog("warn", "Automatic SSH config import skipped: "+err.Error()); return }
+	if err != nil { debuglog.Printf("startup: SSH config import failed: %v", err); a.service.EmitLog("warn", "Automatic SSH config import skipped: "+err.Error()); return }
 	a.service.EmitLog("info", "Automatically imported "+strconv.Itoa(len(imported))+" SSH session(s) from ~/.ssh/config.")
+	debuglog.Printf("startup: imported %d SSH session(s)", len(imported))
 }
