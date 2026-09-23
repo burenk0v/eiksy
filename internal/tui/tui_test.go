@@ -39,7 +39,7 @@ func TestModelQuitsOnCtrlQ(t *testing.T) {
 
 func TestModelHasInitialTabs(t *testing.T) {
 	m := NewModel()
-	want := []string{"Sessions", "Terminal", "Files", "Tools"}
+	want := []string{"Sessions", "Terminal", "Files", "Tools", "AI"}
 	if len(m.tabs) != len(want) {
 		t.Fatalf("expected %d tabs, got %d", len(want), len(m.tabs))
 	}
@@ -81,7 +81,7 @@ func TestModelNavigatesTabs(t *testing.T) {
 func TestModelViewContainsTabs(t *testing.T) {
 	m := NewModel()
 	view := m.View()
-	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "[Sessions]", "Terminal", "Files", "Tools", "F2 Sessions", "F10 Exit"} {
+	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "Sessions", "Terminal", "Files", "Tools", "F2 Sessions", "F10 exit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -170,7 +170,7 @@ func TestModelRendersAgentToolEvents(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"[tool:ssh.exec] finished", "output: systemctl status nginx"} {
+	for _, want := range []string{"[ssh.exec] finished", "systemctl status nginx"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -225,7 +225,7 @@ func TestModelRendersAndResolvesApproval(t *testing.T) {
 			ToolID:    "shell",
 			SessionID: "session-1",
 			Command:   "systemctl restart nginx",
-			Reason:    "restart the service after configuration change",
+			Reason:    "change",
 		},
 	})
 	if cmd != nil {
@@ -235,9 +235,9 @@ func TestModelRendersAndResolvesApproval(t *testing.T) {
 
 	view := m.View()
 	for _, want := range []string{
-		"EIKSY ACTION",
+		"ACTION REQUEST",
 		"systemctl restart nginx",
-		"restart the service after configuration change",
+		"change",
 		"[Y] now",
 		"[S] session",
 		"[A] always",
@@ -385,7 +385,7 @@ func TestModelSessionBrowserView(t *testing.T) {
 		{ID: "chat-2", Title: "Production debug"},
 	})
 	view := m.View()
-	for _, want := range []string{"Sessions", "session 1/2", "> API tests", "Production debug"} {
+	for _, want := range []string{"Sessions", "Session 1/2", "› API tests", "Production debug"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -503,7 +503,7 @@ func TestModelNavigationShortcuts(t *testing.T) {
 	m := NewModel()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(Model)
-	if m.activeTab != 3 {
+	if m.activeTab != 4 {
 		t.Fatalf("expected shift+tab to select previous tab, got %d", m.activeTab)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -538,7 +538,7 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 		t.Fatal("expected shortcut help to open")
 	}
 	view := m.View()
-	for _, want := range []string{"KEYBOARD SHORTCUTS", "F2", "F3", "F4", "F5", "F6", "F10", "Ctrl+Q"} {
+	for _, want := range []string{"KEYBOARD", "F2", "F3", "F4", "F5", "F6", "F10", "Ctrl+Q"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected shortcut help to contain %q, got %q", want, view)
 		}
@@ -610,7 +610,7 @@ func TestModelFilesViewShowsEmptyStateAndSession(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Files", "Session: Production", "Path: .", "No files loaded yet."} {
+	for _, want := range []string{"Files", "Session 1/1", "Path: .", "No files loaded yet."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
@@ -628,7 +628,7 @@ func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Path: /etc/eiksy", "[file] config.yaml", "[dir] sessions"} {
+	for _, want := range []string{"Path: /etc/eiksy", "[file] config.yaml", "[dir ] sessions"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
@@ -639,7 +639,7 @@ func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
 func TestModelViewShowsContextStatus(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})
 	view := m.View()
-	for _, want := range []string{"Sessions", "session 1/2"} {
+	for _, want := range []string{"Sessions", "Session 1/2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -696,6 +696,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 		{tea.KeyF3, 1, "Terminal"},
 		{tea.KeyF4, 2, "Files"},
 		{tea.KeyF5, 3, "Tools"},
+		{tea.KeyF6, 4, "AI"},
 	}
 	for _, tc := range cases {
 		next, cmd := m.Update(tea.KeyMsg{Type: tc.key})
@@ -712,7 +713,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF6})
 	m = next.(Model)
-	if m.activeView != "ai" || !strings.Contains(m.View(), "  AI") {
+	if m.activeTab != 4 || !strings.Contains(m.View(), "AI") {
 		t.Fatalf("expected AI mode, got view=%q", m.View())
 	}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF10})

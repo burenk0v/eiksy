@@ -6,6 +6,7 @@ import (
 
 	agentai "eiksy/internal/ai"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 type SessionRef struct {
@@ -110,6 +111,7 @@ func NewModel() Model {
 			{Title: "Terminal"},
 			{Title: "Files"},
 			{Title: "Tools"},
+			{Title: "AI"},
 		},
 	}
 }
@@ -208,8 +210,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = "tools"
 			return m, nil
 		case tea.KeyF6:
-			m.activeTab = 0
-			m.activeView = "ai"
+			m.activeTab = 4
+			m.activeView = ""
 			return m, nil
 		}
 		if msg.Type == tea.KeyCtrlP {
@@ -517,199 +519,172 @@ func (m *Model) selectPreviousTab() {
 
 func (m Model) View() string {
 	width, height := m.width, m.height
-	if width < 1 {
-		width = 80
-	}
-	if height < 1 {
-		height = 24
-	}
+	if width < 80 { width = 80 }
+	if height < 24 { height = 24 }
 
-	var tabBar strings.Builder
+	const headerHeight, tabsHeight, statusHeight, footerHeight = 2, 3, 1, 2
+	bodyHeight := height - headerHeight - tabsHeight - statusHeight - footerHeight
+	if bodyHeight < 10 { bodyHeight = 10 }
+	const sidebarWidth = 27
+	mainWidth := width - sidebarWidth - 3
+	if mainWidth < 30 { mainWidth = 30 }
+
+	border := lipgloss.Color("240")
+	accent := lipgloss.Color("81")
+	muted := lipgloss.Color("245")
+	activeBg := lipgloss.Color("24")
+	panelTitle := lipgloss.NewStyle().Bold(true).Foreground(accent)
+	key := lipgloss.NewStyle().Foreground(accent).Bold(true)
+
+	header := lipgloss.NewStyle().Width(width).Height(headerHeight).
+		Background(lipgloss.Color("235")).Foreground(lipgloss.Color("255")).Padding(0, 2).
+		Render("EIKSY  Think. Connect. Operate.")
+
+	tabs := make([]string, 0, len(m.tabs))
 	for i, tab := range m.tabs {
-		if i > 0 {
-			tabBar.WriteString("  ")
-		}
+		label := fmt.Sprintf("F%d %s", i+2, tab.Title)
+		style := lipgloss.NewStyle().Foreground(muted).Padding(0, 2)
 		if i == m.activeTab {
-			fmt.Fprintf(&tabBar, "[%s]", tab.Title)
-		} else {
-			tabBar.WriteString(tab.Title)
+			style = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(activeBg).Padding(0, 2)
 		}
+		tabs = append(tabs, style.Render(label))
 	}
+	tabRow := lipgloss.NewStyle().Width(width).Height(tabsHeight).BorderBottom(true).BorderForeground(border).
+		Render(lipgloss.JoinHorizontal(lipgloss.Bottom, tabs...))
 
-	active := "Sessions"
-	if m.activeView == "ai" {
-		active = "AI"
-	} else if m.activeView == "tools" {
-		active = "Tools"
-	}
-	if len(m.tabs) > 0 && m.activeView == "" && m.activeTab >= 0 && m.activeTab < len(m.tabs) {
-		active = m.tabs[m.activeTab].Title
-	}
+	body := lipgloss.JoinHorizontal(lipgloss.Top,
+		m.renderSidebar(sidebarWidth-2, bodyHeight-2, panelTitle, key),
+		" ",
+		m.renderMainPanel(mainWidth, bodyHeight-2, panelTitle, key),
+	)
 
-	header := fmt.Sprintf(" EIKSY  Think. Connect. Operate.   %s", active)
-	content := fmt.Sprintf("  %s view\n\n  Tabs are presentation state only. Sessions and application services remain outside the TUI.", active)
-	if active == "AI" {
-		var aiView strings.Builder
-		aiView.WriteString("  AI\n\n")
-		aiView.WriteString("  Ask Eiksy to inspect, connect, or operate.\n\n")
-		aiView.WriteString("  > ")
-		aiView.WriteString(m.input)
-		content = aiView.String()
-	}
-	if active == "Tools" {
-		var tools strings.Builder
-		tools.WriteString("  AI / Tools\n\n")
-		tools.WriteString("  Select an AI action or tool from the command palette.\n\n")
-		tools.WriteString("  Ctrl+P  Command palette\n")
-		tools.WriteString("  F6      AI / Tools\n")
-		content = tools.String()
-	}
-	if m.palette != nil {
-		var palette strings.Builder
-		palette.WriteString("  COMMAND PALETTE\n\n")
-		fmt.Fprintf(&palette, "  > %s\n\n", m.palette.Query)
-		filtered := m.filteredPaletteCommands()
-		for i, command := range filtered {
-			marker := "  "
-			if i == m.palette.Selected { marker = "> " }
-			fmt.Fprintf(&palette, "  %s%s\n", marker, command.Title)
-		}
-		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
-	}
-	if active == "Terminal" {
-		var terminal strings.Builder
-		terminal.WriteString("  Terminal\n\n")
-		if !m.hasTerminalSession() {
-			terminal.WriteString("  No active terminal session.\n\n")
-			terminal.WriteString("  Connect or select a runtime session to use the terminal.\n")
-		} else {
-			fmt.Fprintf(&terminal, "  Session: %s\n\n", m.tabs[1].Session.Title)
-			if len(m.terminalLines) == 0 {
-				terminal.WriteString("  Connected. Ready for input.\n")
-			} else {
-				for _, line := range m.terminalLines { fmt.Fprintf(&terminal, "  %s\n", line) }
-			}
-			terminal.WriteString("\n  > ")
-			terminal.WriteString(m.terminalInput)
-		}
-		content = terminal.String()
-	}
-	if active == "Files" {
-		var files strings.Builder
-		files.WriteString("  Files\n\n")
-		if len(m.sessions) > 0 {
-			fmt.Fprintf(&files, "  Session: %s\n", m.sessions[m.activeSession].Title)
-		}
-		path := m.filePath
-		if path == "" {
-			path = "."
-		}
-		fmt.Fprintf(&files, "  Path: %s\n\n", path)
-		if len(m.fileEntries) == 0 {
-			files.WriteString("  No files loaded yet.\n")
-		} else {
-			for _, entry := range m.fileEntries {
-				kind := entry.Kind
-				if kind == "" {
-					kind = "file"
-				}
-				fmt.Fprintf(&files, "  [%s] %s\n", kind, entry.Name)
-			}
-		}
-		content = files.String()
-	}
-	if active == "Sessions" && m.activeView == "" {
-		var chat strings.Builder
-		if len(m.sessions) > 0 {
-			chat.WriteString("  Sessions\n")
-			for i, session := range m.sessions {
-				marker := "  "
-				if i == m.activeSession {
-					marker = "> "
-				}
-				fmt.Fprintf(&chat, "  %s%s\n", marker, session.Title)
-			}
-			chat.WriteString("\n")
-		}
-		if m.approval != nil {
-			chat.WriteString("  EIKSY ACTION\n\n")
-			fmt.Fprintf(&chat, "  Tool: %s\n", m.approval.ToolID)
-			fmt.Fprintf(&chat, "  Session: %s\n", m.approval.SessionID)
-			fmt.Fprintf(&chat, "  Command: %s\n", m.approval.Command)
-			if m.approval.Reason != "" {
-				fmt.Fprintf(&chat, "  Reason: %s\n", m.approval.Reason)
-			}
-			chat.WriteString("  [Y] now  [S] session  [A] always  [N] deny\n\n")
-		}
+	if m.shortcuts { body = m.renderHelp(width-2, bodyHeight-2, panelTitle) }
+	if m.palette != nil { body = m.renderPalette(width-2, bodyHeight-2, panelTitle, key) }
 
-		if len(m.messages) == 0 && len(m.toolCalls) == 0 {
-			chat.WriteString("  No messages yet. Ask Eiksy something.")
-		} else {
-			for _, message := range m.messages {
-				fmt.Fprintf(&chat, "  %s: %s\n", message.Role, message.Content)
-			}
-		}
-		for _, tool := range m.toolCalls {
-			fmt.Fprintf(&chat, "  [tool:%s] %s\n", tool.Name, tool.Status)
-			if tool.Output != "" {
-				fmt.Fprintf(&chat, "    output: %s\n", tool.Output)
-			}
-		}
-		content = "  Sessions\n\n" + chat.String() + fmt.Sprintf("\n  Search/chat: %s", m.input)
-	}
-	if m.palette != nil {
-		var palette strings.Builder
-		palette.WriteString("  COMMAND PALETTE\n\n")
-		fmt.Fprintf(&palette, "  > %s\n\n", m.palette.Query)
-		filtered := m.filteredPaletteCommands()
-		for i, command := range filtered {
-			marker := "  "
-			if i == m.palette.Selected { marker = "> " }
-			fmt.Fprintf(&palette, "  %s%s\n", marker, command.Title)
-		}
-		content = palette.String() + "\n  Esc close   ↑/↓ select   Enter run"
-	}
-	if m.shortcuts {
-		content = strings.Join([]string{
-			"  KEYBOARD SHORTCUTS",
-			"",
-			"  F2         Sessions",
-			"  F3         Terminal",
-			"  F4         Files",
-			"  F5         Tools",
-			"  F6         AI",
-			"  F10        Exit",
-			"  ←/→        previous/next view",
-			"  Tab        next tab",
-			"  Shift+Tab  previous tab",
-			"  ↑/↓        previous/next session",
-			"  Enter      select session / send message",
-			"  Ctrl+F     fork active session (when input is empty)",
-			"  Ctrl+P     command palette",
-			"  ?          keyboard shortcuts",
-			"  Ctrl+Q     quit",
-			"  Esc        close overlay",
-		}, "\n")
-	}
-	footer := "  F2 Sessions  F3 Terminal  F4 Files  F5 Tools  F6 AI  F10 Exit  Ctrl+P Menu"
-	if m.approval != nil {
-		footer = "  approval: y now   s session   a always   n deny"
-	}
+	active := m.currentViewName()
+	statusText := fmt.Sprintf(" %s  |  Session %d/%d", active, m.activeSession+1, len(m.sessions))
+	if len(m.sessions) == 0 { statusText = fmt.Sprintf(" %s  |  No session selected", active) }
+	statusBar := lipgloss.NewStyle().Foreground(muted).Width(width).Height(statusHeight).Render(statusText)
 
-	status := fmt.Sprintf("  %s  •  session %d/%d", active, m.activeSession+1, len(m.sessions))
+	footerText := key.Render("F2-F6") + " switch view   " + key.Render("Enter") + " select/send   " +
+		key.Render("Ctrl+P") + " menu   " + key.Render("F10") + " exit   " + key.Render("?") + " help"
+	footer := lipgloss.NewStyle().Width(width).Height(footerHeight).BorderTop(true).BorderForeground(border).
+		Padding(0, 1).Render(footerText)
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, tabRow, body, statusBar, footer)
+}
+
+func (m Model) currentViewName() string {
+	if m.activeTab < 0 || m.activeTab >= len(m.tabs) { return "Sessions" }
+	return m.tabs[m.activeTab].Title
+}
+
+func panelFixed(content string, width, height int) string {
+	return lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("240")).
+		Padding(0, 1).Width(width).Height(height).Render(content)
+}
+
+func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) string {
+	var b strings.Builder
+	b.WriteString(title.Render("SESSIONS")); b.WriteString("\n\n")
 	if len(m.sessions) == 0 {
-		status = fmt.Sprintf("  %s  •  no session selected", active)
+		b.WriteString("No sessions\n")
+	} else {
+		for i, session := range m.sessions {
+			marker := "  "; if i == m.activeSession { marker = "› " }
+			name := session.Title; if name == "" { name = session.ID }
+			line := marker + name
+			if i == m.activeSession {
+				line = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("24")).Width(width).Render(line)
+			}
+			b.WriteString(line); b.WriteByte('\n')
+		}
 	}
-	return strings.Join([]string{
-		header,
-		status,
+	b.WriteString("\n"); b.WriteString(title.Render("NAVIGATION")); b.WriteString("\n\n")
+	b.WriteString(key.Render("↑/↓")); b.WriteString(" sessions\n")
+	b.WriteString(key.Render("←/→")); b.WriteString(" tabs\n")
+	b.WriteString(key.Render("Tab")); b.WriteString(" next tab\n")
+	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n\n")
+	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("\n\n")
+	if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
+	return panelFixed(b.String(), width, height)
+}
+
+func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) string {
+	var b strings.Builder
+	b.WriteString(title.Render(strings.ToUpper(m.currentViewName()))); b.WriteString("\n\n")
+	switch m.activeTab {
+	case 0:
+		if m.approval != nil {
+			b.WriteString(title.Render("ACTION REQUEST")); b.WriteString("\n\n")
+			fmt.Fprintf(&b, "Tool:    %s\nSession: %s\nCommand: %s\n", m.approval.ToolID, m.approval.SessionID, m.approval.Command)
+			if m.approval.Reason != "" { fmt.Fprintf(&b, "Reason:  %s\n", m.approval.Reason) }
+			b.WriteString("\n" + key.Render("[Y]") + " now   " + key.Render("[S]") + " session   " + key.Render("[A]") + " always   " + key.Render("[N]") + " deny")
+		} else if len(m.messages) == 0 && len(m.toolCalls) == 0 {
+			b.WriteString("No messages yet.\n\nAsk Eiksy something in the input line below.")
+		} else {
+			for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) }
+			for _, tool := range m.toolCalls {
+				fmt.Fprintf(&b, "\n[%s] %s\n", tool.Name, tool.Status)
+				if tool.Output != "" { fmt.Fprintf(&b, "  %s\n", tool.Output) }
+			}
+		}
+		b.WriteString("\n\n> "); b.WriteString(m.input)
+	case 1:
+		if !m.hasTerminalSession() {
+			b.WriteString("No active terminal session.\n\nConnect or select a runtime session to use the terminal.")
+		} else {
+			fmt.Fprintf(&b, "Session: %s\n\n", m.tabs[1].Session.Title)
+			if len(m.terminalLines) == 0 { b.WriteString("Connected. Ready for input.") } else {
+				for _, line := range m.terminalLines { b.WriteString(line); b.WriteByte('\n') }
+			}
+			b.WriteString("\n\n> "); b.WriteString(m.terminalInput)
+		}
+	case 2:
+		path := m.filePath; if path == "" { path = "." }
+		fmt.Fprintf(&b, "Path: %s\n\n", path)
+		if len(m.fileEntries) == 0 { b.WriteString("No files loaded yet.") } else {
+			for _, entry := range m.fileEntries {
+				kind := entry.Kind; if kind == "" { kind = "file" }
+				fmt.Fprintf(&b, "[%-4s] %s\n", kind, entry.Name)
+			}
+		}
+	case 3:
+		b.WriteString("Tools available through the application services.\n\nUse the command palette to navigate available actions.\n\n")
+		b.WriteString(key.Render("Ctrl+P")); b.WriteString("  command palette")
+	case 4:
+		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n> "); b.WriteString(m.input)
+	}
+	return panelFixed(b.String(), width, height)
+}
+
+func (m Model) renderPalette(width, height int, title, key lipgloss.Style) string {
+	var b strings.Builder
+	b.WriteString(title.Render("COMMAND PALETTE")); b.WriteString("\n\n> "); b.WriteString(m.palette.Query); b.WriteString("\n\n")
+	for i, command := range m.filteredPaletteCommands() {
+		marker := "  "; if i == m.palette.Selected { marker = "› " }
+		fmt.Fprintf(&b, "%s%s\n", marker, command.Title)
+	}
+	b.WriteString("\n"); b.WriteString(key.Render("↑/↓")); b.WriteString(" select  "); b.WriteString(key.Render("Enter")); b.WriteString(" run  "); b.WriteString(key.Render("Esc")); b.WriteString(" close")
+	return panelFixed(b.String(), width, height)
+}
+
+func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
+	var b strings.Builder
+	b.WriteString(title.Render("KEYBOARD")); b.WriteString("\n\n")
+	for _, line := range []string{
+		"F2  Sessions       F3  Terminal",
+		"F4  Files          F5  Tools",
+		"F6  AI             F10 Exit",
 		"",
-		"  " + tabBar.String(),
-		"",
-		content,
-		fmt.Sprintf("\n  %dx%d", width, height),
-		footer,
-	}, "\n")
+		"←/→  previous/next tab",
+		"Tab  next tab      Shift+Tab previous tab",
+		"↑/↓  previous/next session",
+		"Enter select/send  Ctrl+F fork session",
+		"Ctrl+P command palette",
+		"Ctrl+Q quit        Esc close overlay",
+	} { b.WriteString(line); b.WriteByte('\n') }
+	return panelFixed(b.String(), width, height)
 }
 
 // Config contains presentation/runtime options for the terminal UI.
@@ -730,8 +705,8 @@ func Run(config Config) error {
 	case "tools":
 		model.activeTab = 3
 	case "ai":
-		model.activeTab = 0
-		model.activeView = "ai"
+		model.activeTab = 4
+		model.activeView = ""
 	}
 	options := []tea.ProgramOption{}
 	if config.AltScreen {
