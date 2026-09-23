@@ -69,6 +69,7 @@ eiksy tui --view chat
 eiksy tui --view terminal
 eiksy tui --view files
 eiksy tui --view tools
+eiksy tui --view ai
 ```
 
 The available views are:
@@ -79,6 +80,7 @@ The available views are:
 | `terminal` | Terminal interaction surface for the active session |
 | `files` | File browsing and presentation |
 | `tools` | Tool-related interaction surface |
+| `ai` | AI interaction surface |
 
 If `--view` is omitted, the TUI starts in `chat`.
 
@@ -114,7 +116,7 @@ Printable characters belong to the active input field. Global navigation uses fu
 
 The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, it shows an explicit empty state and does not accept terminal input.
 
-The Files and editor-oriented workflows follow the same keyboard-first model: selection and actions remain visible in the footer instead of requiring hidden mouse interaction.
+The Files view currently presents application-provided file metadata only; it does not add file-management or editor capabilities to the CLI.
 ## Sessions
 
 Chat sessions are application-owned and persistent. The CLI displays session metadata and uses application services to select or fork sessions.
