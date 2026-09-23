@@ -1,3 +1,5 @@
+//go:build !eiksy_debug
+
 package debuglog
 
 import "testing"
