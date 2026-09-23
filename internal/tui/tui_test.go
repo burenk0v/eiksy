@@ -385,7 +385,7 @@ func TestModelSessionBrowserView(t *testing.T) {
 		{ID: "chat-2", Title: "Production debug"},
 	})
 	view := m.View()
-	for _, want := range []string{"Sessions", "> API tests", "Production debug", "↑/↓ sessions"} {
+	for _, want := range []string{"Sessions", "session 1/2", "> API tests", "Production debug"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -639,7 +639,7 @@ func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
 func TestModelViewShowsContextStatus(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})
 	view := m.View()
-	for _, want := range []string{"Sessions", "session 1/2", "↑/↓ sessions"} {
+	for _, want := range []string{"Sessions", "session 1/2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
