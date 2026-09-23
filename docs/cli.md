@@ -69,6 +69,7 @@ eiksy tui --view chat
 eiksy tui --view terminal
 eiksy tui --view files
 eiksy tui --view tools
+eiksy tui --view ai
 ```
 
 The available views are:
