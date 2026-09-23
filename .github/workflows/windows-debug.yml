@@ -1,0 +1,85 @@
+name: Windows debug builds
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Windows amd64 debug binaries
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Resolve Wails CLI version
+        shell: bash
+        run: echo "WAILS_VERSION=$(tr -d '\r\n' < .github/wails-cli-version)" >> "$GITHUB_ENV"
+
+      - name: Cache Wails CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin/wails
+          key: wails-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('.github/wails-cli-version') }}
+
+      - name: Install Wails CLI
+        shell: bash
+        run: |
+          if [ ! -x "$(go env GOPATH)/bin/wails" ]; then
+            go install github.com/wailsapp/wails/v2/cmd/wails@"$WAILS_VERSION"
+          fi
+
+      - name: Add Go bin directory to PATH
+        shell: bash
+        run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Set debug build metadata
+        shell: bash
+        run: echo "DEBUG_VERSION=debug-$GITHUB_SHA" >> "$GITHUB_ENV"
+
+      - name: Build Windows GUI debug binary
+        shell: bash
+        run: |
+          wails build -clean -debug -platform windows/amd64 \
+            -ldflags "-X main.releaseVersion=$DEBUG_VERSION -X main.buildMode=debug" \
+            -o eiksy-windows-amd64-debug.exe
+
+      - name: Build Windows TUI debug binary
+        shell: bash
+        run: |
+          mkdir -p debug-bin
+          go build -gcflags "all=-N -l" -ldflags "-X main.releaseVersion=$DEBUG_VERSION -X main.buildMode=debug" \
+            -o debug-bin/eiksy-tui-windows-amd64-debug.exe .
+
+      - name: Upload GUI debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eiksy-windows-amd64-gui-debug
+          path: build/bin/eiksy-windows-amd64-debug.exe
+          if-no-files-found: error
+
+      - name: Upload TUI debug artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eiksy-windows-amd64-tui-debug
+          path: debug-bin/eiksy-tui-windows-amd64-debug.exe
+          if-no-files-found: error
