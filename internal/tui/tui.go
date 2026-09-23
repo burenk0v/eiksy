@@ -529,7 +529,6 @@ func (m Model) View() string {
 	mainWidth := width - sidebarWidth - 3
 	if mainWidth < 30 { mainWidth = 30 }
 
-	base := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	border := lipgloss.Color("240")
 	accent := lipgloss.Color("81")
 	muted := lipgloss.Color("245")
