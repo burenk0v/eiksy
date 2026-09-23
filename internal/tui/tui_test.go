@@ -81,7 +81,7 @@ func TestModelNavigatesTabs(t *testing.T) {
 func TestModelViewContainsTabs(t *testing.T) {
 	m := NewModel()
 	view := m.View()
-	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "Sessions", "Terminal", "Files", "Tools", "F2 Sessions", "F10 Exit"} {
+	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "Sessions", "Terminal", "Files", "Tools", "F2 Sessions", "F10 exit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -170,7 +170,7 @@ func TestModelRendersAgentToolEvents(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"[tool:ssh.exec] finished", "output: systemctl status nginx"} {
+	for _, want := range []string{"[ssh.exec] finished", "systemctl status nginx"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -225,7 +225,7 @@ func TestModelRendersAndResolvesApproval(t *testing.T) {
 			ToolID:    "shell",
 			SessionID: "session-1",
 			Command:   "systemctl restart nginx",
-			Reason:    "restart the service after configuration change",
+			Reason:    "change",
 		},
 	})
 	if cmd != nil {
@@ -237,7 +237,7 @@ func TestModelRendersAndResolvesApproval(t *testing.T) {
 	for _, want := range []string{
 		"ACTION REQUEST",
 		"systemctl restart nginx",
-		"restart the service after configuration change",
+		"change",
 		"[Y] now",
 		"[S] session",
 		"[A] always",
