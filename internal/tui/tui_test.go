@@ -39,7 +39,7 @@ func TestModelQuitsOnCtrlQ(t *testing.T) {
 
 func TestModelHasInitialTabs(t *testing.T) {
 	m := NewModel()
-	want := []string{"Chat", "Terminal", "Files", "Tools"}
+	want := []string{"Sessions", "Terminal", "Files", "Tools"}
 	if len(m.tabs) != len(want) {
 		t.Fatalf("expected %d tabs, got %d", len(want), len(m.tabs))
 	}
@@ -81,7 +81,7 @@ func TestModelNavigatesTabs(t *testing.T) {
 func TestModelViewContainsTabs(t *testing.T) {
 	m := NewModel()
 	view := m.View()
-	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "[Chat]", "Terminal", "Files", "Tools", "Ctrl+Q quit"} {
+	for _, want := range []string{"EIKSY", "Think. Connect. Operate.", "[Sessions]", "Terminal", "Files", "Tools", "F2 Sessions", "F10 Exit"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -385,7 +385,7 @@ func TestModelSessionBrowserView(t *testing.T) {
 		{ID: "chat-2", Title: "Production debug"},
 	})
 	view := m.View()
-	for _, want := range []string{"Sessions", "> API tests", "Production debug", "↑/↓ sessions"} {
+	for _, want := range []string{"Sessions", "session 1/2", "> API tests", "Production debug"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -538,7 +538,7 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 		t.Fatal("expected shortcut help to open")
 	}
 	view := m.View()
-	for _, want := range []string{"KEYBOARD SHORTCUTS", "Ctrl+P", "Ctrl+F", "Ctrl+Q"} {
+	for _, want := range []string{"KEYBOARD SHORTCUTS", "F2", "F3", "F4", "F5", "F6", "F10", "Ctrl+Q"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected shortcut help to contain %q, got %q", want, view)
 		}
@@ -639,7 +639,7 @@ func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
 func TestModelViewShowsContextStatus(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})
 	view := m.View()
-	for _, want := range []string{"Chat", "session 1/2", "↑/↓ sessions"} {
+	for _, want := range []string{"Sessions", "session 1/2"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
@@ -681,5 +681,42 @@ func TestModelTerminalBindsRuntimeSessionSeparatelyFromChatSessions(t *testing.T
 	}
 	if m.tabs[0].Session == nil || m.tabs[0].Session.ID != "chat-1" {
 		t.Fatalf("expected chat session to remain separate, got %+v", m.tabs[0].Session)
+	}
+}
+
+
+func TestModelFunctionKeyNavigation(t *testing.T) {
+	m := NewModel()
+	cases := []struct {
+		key  tea.KeyType
+		want int
+		view string
+	}{
+		{tea.KeyF2, 0, "Sessions"},
+		{tea.KeyF3, 1, "Terminal"},
+		{tea.KeyF4, 2, "Files"},
+		{tea.KeyF5, 3, "Tools"},
+	}
+	for _, tc := range cases {
+		next, cmd := m.Update(tea.KeyMsg{Type: tc.key})
+		if cmd != nil {
+			t.Fatalf("%s: expected no command", tc.view)
+		}
+		m = next.(Model)
+		if m.activeTab != tc.want {
+			t.Fatalf("%s: expected tab %d, got %d", tc.view, tc.want, m.activeTab)
+		}
+		if !strings.Contains(m.View(), tc.view) {
+			t.Fatalf("%s: expected view %q", tc.view, m.View())
+		}
+	}
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF6})
+	m = next.(Model)
+	if m.activeView != "ai" || !strings.Contains(m.View(), "  AI") {
+		t.Fatalf("expected AI mode, got view=%q", m.View())
+	}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF10})
+	if cmd == nil {
+		t.Fatal("expected F10 to quit")
 	}
 }

@@ -90,26 +90,31 @@ eiksy tui --no-alt-screen --view terminal
 
 ## TUI navigation
 
-The TUI provides keyboard navigation without requiring a separate command mode.
+The TUI uses a keyboard-first layout inspired by classic terminal file managers and editors. The active view is always visible in the header, and the footer shows the primary actions.
 
 | Key | Action |
 | --- | --- |
-| `←` / `→` | Previous / next tab |
-| `Tab` | Next tab |
-| `Shift+Tab` | Previous tab |
+| `F2` | Sessions |
+| `F3` | Terminal |
+| `F4` | Files |
+| `F5` | Tools |
+| `F6` | AI |
+| `F10` | Exit |
+| `←` / `→` | Previous / next view |
+| `Tab` / `Shift+Tab` | Next / previous view |
 | `↑` / `↓` | Previous / next session |
-| `Enter` | Select a session or submit the active input |
-| `Ctrl+F` | Fork the active chat session when the input is empty |
-| `Ctrl+P` | Open the command palette |
+| `Enter` | Select session or submit active input |
+| `Ctrl+P` | Open command palette |
+| `Ctrl+F` | Fork the active chat session |
+| `Ctrl+Q` | Quit |
 | `?` | Show keyboard shortcuts |
 | `Esc` | Close an active overlay |
-| `Ctrl+Q` | Quit Eiksy |
-| `Ctrl+C` | Quit |
 
-The exact actions available in a view depend on the active interaction state. Ordinary printable characters belong to the active input field. Global destructive/navigation actions use control key combinations so that normal terminal or chat text is never consumed as a command.
+Printable characters belong to the active input field. Global navigation uses function keys and control combinations so that normal terminal/chat text is not consumed as an application command.
 
-The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, the view shows an explicit empty state and does not accept or submit terminal input. Chat sessions and runtime terminal sessions are separate concepts.
+The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, it shows an explicit empty state and does not accept terminal input.
 
+The Files and editor-oriented workflows follow the same keyboard-first model: selection and actions remain visible in the footer instead of requiring hidden mouse interaction.
 ## Sessions
 
 Chat sessions are application-owned and persistent. The CLI displays session metadata and uses application services to select or fork sessions.
