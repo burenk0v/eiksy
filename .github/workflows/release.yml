@@ -97,9 +97,9 @@ jobs:
         run: |
           RELEASE_VERSION="${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
           if [ "${{ runner.os }}" = "Linux" ]; then
-            wails build -clean -platform "${{ matrix.wails_platform }}" -tags webkit2_41 -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o "${{ matrix.artifact }}"
+            wails build -clean -platform "${{ matrix.wails_platform }}" -tags "webkit2_41 eiksy_debug" -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o "${{ matrix.artifact }}"
           else
-            wails build -clean -platform "${{ matrix.wails_platform }}" -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o "${{ matrix.artifact }}"
+            wails build -clean -platform "${{ matrix.wails_platform }}" -tags eiksy_debug -ldflags "-X main.releaseVersion=$RELEASE_VERSION" -o "${{ matrix.artifact }}"
           fi
 
       - name: Upload release artifact
