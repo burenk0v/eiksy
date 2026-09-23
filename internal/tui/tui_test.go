@@ -39,7 +39,7 @@ func TestModelQuitsOnCtrlQ(t *testing.T) {
 
 func TestModelHasInitialTabs(t *testing.T) {
 	m := NewModel()
-	want := []string{"Sessions", "Terminal", "Files", "Tools"}
+	want := []string{"Sessions", "Terminal", "Files", "Tools", "AI"}
 	if len(m.tabs) != len(want) {
 		t.Fatalf("expected %d tabs, got %d", len(want), len(m.tabs))
 	}
@@ -696,6 +696,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 		{tea.KeyF3, 1, "Terminal"},
 		{tea.KeyF4, 2, "Files"},
 		{tea.KeyF5, 3, "Tools"},
+		{tea.KeyF6, 4, "AI"},
 	}
 	for _, tc := range cases {
 		next, cmd := m.Update(tea.KeyMsg{Type: tc.key})
@@ -712,7 +713,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF6})
 	m = next.(Model)
-	if m.activeView != "ai" || !strings.Contains(m.View(), "  AI") {
+	if m.activeTab != 4 || !strings.Contains(m.View(), "AI") {
 		t.Fatalf("expected AI mode, got view=%q", m.View())
 	}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF10})
