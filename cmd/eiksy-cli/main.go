@@ -1,12 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
 
+	"eiksy/internal/app"
 	"eiksy/internal/cli"
+	"eiksy/internal/sftp"
+	"eiksy/internal/ssh"
+	"eiksy/internal/storage/disk"
+	"eiksy/internal/storage/memory"
 	"eiksy/internal/tui"
 )
 
@@ -40,9 +46,30 @@ func resolveReleaseVersion() string {
 	return "dev"
 }
 
+func newBackend() *app.Service {
+	store, err := disk.NewStore()
+	if err != nil {
+		service := app.NewService(memory.NewStore(), ssh.NewManager(), sftp.NewManager())
+		service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
+		return service
+	}
+	service := app.NewService(store, ssh.NewManager(), sftp.NewManager())
+	service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
+	return service
+}
+
 func main() {
+	if len(os.Args) == 1 {
+		if err := tui.Run(tui.Config{AltScreen: true, InitialView: "sessions", Backend: newBackend()}); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "eiksy-cli: tui: %v
+", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr, func(config cli.TUIConfig) error {
-		return tui.Run(tui.Config{AltScreen: config.AltScreen, InitialView: config.InitialView})
+		return tui.Run(tui.Config{AltScreen: config.AltScreen, InitialView: config.InitialView, Backend: newBackend()})
 	}); handled {
 		os.Exit(exitCode)
 	}
