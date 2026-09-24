@@ -197,21 +197,39 @@ func (s *Service) GetShellState() ShellState {
 	profiles := s.scrubProfilesForShell(s.store.SessionProfiles())
 	aiState := s.scrubAIStateForShell(s.store.AIState())
 	appSettings := s.scrubSettingsForShell(s.store.Settings())
+	protocolDescriptors := s.store.Protocols()
+	history := s.store.LaunchHistory()
+	events := s.store.Events()
+
+	// Keep the Wails API contract stable for empty collections. Go's nil slices
+	// are encoded as JSON null, while the frontend expects arrays and calls
+	// array methods such as map/filter on these values.
+	if protocolDescriptors == nil {
+		protocolDescriptors = []protocols.Descriptor{}
+	}
+	if profiles == nil {
+		profiles = []sessions.Profile{}
+	}
+	if history == nil {
+		history = []sessions.HistoryEntry{}
+	}
+	if events == nil {
+		events = []workspace.Event{}
+	}
 
 	return ShellState{
-		Protocols:           s.store.Protocols(),
-		SessionProfiles:     profiles,
-		ActiveSessions:      activeSessions,
-		SessionHistory:      s.store.LaunchHistory(),
-		AI:                  aiState,
+		Protocols:       protocolDescriptors,
+		SessionProfiles: profiles,
+		ActiveSessions:  activeSessions,
+		SessionHistory:  history,
+		AI:              aiState,
 		Workspace: WorkspaceView{
 			Layout:       s.store.WorkspaceLayout(),
-			RecentEvents: s.store.Events(),
+			RecentEvents: events,
 		},
 		Settings: appSettings,
 	}
 }
-
 func (s *Service) resolveContext(ctx context.Context) context.Context {
 	if ctx != nil {
 		return ctx
