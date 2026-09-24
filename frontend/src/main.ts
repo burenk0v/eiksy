@@ -529,7 +529,26 @@ class EiksyShell {
 
   private async refresh(errorMessage = this.errorMessage): Promise<void> {
     this.errorMessage = errorMessage;
-    this.shellState = await GetShellState();
+    const state = await GetShellState();
+
+    // Wails serializes nil Go slices as null. Normalize collection fields at
+    // the UI boundary so rendering code can safely use array methods.
+    state.protocols ??= [];
+    state.sessionProfiles ??= [];
+    state.activeSessions ??= [];
+    state.sessionHistory ??= [];
+    state.workspace ??= {} as ShellState["workspace"];
+    state.workspace.recentEvents ??= [];
+    state.ai ??= {} as ShellState["ai"];
+    state.ai.providers ??= [];
+    state.ai.messages ??= [];
+    state.ai.chatSessions ??= [];
+    state.ai.commandPolicy ??= {} as ShellState["ai"]["commandPolicy"];
+    state.ai.commandPolicy.tools ??= [];
+    state.ai.commandPolicy.commandRules ??= [];
+    state.ai.commandPolicy.pendingRequests ??= [];
+
+    this.shellState = state;
     this.reconcileSelectedSessionTags();
     this.pruneStoredSessionInnerTabs();
     const preferredTabID =
