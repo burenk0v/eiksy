@@ -12,7 +12,6 @@ import (
 	"eiksy/internal/sftp"
 	"eiksy/internal/ssh"
 	"eiksy/internal/storage/disk"
-	"eiksy/internal/storage/memory"
 	"eiksy/internal/tui"
 )
 
@@ -39,19 +38,13 @@ func resolveReleaseVersion() string {
 		}
 	}
 
-	if version != "" {
-		return version
-	}
-
-	return "dev"
+	return version
 }
 
 func newBackend() *app.Service {
 	store, err := disk.NewStore()
 	if err != nil {
-		service := app.NewService(memory.NewStore(), ssh.NewManager(), sftp.NewManager())
-		service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
-		return service
+		panic(fmt.Sprintf("eiksy-cli: initialize storage: %v", err))
 	}
 	service := app.NewService(store, ssh.NewManager(), sftp.NewManager())
 	service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
@@ -61,8 +54,7 @@ func newBackend() *app.Service {
 func main() {
 	if len(os.Args) == 1 {
 		if err := tui.Run(tui.Config{AltScreen: true, InitialView: "sessions", Backend: newBackend()}); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "eiksy-cli: tui: %v
-", err)
+			_, _ = fmt.Fprintf(os.Stderr, "eiksy-cli: tui: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -72,6 +64,6 @@ func main() {
 		os.Exit(exitCode)
 	}
 
-	_, _ = fmt.Fprintln(os.Stderr, "eiksy-cli: no command specified")
+	_, _ = fmt.Fprintln(os.Stderr, "eiksy-cli: unexpected command state")
 	os.Exit(2)
 }
