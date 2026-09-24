@@ -713,7 +713,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 			t.Fatalf("%s: expected view %q", tc.view, m.View())
 		}
 	}
-	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF6})
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF7})
 	m = next.(Model)
 	if m.activeTab != 5 || !strings.Contains(m.View(), "AI") {
 		t.Fatalf("expected AI mode, got view=%q", m.View())
