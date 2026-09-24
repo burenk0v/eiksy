@@ -125,15 +125,11 @@ The product contract is **Think → Connect → Operate → Think**. See [`docs/
 Eiksy also provides a terminal UI for terminal-first workflows:
 
 ```bash
-eiksy tui
 ```
 
 Choose the initial view or keep the current terminal screen:
 
 ```bash
-eiksy tui --view terminal
-eiksy tui --view files
-eiksy tui --no-alt-screen
 ```
 
 The CLI/TUI is another frontend for the same Eiksy application core. It does not introduce a separate credential store, session database, executor, or security boundary.
