@@ -55,7 +55,7 @@ type SessionSelector interface {
 }
 
 type SessionForker interface {
-	ForkChatSession(sessionID, title string) (SessionRef, error)
+	ForkChatSession(sessionID, title string) (domainai.ChatSession, error)
 }
 
 type ApprovalResolver interface {
@@ -209,7 +209,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionSelectionError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session selection failed: %v", msg.err)})
 	case sessionForkDone:
-		m.sessions = append(m.sessions, msg.session)
+		m.sessions = append(m.sessions, SessionRef{ID: msg.session.ID, Title: msg.session.Title})
 		m.activeSession = len(m.sessions) - 1
 		m.syncActiveSessionTab()
 		m.messages = nil
@@ -520,7 +520,7 @@ func (m *Model) forkActiveSession() tea.Cmd {
 	}
 }
 
-type sessionForkDone struct{ session SessionRef }
+type sessionForkDone struct{ session domainai.ChatSession }
 type sessionForkError struct{ err error }
 
 func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
