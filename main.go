@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"eiksy/internal/cli"
-	"eiksy/internal/tui"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
