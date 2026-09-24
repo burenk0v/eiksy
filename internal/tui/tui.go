@@ -791,33 +791,8 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 }
 
 // Config contains presentation/runtime options for the terminal UI.
-type Config struct {
-	AltScreen   bool
-	InitialView string
-	Backend     Backend
-}
-
-func Run(config Config) error {
-	model := NewModel().WithBackend(config.Backend)
-	switch config.InitialView {
-	case "sessions", "chat":
-		model.activeTab = 0
-	case "terminal":
-		model.activeTab = 1
-	case "files":
-		model.activeTab = 2
-	case "tools":
-		model.activeTab = 3
-	case "settings":
-		model.activeTab = 4
-	case "ai":
-		model.activeTab = 5
-		model.activeView = ""
-	}
-	options := []tea.ProgramOption{}
-	if config.AltScreen {
-		options = append(options, tea.WithAltScreen())
-	}
-	_, err := tea.NewProgram(model, options...).Run()
+func Run(backend Backend) error {
+	model := NewModel().WithBackend(backend)
+	_, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
 	return err
 }
