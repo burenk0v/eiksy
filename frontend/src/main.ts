@@ -542,7 +542,6 @@ class EiksyShell {
     state.ai ??= {} as ShellState["ai"];
     state.ai.providers ??= [];
     state.ai.messages ??= [];
-    state.ai.chatSessions ??= [];
     state.ai.commandPolicy ??= {} as ShellState["ai"]["commandPolicy"];
     state.ai.commandPolicy.tools ??= [];
     state.ai.commandPolicy.commandRules ??= [];
