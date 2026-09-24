@@ -22,7 +22,8 @@ func Run(args []string, version string, stdout, stderr io.Writer, runTUI func(TU
 		_, _ = fmt.Fprintln(stdout, version)
 		return true, 0
 	case "tui":
-		config, err := parseTUIArgs(args[1:])
+		_, _ = fmt.Fprintln(stderr, "eiksy: the 'tui' command has been removed; run eiksy-cli directly")
+		return true, 2
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "eiksy: tui: %v\n", err)
 			return true, 2
