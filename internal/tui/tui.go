@@ -125,6 +125,7 @@ func NewModel() Model {
 			{Title: "Terminal"},
 			{Title: "Files"},
 			{Title: "Tools"},
+			{Title: "Settings"},
 			{Title: "AI"},
 		},
 	}
@@ -298,11 +299,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
-			if m.activeTab == 5 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
-			if m.activeTab == 5 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
-			if m.activeTab == 5 {
+			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 1 {
 				m.submitTerminalInput()
@@ -661,7 +662,7 @@ func (m *Model) toggleSetting() tea.Cmd {
 type settingsUpdateDone struct{ settings domainsettings.AppSettings }
 type settingsUpdateError struct{ err error }
 
-func (m Model) currentViewName() {
+func (m Model) currentViewName() string {
 	if m.activeTab < 0 || m.activeTab >= len(m.tabs) { return "Sessions" }
 	return m.tabs[m.activeTab].Title
 }
