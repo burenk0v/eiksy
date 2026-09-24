@@ -49,49 +49,6 @@ eiksy -v
 eiksy version
 ```
 
-## TUI options
-
-### Disable alternate-screen mode
-
-By default, the TUI uses the terminal alternate screen. Use `--no-alt-screen` when the terminal should keep the existing screen contents:
-
-```bash
-eiksy tui --no-alt-screen
-```
-
-This is a presentation option only. It does not change application behavior or security controls.
-
-### Select the initial view
-
-Use `--view` to choose the view shown when the TUI starts:
-
-```bash
-eiksy tui --view chat
-eiksy tui --view terminal
-eiksy tui --view files
-eiksy tui --view tools
-eiksy tui --view ai
-```
-
-The available views are:
-
-| View | Purpose |
-| --- | --- |
-| `chat` | AI conversation and operation workflow |
-| `terminal` | Terminal interaction surface for the active session |
-| `files` | File browsing and presentation |
-| `tools` | Tool-related interaction surface |
-| `settings` | Persistent application settings |
-| `ai` | AI interaction surface |
-
-If `--view` is omitted, the TUI starts in `chat`.
-
-Options can be combined:
-
-```bash
-eiksy tui --no-alt-screen --view terminal
-```
-
 ## TUI navigation
 
 The TUI uses a keyboard-first layout inspired by classic terminal file managers and editors. The active view is always visible in the header, and the footer shows the primary actions.
@@ -166,12 +123,6 @@ The CLI uses the following exit codes for command-line handling:
 | `0` | Command completed successfully |
 | `1` | TUI/application execution returned an error |
 | `2` | Invalid or unknown command-line input |
-
-For example, an unsupported view returns exit code `2`:
-
-```bash
-eiksy tui --view unknown
-```
 
 ## Architecture
 
