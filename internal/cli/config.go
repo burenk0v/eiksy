@@ -25,10 +25,10 @@ func parseTUIArgs(args []string) (TUIConfig, error) {
 			i++
 			view := args[i]
 			switch view {
-			case "chat", "terminal", "files", "tools":
+			case "chat", "terminal", "files", "tools", "settings", "ai":
 				config.InitialView = view
 			default:
-				return TUIConfig{}, fmt.Errorf("invalid --view %q (want chat, terminal, files, or tools)", view)
+				return TUIConfig{}, fmt.Errorf("invalid --view %q (want chat, terminal, files, tools, settings, or ai)", view)
 			}
 		default:
 			return TUIConfig{}, fmt.Errorf("unknown tui option %q", args[i])
