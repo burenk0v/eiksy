@@ -39,7 +39,7 @@ func TestModelQuitsOnCtrlQ(t *testing.T) {
 
 func TestModelHasInitialTabs(t *testing.T) {
 	m := NewModel()
-	want := []string{"Sessions", "Terminal", "Files", "Tools", "AI"}
+	want := []string{"Sessions", "Terminal", "Files", "Tools", "Settings", "AI"}
 	if len(m.tabs) != len(want) {
 		t.Fatalf("expected %d tabs, got %d", len(want), len(m.tabs))
 	}
@@ -503,7 +503,7 @@ func TestModelNavigationShortcuts(t *testing.T) {
 	m := NewModel()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
 	m = next.(Model)
-	if m.activeTab != 4 {
+	if m.activeTab != 5 {
 		t.Fatalf("expected shift+tab to select previous tab, got %d", m.activeTab)
 	}
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
@@ -538,7 +538,7 @@ func TestModelShortcutHelpOpensAndCloses(t *testing.T) {
 		t.Fatal("expected shortcut help to open")
 	}
 	view := m.View()
-	for _, want := range []string{"KEYBOARD", "F2", "F3", "F4", "F5", "F6", "F10", "Ctrl+Q"} {
+	for _, want := range []string{"KEYBOARD", "F2", "F3", "F4", "F5", "F6", "F7", "F10", "Ctrl+Q"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected shortcut help to contain %q, got %q", want, view)
 		}
@@ -696,7 +696,8 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 		{tea.KeyF3, 1, "Terminal"},
 		{tea.KeyF4, 2, "Files"},
 		{tea.KeyF5, 3, "Tools"},
-		{tea.KeyF6, 4, "AI"},
+		{tea.KeyF6, 4, "Settings"},
+		{tea.KeyF7, 5, "AI"},
 	}
 	for _, tc := range cases {
 		next, cmd := m.Update(tea.KeyMsg{Type: tc.key})
@@ -713,7 +714,7 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	}
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyF6})
 	m = next.(Model)
-	if m.activeTab != 4 || !strings.Contains(m.View(), "AI") {
+	if m.activeTab != 5 || !strings.Contains(m.View(), "AI") {
 		t.Fatalf("expected AI mode, got view=%q", m.View())
 	}
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyF10})
