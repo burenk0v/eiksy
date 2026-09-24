@@ -12,11 +12,13 @@ Running Eiksy without arguments starts the desktop application:
 eiksy
 ```
 
-To start the terminal UI:
+The standalone CLI binary starts directly in the terminal UI:
 
 ```bash
-eiksy tui
+eiksy-cli
 ```
+
+The `eiksy tui` command remains available in the desktop binary.
 
 The TUI uses the same application services and backend security controls as the desktop application.
 
@@ -80,6 +82,7 @@ The available views are:
 | `terminal` | Terminal interaction surface for the active session |
 | `files` | File browsing and presentation |
 | `tools` | Tool-related interaction surface |
+| `settings` | Persistent application settings |
 | `ai` | AI interaction surface |
 
 If `--view` is omitted, the TUI starts in `chat`.
@@ -100,13 +103,15 @@ The TUI uses a keyboard-first layout inspired by classic terminal file managers 
 | `F3` | Terminal |
 | `F4` | Files |
 | `F5` | Tools |
-| `F6` | AI |
+| `F6` | Settings |
+| `F7` | AI |
 | `F10` | Exit |
 | `←` / `→` | Previous / next view |
 | `Tab` / `Shift+Tab` | Next / previous view |
 | `↑` / `↓` | Previous / next session |
 | `Enter` | Select session or submit active input |
 | `Ctrl+P` | Open command palette |
+| `Ctrl+N` | Create a new chat session |
 | `Ctrl+F` | Fork the active chat session |
 | `Ctrl+Q` | Quit |
 | `?` | Show keyboard shortcuts |
@@ -117,6 +122,8 @@ Printable characters belong to the active input field. Global navigation uses fu
 The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, it shows an explicit empty state and does not accept terminal input.
 
 The Files view currently presents application-provided file metadata only; it does not add file-management or editor capabilities to the CLI.
+
+The Sessions view is backed by the same persistent application session store. `Ctrl+N` creates a new chat session and activates it. The Settings view reads and updates persistent application settings through the same application service used by the desktop UI; `↑/↓` selects a setting and `Enter` changes it.
 ## Sessions
 
 Chat sessions are application-owned and persistent. The CLI displays session metadata and uses application services to select or fork sessions.
