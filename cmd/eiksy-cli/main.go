@@ -53,7 +53,7 @@ func newBackend() *app.Service {
 
 func main() {
 	if len(os.Args) == 1 {
-		if err := tui.Run(tui.Config{AltScreen: true, InitialView: "sessions", Backend: newBackend()}); err != nil {
+		if err := tui.Run(newBackend()); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "eiksy-cli: tui: %v\n", err)
 			os.Exit(1)
 		}
