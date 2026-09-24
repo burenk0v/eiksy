@@ -18,7 +18,6 @@ The standalone CLI binary starts directly in the terminal UI:
 eiksy-cli
 ```
 
-The `eiksy tui` command remains available in the desktop binary.
 
 The TUI uses the same application services and backend security controls as the desktop application.
 
