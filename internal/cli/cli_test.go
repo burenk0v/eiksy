@@ -105,3 +105,18 @@ func TestRunTUIRejectsInvalidConfiguration(t *testing.T) {
 		t.Fatalf("expected invalid-view error, got %q", stderr.String())
 	}
 }
+
+func TestRunStartsTUIDirectlyFromViewOption(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	called := false
+	handled, exitCode := Run([]string{"--view", "settings"}, "v1.2.3", &stdout, &stderr, func(config TUIConfig) error {
+		called = true
+		if config.InitialView != "settings" || !config.AltScreen {
+			t.Fatalf("unexpected TUI config: %+v", config)
+		}
+		return nil
+	})
+	if !handled || exitCode != 0 || !called {
+		t.Fatalf("expected direct TUI option to run, handled=%t exit=%d called=%t", handled, exitCode, called)
+	}
+}
