@@ -46,7 +46,7 @@ func newBackend() *app.Service {
 	if err != nil {
 		panic(fmt.Sprintf("eiksy-cli: initialize storage: %v", err))
 	}
-	service := app.NewService(store, ssh.NewManager(), sftp.NewManager())
+	service := app.NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
 	service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
 	return service
 }
