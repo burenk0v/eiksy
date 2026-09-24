@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	agentai "eiksy/internal/ai"
+	domainai "eiksy/internal/domain/ai"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -399,10 +400,10 @@ type testSessionForker struct {
 	err       error
 }
 
-func (f *testSessionForker) ForkChatSession(sessionID, title string) (SessionRef, error) {
+func (f *testSessionForker) ForkChatSession(sessionID, title string) (domainai.ChatSession, error) {
 	f.sessionID = sessionID
 	f.title = title
-	return f.result, f.err
+	return domainai.ChatSession{ID: f.result.ID, Title: f.result.Title}, f.err
 }
 
 func TestModelForksActiveSessionThroughApplicationService(t *testing.T) {
