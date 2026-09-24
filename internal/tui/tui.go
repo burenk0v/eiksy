@@ -137,6 +137,8 @@ func (m Model) WithBackend(backend Backend) Model {
 	m.backend = backend
 	if backend != nil {
 		m.settings = backend.GetSettings()
+		m.sessionSelector = backend
+		m.sessionForker = backend
 		m.refreshSessions()
 	}
 	return m
