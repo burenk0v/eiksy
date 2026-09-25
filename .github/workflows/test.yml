@@ -13,6 +13,7 @@ jobs:
   test:
     name: Backend and frontend checks
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,7 +25,7 @@ jobs:
           cache: true
 
       - name: Run backend tests
-        run: go test ./...
+        run: go test -timeout 2m ./...
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
