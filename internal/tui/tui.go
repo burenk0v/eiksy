@@ -227,13 +227,7 @@ func (m Model) WithTerminalSession(sessionID, title string) Model {
 }
 
 func (m Model) hasTerminalSession() bool {
-	if len(m.tabs) <= 1 || m.tabs[1].Session == nil {
-		return false
-	}
-	if view, ok := m.runtimeSessionsForSession(m.tabs[1].Session.ID); ok {
-		return view.Status == "connected"
-	}
-	return false
+	return len(m.tabs) > 1 && m.tabs[1].Session != nil
 }
 
 func (m Model) runtimeSessionsForSession(sessionID string) (appservice.RuntimeSessionView, bool) {
