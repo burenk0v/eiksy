@@ -1233,10 +1233,21 @@ func Run(backend Backend) error {
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	if service, ok := backend.(*appservice.Service); ok {
 		service.SetRuntimeContext(context.Background(), func(eventName string, data ...interface{}) {
+			if eventName == "ai:message" {
+				state := service.GetShellState()
+				messages := make([]ChatMessage, 0, len(state.AI.Messages))
+				for _, message := range state.AI.Messages {
+					messages = append(messages, ChatMessage{Role: message.Role, Content: message.Content})
+				}
+				program.Send(aiRefreshDone{messages: messages})
+				return
+			}
 			if eventName != "" && len(data) > 0 {
 				if payload, ok := data[0].(map[string]string); ok {
 					sessionID := strings.TrimPrefix(eventName, "terminal:output:")
-						if sessionID != eventName { program.Send(runtimeOutput{sessionID: sessionID, data: payload["data"]}) }
+					if sessionID != eventName {
+						program.Send(runtimeOutput{sessionID: sessionID, data: payload["data"]})
+					}
 				}
 			}
 		})
