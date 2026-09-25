@@ -50,11 +50,6 @@ type ToolCallView struct {
 	Status string
 }
 
-type FileEntry struct {
-	Name string
-	Kind string
-}
-
 type SessionSelector interface {
 	SelectChatSession(sessionID string) error
 }
@@ -65,6 +60,11 @@ type SessionForker interface {
 
 type ApprovalResolver interface {
 	ResolveApproval(requestID, mode string) error
+}
+
+type AIBackend interface {
+	SendChatMessage(message, activeSessionID string) error
+	GetShellState() appservice.ShellState
 }
 
 type SessionProfileBackend interface {
@@ -105,8 +105,6 @@ type Model struct {
 	input     string
 	terminalLines []string
 	terminalInput string
-	fileEntries []FileEntry
-	filePath    string
 	sftpEntries []sftpdomain.FileEntry
 	sftpPath string
 	sftpSelected int
@@ -129,6 +127,7 @@ type Model struct {
 	profiles         []domainsessions.Profile
 	activeProfile    int
 	profileForm      *sessionProfileForm
+	aiBackend        AIBackend
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
 	pendingHostKey   string
@@ -207,6 +206,7 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.sessionSelector = backend
 		m.sessionForker = backend
 		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
+		if aiBackend, ok := backend.(AIBackend); ok { m.aiBackend = aiBackend }
 		if runtimeBackend, ok := backend.(RuntimeSessionBackend); ok {
 			m.runtimeBackend = runtimeBackend
 			if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
@@ -306,6 +306,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s created.", msg.session.Title)})
 	case settingsUpdateDone:
 		m.settings = msg.settings
+	case aiSendDone:
+	case aiSendError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
+	case aiRefreshDone:
+		m.messages = append([]ChatMessage(nil), msg.messages...)
 	case settingsUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
 	case sessionProfileCreateDone:
@@ -487,7 +492,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 			} else {
-				m.submitChatInput()
+				if cmd := m.submitChatInput(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyEsc:
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
@@ -700,12 +705,6 @@ func (m *Model) forkActiveSession() tea.Cmd {
 type sessionForkDone struct{ session domainai.ChatSession }
 type sessionForkError struct{ err error }
 
-func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
-	m.filePath = strings.TrimSpace(path)
-	m.fileEntries = append([]FileEntry(nil), entries...)
-	return m
-}
-
 func (m *Model) submitTerminalInput() tea.Cmd {
 	if !m.hasTerminalSession() {
 		return nil
@@ -849,13 +848,27 @@ func (m *Model) closeActiveRuntime() tea.Cmd {
 	}
 }
 
-func (m *Model) submitChatInput() {
+func (m *Model) submitChatInput() tea.Cmd {
 	content := strings.TrimSpace(m.input)
-	if content == "" || m.activeTab != 0 {
-		return
+	if content == "" || (m.activeTab != 0 && m.activeTab != 5) {
+		return nil
 	}
 	m.messages = append(m.messages, ChatMessage{Role: "You", Content: content})
 	m.input = ""
+	if m.aiBackend == nil {
+		return nil
+	}
+	backend := m.aiBackend
+	activeSessionID := ""
+	if session := m.ActiveSession(); session != nil {
+		activeSessionID = session.ID
+	}
+	return func() tea.Msg {
+		if err := backend.SendChatMessage(content, activeSessionID); err != nil {
+			return aiSendError{err: err}
+		}
+		return aiSendDone{}
+	}
 }
 
 func (m *Model) selectNextTab() {
@@ -1064,6 +1077,10 @@ func (m *Model) toggleSetting() tea.Cmd {
 	}
 }
 
+type aiSendDone struct{}
+type aiSendError struct{ err error }
+type aiRefreshDone struct{ messages []ChatMessage }
+
 type settingsUpdateDone struct{ settings domainsettings.AppSettings }
 type settingsUpdateError struct{ err error }
 
@@ -1171,7 +1188,9 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		}
 		b.WriteString("\n↑/↓ select   Enter change")
 	case 5:
-		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n> "); b.WriteString(m.input)
+		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n")
+		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
+		b.WriteString("\n> "); b.WriteString(m.input)
 	}
 	return panelFixed(b.String(), width, height)
 }
@@ -1193,7 +1212,7 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 	for _, line := range []string{
 		"F2  Sessions       F3  Terminal",
 		"F4  Files          F5  Tools",
-		"F6  Tools          F7  AI          F10 Exit",
+		"F6  Settings       F7  AI          F10 Exit",
 		"",
 		"←/→  previous/next tab",
 		"Tab  next tab      Shift+Tab previous tab",
@@ -1213,10 +1232,21 @@ func Run(backend Backend) error {
 	program := tea.NewProgram(model, tea.WithAltScreen())
 	if service, ok := backend.(*appservice.Service); ok {
 		service.SetRuntimeContext(context.Background(), func(eventName string, data ...interface{}) {
+			if eventName == "ai:message" {
+				state := service.GetShellState()
+				messages := make([]ChatMessage, 0, len(state.AI.Messages))
+				for _, message := range state.AI.Messages {
+					messages = append(messages, ChatMessage{Role: message.Role, Content: message.Content})
+				}
+				program.Send(aiRefreshDone{messages: messages})
+				return
+			}
 			if eventName != "" && len(data) > 0 {
 				if payload, ok := data[0].(map[string]string); ok {
 					sessionID := strings.TrimPrefix(eventName, "terminal:output:")
-						if sessionID != eventName { program.Send(runtimeOutput{sessionID: sessionID, data: payload["data"]}) }
+					if sessionID != eventName {
+						program.Send(runtimeOutput{sessionID: sessionID, data: payload["data"]})
+					}
 				}
 			}
 		})
