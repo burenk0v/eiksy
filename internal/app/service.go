@@ -144,6 +144,16 @@ func NewService(store stateStore, sshManager sshManager, sftpManager sftpManager
 	return service
 }
 
+// NewTUIService creates the same application service with only the dependencies
+// required by the terminal UI. Runtime SSH/SFTP managers are intentionally not
+// constructed in the CLI process; the TUI does not own protocol execution.
+func NewTUIService(store stateStore) *Service {
+	return &Service{
+		store:  store,
+		emitFn: func(string, ...interface{}) {},
+	}
+}
+
 func (s *Service) SetRuntimeContext(ctx context.Context, emitFn func(eventName string, data ...interface{})) {
 	s.ctx = ctx
 	if emitFn != nil {

@@ -1,16 +1,13 @@
 package main
 
 import (
-	"context"
-	"fmt"
+		"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
 
 	"eiksy/internal/app"
 	"eiksy/internal/cli"
-	"eiksy/internal/sftp"
-	"eiksy/internal/ssh"
 	"eiksy/internal/storage/disk"
 	"eiksy/internal/tui"
 )
@@ -46,9 +43,7 @@ func newBackend() *app.Service {
 	if err != nil {
 		panic(fmt.Sprintf("eiksy-cli: initialize storage: %v", err))
 	}
-	service := app.NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
-	service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
-	return service
+	return app.NewTUIService(store)
 }
 
 func main() {
