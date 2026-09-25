@@ -772,11 +772,13 @@ func (m *Model) bindRuntimeTerminal(view appservice.RuntimeSessionView) {
 }
 
 func (m *Model) openActiveProfile() tea.Cmd {
-	if m.runtimeBackend == nil || len(m.profiles) == 0 || m.activeProfile >= len(m.profiles) {
-		if m.runtimeBackend == nil { m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."}) }
+	if m.runtimeBackend == nil {
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."})
 		return nil
 	}
-	if m.runtimeBackend == nil { m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."}); return nil }
+	if len(m.profiles) == 0 || m.activeProfile >= len(m.profiles) {
+		return nil
+	}
 	profile := m.profiles[m.activeProfile]
 	if view, ok := m.activeRuntime(); ok {
 		switch view.Status {
