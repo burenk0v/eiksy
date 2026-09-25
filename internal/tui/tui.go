@@ -66,7 +66,7 @@ type ApprovalResolver interface {
 
 type SessionProfileBackend interface {
 	ListSessionProfiles() []domainsessions.Profile
-	CreateSessionProfile(domainsessions.ProfileInput) error
+	CreateSessionProfileInput(domainsessions.ProfileInput) error
 	DeleteSessionProfile(string) error
 }
 
@@ -185,6 +185,7 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.sessionForker = backend
 		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
 		m.refreshSessions()
+		m.refreshProfiles()
 	}
 	return m
 }
@@ -708,7 +709,7 @@ func (m *Model) submitProfileForm() tea.Cmd {
 	input:=domainsessions.ProfileInput{Name:f.name,ProtocolID:"ssh",Host:f.host,Port:port,Username:f.username,Password:f.password,Options:map[string]string{"auth_method":"password"}}
 	backend:=m.profileBackend
 	m.profileForm=nil
-	return func() tea.Msg { if err:=backend.CreateSessionProfile(input); err!=nil { return sessionProfileCreateError{err} }; return sessionProfileCreateDone{} }
+	return func() tea.Msg { if err:=backend.CreateSessionProfileInput(input); err!=nil { return sessionProfileCreateError{err} }; return sessionProfileCreateDone{} }
 }
 
 type sessionProfileCreateDone struct{}
