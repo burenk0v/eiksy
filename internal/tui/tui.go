@@ -856,7 +856,6 @@ func (m *Model) submitChatInput() tea.Cmd {
 	m.messages = append(m.messages, ChatMessage{Role: "You", Content: content})
 	m.input = ""
 	if m.aiBackend == nil {
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI interaction unavailable."})
 		return nil
 	}
 	backend := m.aiBackend
