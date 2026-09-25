@@ -43,7 +43,7 @@ func newBackend() *app.Service {
 	if err != nil {
 		panic(fmt.Sprintf("eiksy-cli: initialize storage: %v", err))
 	}
-	return app.NewTUIService(store)
+	return app.NewTUIRuntimeService(store)
 }
 
 func main() {
