@@ -280,6 +280,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Session profile deleted."})
 	case sessionProfileDeleteError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
+	case sessionProfileDeleteError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
 	case sessionProfileCreateError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
 	case tea.KeyMsg:
@@ -689,6 +691,39 @@ func (m Model) settingsCount() int { return 3 }
 
 func boolLabel(value bool) string { if value { return "ON" }; return "OFF" }
 func nonEmpty(value, fallback string) string { if strings.TrimSpace(value) == "" { return fallback }; return value }
+
+func (m *Model) refreshProfiles() {
+	if m.profileBackend == nil {
+		return
+	}
+	m.profiles = m.profileBackend.ListSessionProfiles()
+	if m.activeProfile >= len(m.profiles) {
+		m.activeProfile = len(m.profiles) - 1
+	}
+	if m.activeProfile < 0 {
+		m.activeProfile = 0
+	}
+}
+
+func (m *Model) deleteActiveProfile() tea.Cmd {
+	if m.profileBackend == nil || len(m.profiles) == 0 {
+		return nil
+	}
+	profileID := strings.TrimSpace(m.profiles[m.activeProfile].ID)
+	if profileID == "" {
+		return nil
+	}
+	backend := m.profileBackend
+	return func() tea.Msg {
+		if err := backend.DeleteSessionProfile(profileID); err != nil {
+			return sessionProfileDeleteError{err: err}
+		}
+		return sessionProfileDeleteDone{}
+	}
+}
+
+type sessionProfileDeleteDone struct{}
+type sessionProfileDeleteError struct{ err error }
 
 func (m *Model) refreshSessions() {
 	if m.backend == nil { return }
