@@ -469,9 +469,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
-			if m.activeTab == 0 && len(m.profiles) > 0 {
-				if cmd := m.openActiveProfile(); cmd != nil { return m, cmd }
-				return m, nil
+			if m.activeTab == 0 {
+				if len(m.profiles) == 0 { m.refreshProfiles() }
+				if len(m.profiles) > 0 {
+					if cmd := m.openActiveProfile(); cmd != nil { return m, cmd }
+					return m, nil
+				}
 			}
 			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
