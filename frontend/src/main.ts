@@ -541,6 +541,7 @@ class EiksyShell {
     state.activeSessions ??= [];
     state.sessionHistory ??= [];
     state.workspace ??= {} as ShellState["workspace"];
+    state.workspace.layout ??= {} as ShellState["workspace"]["layout"];
     state.workspace.recentEvents ??= [];
     state.ai ??= {} as ShellState["ai"];
     state.ai.providers ??= [];
