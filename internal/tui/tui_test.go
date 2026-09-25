@@ -752,31 +752,27 @@ func TestModelFilesViewShowsEmptyStateAndSession(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Files", "Session 1/1", "Path: .", "No files loaded yet."} {
+	for _, want := range []string{"Files", "Session 1/1", "Path: .", "No active SSH session.", "Connect a session from Sessions first."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
 	}
 }
 
-func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
-	m := NewModel().WithFileEntries("/etc/eiksy", []FileEntry{
-		{Name: "config.yaml", Kind: "file"},
-		{Name: "sessions", Kind: "dir"},
-	})
+func TestModelFilesViewRequiresRuntimeSession(t *testing.T) {
+	m := NewModel()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Path: /etc/eiksy", "[file] config.yaml", "[dir ] sessions"} {
+	for _, want := range []string{"Path: .", "No active SSH session.", "Connect a session from Sessions first."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
 	}
 }
-
 
 func TestModelViewShowsContextStatus(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})
