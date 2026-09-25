@@ -10,9 +10,3 @@ func (s *Service) ListSessionProfiles() []sessions.Profile {
 	}
 	return s.store.SessionProfiles()
 }
-
-// CreateSessionProfile is the shared application operation used by
-// interactive clients. Secret fields are handled by CreateSessionProfileInput.
-func (s *Service) CreateSessionProfile(input sessions.ProfileInput) error {
-	return s.CreateSessionProfileInput(input)
-}
