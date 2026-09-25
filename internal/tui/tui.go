@@ -65,7 +65,9 @@ type ApprovalResolver interface {
 }
 
 type SessionProfileBackend interface {
+	ListSessionProfiles() []domainsessions.Profile
 	CreateSessionProfile(domainsessions.ProfileInput) error
+	DeleteSessionProfile(string) error
 }
 
 type Backend interface {
@@ -104,6 +106,8 @@ type Model struct {
 	settings        domainsettings.AppSettings
 	settingsIndex   int
 	profileBackend   SessionProfileBackend
+	profiles         []domainsessions.Profile
+	activeProfile    int
 	profileForm      *sessionProfileForm
 }
 
@@ -268,7 +272,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case settingsUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
 	case sessionProfileCreateDone:
+		m.refreshProfiles()
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Session profile created."})
+	case sessionProfileDeleteDone:
+		m.refreshProfiles()
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Session profile deleted."})
+	case sessionProfileDeleteError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
 	case sessionProfileCreateError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
 	case tea.KeyMsg:
@@ -334,6 +344,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
+		case tea.KeyCtrlD:
+			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
 		case tea.KeyLeft:
 			m.activeView = ""
 			m.selectPreviousTab()
@@ -345,9 +357,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selectPreviousTab()
 		case tea.KeyUp:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
+			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
+			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
@@ -755,16 +769,14 @@ func panelFixed(content string, width, height int) string {
 func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) string {
 	var b strings.Builder
 	b.WriteString(title.Render("SESSIONS")); b.WriteString("\n\n")
-	if len(m.sessions) == 0 {
-		b.WriteString("No sessions\n")
+	if len(m.profiles) == 0 {
+		b.WriteString("No session profiles\n")
 	} else {
-		for i, session := range m.sessions {
-			marker := "  "; if i == m.activeSession { marker = "› " }
-			name := session.Title; if name == "" { name = session.ID }
+		for i, profile := range m.profiles {
+			marker := "  "; if i == m.activeProfile { marker = "› " }
+			name := profile.Name; if name == "" { name = profile.ID }
 			line := marker + name
-			if i == m.activeSession {
-				line = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("24")).Width(width).Render(line)
-			}
+			if i == m.activeProfile { line = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("24")).Width(width).Render(line) }
 			b.WriteString(line); b.WriteByte('\n')
 		}
 	}
@@ -772,9 +784,11 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 	b.WriteString(key.Render("↑/↓")); b.WriteString(" sessions\n")
 	b.WriteString(key.Render("←/→")); b.WriteString(" tabs\n")
 	b.WriteString(key.Render("Tab")); b.WriteString(" next tab\n")
-	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n\n")
+	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n")
+	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session\n")
+	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n\n")
 	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("\n\n")
-	if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
+	if len(m.profiles)>0 { b.WriteString(m.profiles[m.activeProfile].Name) } else if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
 	return panelFixed(b.String(), width, height)
 }
 
@@ -861,7 +875,7 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 		"←/→  previous/next tab",
 		"Tab  next tab      Shift+Tab previous tab",
 		"↑/↓  previous/next session",
-		"Enter select/send  Ctrl+N new session  Ctrl+F fork session",
+		"Enter select/send  Ctrl+N new session  Ctrl+D delete profile",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
 	} { b.WriteString(line); b.WriteByte('\n') }
