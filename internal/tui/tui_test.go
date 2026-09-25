@@ -5,7 +5,10 @@ import (
 	"testing"
 
 	agentai "eiksy/internal/ai"
+	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
+	domainsettings "eiksy/internal/domain/settings"
+	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -339,6 +342,74 @@ func TestModelSessionBrowserNavigation(t *testing.T) {
 	if got := m.ActiveSession(); got == nil || got.ID != "chat-3" {
 		t.Fatalf("expected session navigation to wrap, got %+v", got)
 	}
+}
+
+type runtimeTestBackend struct {
+	profiles []domainsessions.Profile
+	launched appservice.RuntimeSessionView
+	connected []string
+	disconnected []string
+	closed []string
+	sent []string
+}
+
+func (b *runtimeTestBackend) ListChatSessions() []domainai.ChatSession { return nil }
+func (b *runtimeTestBackend) CreateChatSession(string) (domainai.ChatSession, error) { return domainai.ChatSession{}, nil }
+func (b *runtimeTestBackend) SelectChatSession(string) error { return nil }
+func (b *runtimeTestBackend) ForkChatSession(string, string) (domainai.ChatSession, error) { return domainai.ChatSession{}, nil }
+func (b *runtimeTestBackend) GetSettings() domainsettings.AppSettings { return domainsettings.AppSettings{} }
+func (b *runtimeTestBackend) UpdateSettings(domainsettings.AppSettings) error { return nil }
+func (b *runtimeTestBackend) ListSessionProfiles() []domainsessions.Profile { return append([]domainsessions.Profile(nil), b.profiles...) }
+func (b *runtimeTestBackend) CreateSessionProfileInput(domainsessions.ProfileInput) error { return nil }
+func (b *runtimeTestBackend) DeleteSessionProfile(string) error { return nil }
+func (b *runtimeTestBackend) LaunchSession(profileID string) (appservice.RuntimeSessionView, error) {
+	b.launched = appservice.RuntimeSessionView{ID:"ssh-1",Title:"prod",ProtocolID:"ssh",ProfileID:profileID,Status:"connecting"}
+	return b.launched, nil
+}
+func (b *runtimeTestBackend) ConnectSession(sessionID string) error { b.connected = append(b.connected, sessionID); return nil }
+func (b *runtimeTestBackend) ReconnectSession(sessionID string) error { b.connected = append(b.connected, "reconnect:"+sessionID); return nil }
+func (b *runtimeTestBackend) DisconnectSession(sessionID string) error { b.disconnected = append(b.disconnected, sessionID); return nil }
+func (b *runtimeTestBackend) CloseSession(sessionID string) error { b.closed = append(b.closed, sessionID); return nil }
+func (b *runtimeTestBackend) SendSSHInput(sessionID, data string) error { b.sent = append(b.sent, sessionID+":"+data); return nil }
+func (b *runtimeTestBackend) AcceptSSHHostKey(string) error { return nil }
+
+func TestModelRuntimeSessionLifecycle(t *testing.T) {
+	backend := &runtimeTestBackend{profiles: []domainsessions.Profile{{ID:"prod",Name:"prod",ProtocolID:"ssh",Host:"host",Port:22,Username:"ops"}}}
+	m := NewModel().WithBackend(backend)
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected launch command") }
+	m = next.(Model)
+	result := cmd()
+	if result == nil { t.Fatal("expected launch result") }
+	next, cmd = m.Update(result)
+	m = next.(Model)
+	if cmd == nil { t.Fatal("expected connect command") }
+	result = cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if len(backend.connected) != 1 || backend.connected[0] != "ssh-1" { t.Fatalf("expected ssh connection, got %v", backend.connected) }
+	if m.tabs[1].Session == nil || m.tabs[1].Session.ID != "ssh-1" { t.Fatalf("expected terminal binding, got %+v", m.tabs[1].Session) }
+
+	m.terminalInput = "ls"
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected terminal send command") }
+	_ = cmd()
+	m = next.(Model)
+	if len(backend.sent) != 1 || backend.sent[0] != "ssh-1:ls\n" { t.Fatalf("unexpected terminal input: %v", backend.sent) }
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
+	if cmd == nil { t.Fatal("expected disconnect command") }
+	m = next.(Model)
+	_ = cmd()
+	if len(backend.disconnected) != 1 || backend.disconnected[0] != "ssh-1" { t.Fatalf("unexpected disconnects: %v", backend.disconnected) }
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlW})
+	if cmd == nil { t.Fatal("expected close command") }
+	m = next.(Model)
+	_ = cmd()
+	if len(backend.closed) != 1 || backend.closed[0] != "ssh-1" { t.Fatalf("unexpected closes: %v", backend.closed) }
 }
 
 type testSessionSelector struct {
