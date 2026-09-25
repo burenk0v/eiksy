@@ -227,7 +227,22 @@ func (m Model) WithTerminalSession(sessionID, title string) Model {
 }
 
 func (m Model) hasTerminalSession() bool {
-	return len(m.tabs) > 1 && m.tabs[1].Session != nil
+	if len(m.tabs) <= 1 || m.tabs[1].Session == nil {
+		return false
+	}
+	if view, ok := m.runtimeSessionsForSession(m.tabs[1].Session.ID); ok {
+		return view.Status == "connected"
+	}
+	return false
+}
+
+func (m Model) runtimeSessionsForSession(sessionID string) (appservice.RuntimeSessionView, bool) {
+	for _, view := range m.runtimeSessions {
+		if view.ID == sessionID {
+			return view, true
+		}
+	}
+	return appservice.RuntimeSessionView{}, false
 }
 
 // WithSessionSelector connects session selection to the application service.
@@ -309,8 +324,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runtimeOperationDone:
 		if view, ok := m.runtimeSessions[msg.profileID]; ok {
 			view.Status = msg.status
-			m.runtimeSessions[msg.profileID] = view
-			if msg.status == "connected" { m.bindRuntimeTerminal(view) }
+			if msg.status == "closed" {
+				delete(m.runtimeSessions, msg.profileID)
+				m.tabs[1].UnbindSession()
+			} else {
+				m.runtimeSessions[msg.profileID] = view
+				if msg.status == "connected" { m.bindRuntimeTerminal(view) }
+			}
 		}
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:msg.message})
 	case runtimeOperationError:
@@ -778,8 +798,6 @@ func (m *Model) closeActiveRuntime() tea.Cmd {
 	if !ok || m.runtimeBackend == nil { return nil }
 	backend := m.runtimeBackend
 	profileID := view.ProfileID
-	delete(m.runtimeSessions, profileID)
-	m.tabs[1].UnbindSession()
 	return func() tea.Msg {
 		if err := backend.CloseSession(view.ID); err != nil {
 			return runtimeOperationError{operation:"Session close failed", err:err}
