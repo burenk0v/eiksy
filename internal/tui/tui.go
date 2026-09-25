@@ -334,9 +334,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:msg.message})
 	case runtimeOperationError:
-		if view, ok := m.activeRuntime(); ok {
+		if view, ok := m.runtimeSessions[msg.profileID]; ok {
 			view.Status = "error"
-			m.runtimeSessions[view.ProfileID] = view
+			m.runtimeSessions[msg.profileID] = view
 			if strings.Contains(strings.ToLower(msg.err.Error()), "unknown host key") {
 				m.pendingHostKey = view.ID
 				m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Unknown SSH host key. Press Ctrl+Y to accept it, then reconnect.\n%v", msg.err)})
@@ -711,6 +711,7 @@ type runtimeOperationDone struct {
 }
 type runtimeOperationError struct {
 	operation string
+	profileID string
 	err error
 }
 type runtimeOutput struct {
@@ -751,7 +752,7 @@ func (m *Model) openActiveProfile() tea.Cmd {
 	backend := m.runtimeBackend
 	return func() tea.Msg {
 		view, err := backend.LaunchSession(profile.ID)
-		if err != nil { return runtimeOperationError{operation:"Session launch failed", err:err} }
+		if err != nil { return runtimeOperationError{operation:"Session launch failed", profileID:profile.ID, err:err} }
 		return runtimeLaunchDone{view:view}
 	}
 }
@@ -761,7 +762,7 @@ func (m *Model) connectRuntime(sessionID string) tea.Cmd {
 	profileID := m.profiles[m.activeProfile].ID
 	return func() tea.Msg {
 		if err := backend.ConnectSession(sessionID); err != nil {
-			return runtimeOperationError{operation:"Session connect failed", err:err}
+			return runtimeOperationError{operation:"Session connect failed", profileID:profileID, err:err}
 		}
 		return runtimeOperationDone{profileID:profileID,status:"connected",message:"Session connected."}
 	}
@@ -774,7 +775,7 @@ func (m *Model) reconnectActiveRuntime() tea.Cmd {
 	profileID := view.ProfileID
 	return func() tea.Msg {
 		if err := backend.ReconnectSession(view.ID); err != nil {
-			return runtimeOperationError{operation:"Session reconnect failed", err:err}
+			return runtimeOperationError{operation:"Session reconnect failed", profileID:profileID, err:err}
 		}
 		return runtimeOperationDone{profileID:profileID,status:"connected",message:"Session reconnected."}
 	}
@@ -787,7 +788,7 @@ func (m *Model) disconnectActiveRuntime() tea.Cmd {
 	profileID := view.ProfileID
 	return func() tea.Msg {
 		if err := backend.DisconnectSession(view.ID); err != nil {
-			return runtimeOperationError{operation:"Session disconnect failed", err:err}
+			return runtimeOperationError{operation:"Session disconnect failed", profileID:profileID, err:err}
 		}
 		return runtimeOperationDone{profileID:profileID,status:"disconnected",message:"Session disconnected."}
 	}
@@ -800,7 +801,7 @@ func (m *Model) closeActiveRuntime() tea.Cmd {
 	profileID := view.ProfileID
 	return func() tea.Msg {
 		if err := backend.CloseSession(view.ID); err != nil {
-			return runtimeOperationError{operation:"Session close failed", err:err}
+			return runtimeOperationError{operation:"Session close failed", profileID:profileID, err:err}
 		}
 		return runtimeOperationDone{profileID:profileID,status:"closed",message:"Session closed."}
 	}
