@@ -8,6 +8,7 @@ import (
 	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
+	sftpdomain "eiksy/internal/domain/sftp"
 	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -372,6 +373,78 @@ func (b *runtimeTestBackend) DisconnectSession(sessionID string) error { b.disco
 func (b *runtimeTestBackend) CloseSession(sessionID string) error { b.closed = append(b.closed, sessionID); return nil }
 func (b *runtimeTestBackend) SendSSHInput(sessionID, data string) error { b.sent = append(b.sent, sessionID+":"+data); return nil }
 func (b *runtimeTestBackend) AcceptSSHHostKey(string) error { return nil }
+func (b *runtimeTestBackend) ListSFTPFiles(string, string) ([]sftpdomain.FileEntry, error) { return nil, nil }
+func (b *runtimeTestBackend) NavigateSFTP(string, string) ([]sftpdomain.FileEntry, error) { return nil, nil }
+func (b *runtimeTestBackend) ReadSFTPFile(string, string) (string, error) { return "", nil }
+
+type sftpRuntimeTestBackend struct {
+	runtimeTestBackend
+	listed []string
+	read []string
+}
+
+func (b *sftpRuntimeTestBackend) ListSFTPFiles(sessionID, targetPath string) ([]sftpdomain.FileEntry, error) {
+	b.listed = append(b.listed, sessionID+":"+targetPath)
+	return []sftpdomain.FileEntry{
+		{Name:"config", Path:"/etc/config", IsDir:true},
+		{Name:"readme.txt", Path:"/etc/readme.txt", IsDir:false},
+	}, nil
+}
+
+func (b *sftpRuntimeTestBackend) NavigateSFTP(sessionID, targetPath string) ([]sftpdomain.FileEntry, error) {
+	return b.ListSFTPFiles(sessionID, targetPath)
+}
+
+func (b *sftpRuntimeTestBackend) ReadSFTPFile(sessionID, filePath string) (string, error) {
+	b.read = append(b.read, sessionID+":"+filePath)
+	return "hello from remote", nil
+}
+
+func TestModelSFTPFilesBrowseAndRead(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{runtimeTestBackend: runtimeTestBackend{
+		profiles: []domainsessions.Profile{{ID:"prod",Name:"prod",ProtocolID:"ssh",Host:"host",Port:22,Username:"ops"}},
+	}}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected SFTP listing command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if len(backend.listed) != 1 || backend.listed[0] != "ssh-1:" { t.Fatalf("unexpected SFTP list calls: %v", backend.listed) }
+	if len(m.sftpEntries) != 2 || m.sftpSelected != 0 { t.Fatalf("unexpected SFTP entries: %+v selected=%d", m.sftpEntries, m.sftpSelected) }
+
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(Model)
+	if m.sftpSelected != 1 { t.Fatalf("expected second file selected, got %d", m.sftpSelected) }
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected SFTP read command") }
+	m = next.(Model)
+	result = cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if len(backend.read) != 1 || backend.read[0] != "ssh-1:/etc/readme.txt" { t.Fatalf("unexpected SFTP read calls: %v", backend.read) }
+	if m.fileContent != "hello from remote" { t.Fatalf("unexpected file content: %q", m.fileContent) }
+	if !strings.Contains(m.View(), "FILE: /etc/readme.txt") || !strings.Contains(m.View(), "hello from remote") { t.Fatal("expected remote file content in Files view") }
+}
+
+func TestModelSFTPDirectoryNavigation(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{runtimeTestBackend: runtimeTestBackend{}}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+	m.sftpEntries = []sftpdomain.FileEntry{{Name:"config",Path:"/etc/config",IsDir:true}}
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected directory navigation command") }
+	_ = next
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if m.sftpPath != "/etc/config" { t.Fatalf("expected directory path, got %q", m.sftpPath) }
+	if len(backend.listed) != 1 || backend.listed[0] != "ssh-1:/etc/config" { t.Fatalf("unexpected directory list calls: %v", backend.listed) }
+}
 
 func TestModelRuntimeSessionLifecycle(t *testing.T) {
 	backend := &runtimeTestBackend{profiles: []domainsessions.Profile{{ID:"prod",Name:"prod",ProtocolID:"ssh",Host:"host",Port:22,Username:"ops"}}}
@@ -682,31 +755,27 @@ func TestModelFilesViewShowsEmptyStateAndSession(t *testing.T) {
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Files", "Session 1/1", "Path: .", "No files loaded yet."} {
+	for _, want := range []string{"Files", "Session 1/1", "Path: .", "No active SSH session.", "Connect a session from Sessions first."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
 	}
 }
 
-func TestModelFilesViewRendersApplicationProvidedEntries(t *testing.T) {
-	m := NewModel().WithFileEntries("/etc/eiksy", []FileEntry{
-		{Name: "config.yaml", Kind: "file"},
-		{Name: "sessions", Kind: "dir"},
-	})
+func TestModelFilesViewRequiresRuntimeSession(t *testing.T) {
+	m := NewModel()
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
 	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
 	m = next.(Model)
 
 	view := m.View()
-	for _, want := range []string{"Path: /etc/eiksy", "[file] config.yaml", "[dir ] sessions"} {
+	for _, want := range []string{"Path: .", "No active SSH session.", "Connect a session from Sessions first."} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected files view to contain %q, got %q", want, view)
 		}
 	}
 }
-
 
 func TestModelViewShowsContextStatus(t *testing.T) {
 	m := NewModel().WithChatSessions([]SessionRef{{ID: "chat-1", Title: "Production"}, {ID: "chat-2", Title: "Deploy"}})

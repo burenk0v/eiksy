@@ -10,6 +10,7 @@ import (
 	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
+	sftpdomain "eiksy/internal/domain/sftp"
 	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -80,6 +81,9 @@ type RuntimeSessionBackend interface {
 	CloseSession(string) error
 	SendSSHInput(string, string) error
 	AcceptSSHHostKey(string) error
+	ListSFTPFiles(string, string) ([]sftpdomain.FileEntry, error)
+	NavigateSFTP(string, string) ([]sftpdomain.FileEntry, error)
+	ReadSFTPFile(string, string) (string, error)
 }
 
 type Backend interface {
@@ -103,6 +107,10 @@ type Model struct {
 	terminalInput string
 	fileEntries []FileEntry
 	filePath    string
+	sftpEntries []sftpdomain.FileEntry
+	sftpPath string
+	sftpSelected int
+	fileContent string
 	activeView  string
 	palette   *CommandPalette
 	shortcuts bool
@@ -310,6 +318,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
 	case sessionProfileCreateError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
+	case sftpListDone:
+		m.sftpPath = msg.path
+		m.sftpEntries = append([]sftpdomain.FileEntry(nil), msg.entries...)
+		m.sftpSelected = 0
+		m.fileContent = ""
+	case sftpListError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP listing failed: %v", msg.err)})
+	case sftpReadDone:
+		m.fileContent = msg.content
+		m.sftpPath = msg.path
+	case sftpReadError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP read failed: %v", msg.err)})
 	case runtimeLaunchDone:
 		if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
 		m.runtimeSessions[msg.view.ProfileID] = msg.view
@@ -440,21 +460,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyUp:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
+			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected-1+len(m.sftpEntries))%len(m.sftpEntries); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
+			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected+1)%len(m.sftpEntries); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
-			if m.activeTab == 0 && len(m.profiles) > 0 {
-				if cmd := m.openActiveProfile(); cmd != nil { return m, cmd }
-				return m, nil
+			if m.activeTab == 0 {
+				if len(m.profiles) == 0 { m.refreshProfiles() }
+				if len(m.profiles) > 0 {
+					if cmd := m.openActiveProfile(); cmd != nil { return m, cmd }
+					return m, nil
+				}
 			}
 			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 1 {
 				if cmd := m.submitTerminalInput(); cmd != nil { return m, cmd }
+			} else if m.activeTab == 2 {
+				if cmd := m.openSFTPSelection(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectActiveSession(); cmd != nil {
 					return m, cmd
@@ -707,6 +734,11 @@ func (m *Model) submitTerminalInput() tea.Cmd {
 		return nil
 	}
 }
+type sftpListDone struct { sessionID, path string; entries []sftpdomain.FileEntry }
+type sftpListError struct { err error }
+type sftpReadDone struct { path, content string }
+type sftpReadError struct { err error }
+
 type runtimeLaunchDone struct{ view appservice.RuntimeSessionView }
 type runtimeOperationDone struct {
 	profileID string
@@ -740,7 +772,13 @@ func (m *Model) bindRuntimeTerminal(view appservice.RuntimeSessionView) {
 }
 
 func (m *Model) openActiveProfile() tea.Cmd {
-	if m.runtimeBackend == nil { m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."}); return nil }
+	if m.runtimeBackend == nil {
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."})
+		return nil
+	}
+	if len(m.profiles) == 0 || m.activeProfile >= len(m.profiles) {
+		return nil
+	}
 	profile := m.profiles[m.activeProfile]
 	if view, ok := m.activeRuntime(); ok {
 		switch view.Status {
@@ -930,6 +968,38 @@ func (m *Model) deleteActiveProfile() tea.Cmd {
 type sessionProfileDeleteDone struct{}
 type sessionProfileDeleteError struct{ err error }
 
+func (m *Model) activeRuntimeSessionID() string {
+	if len(m.tabs) <= 1 || m.tabs[1].Session == nil { return "" }
+	return m.tabs[1].Session.ID
+}
+
+func (m *Model) loadSFTPFiles(targetPath string) tea.Cmd {
+	if m.runtimeBackend == nil || m.activeRuntimeSessionID() == "" { return nil }
+	sessionID := m.activeRuntimeSessionID()
+	backend := m.runtimeBackend
+	return func() tea.Msg {
+		entries, err := backend.ListSFTPFiles(sessionID, targetPath)
+		if err != nil { return sftpListError{err: err} }
+		path := strings.TrimSpace(targetPath)
+		if path == "" { path = "." }
+		return sftpListDone{sessionID: sessionID, path: path, entries: entries}
+	}
+}
+
+func (m *Model) openSFTPSelection() tea.Cmd {
+	if m.runtimeBackend == nil || m.activeRuntimeSessionID() == "" { return nil }
+	if len(m.sftpEntries) == 0 { return m.loadSFTPFiles(m.sftpPath) }
+	entry := m.sftpEntries[m.sftpSelected]
+	if entry.IsDir { return m.loadSFTPFiles(entry.Path) }
+	backend := m.runtimeBackend
+	sessionID := m.activeRuntimeSessionID()
+	return func() tea.Msg {
+		content, err := backend.ReadSFTPFile(sessionID, entry.Path)
+		if err != nil { return sftpReadError{err: err} }
+		return sftpReadDone{path: entry.Path, content: content}
+	}
+}
+
 func (m *Model) refreshSessions() {
 	if m.backend == nil { return }
 	items := m.backend.ListChatSessions()
@@ -1069,13 +1139,20 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			if view, ok := m.activeRuntime(); ok { fmt.Fprintf(&b, "\n\nStatus: %s", view.Status) }
 		}
 	case 2:
-		path := m.filePath; if path == "" { path = "." }
+		path := m.sftpPath; if path == "" { path = "." }
 		fmt.Fprintf(&b, "Path: %s\n\n", path)
-		if len(m.fileEntries) == 0 { b.WriteString("No files loaded yet.") } else {
-			for _, entry := range m.fileEntries {
-				kind := entry.Kind; if kind == "" { kind = "file" }
-				fmt.Fprintf(&b, "[%-4s] %s\n", kind, entry.Name)
+		if m.fileContent != "" {
+			b.WriteString("FILE: "); b.WriteString(path); b.WriteString("\n\n")
+			b.WriteString(m.fileContent)
+		} else if len(m.sftpEntries) == 0 {
+			if m.activeRuntimeSessionID() == "" { b.WriteString("No active SSH session.\n\nConnect a session from Sessions first.") } else { b.WriteString("No files loaded yet.\n\nPress Enter to load the remote directory.") }
+		} else {
+			for i, entry := range m.sftpEntries {
+				marker := "  "; if i == m.sftpSelected { marker = "> " }
+				kind := "file"; if entry.IsDir { kind = "dir" }
+				fmt.Fprintf(&b, "%s[%-4s] %s\n", marker, kind, entry.Name)
 			}
+			b.WriteString("\n↑/↓ select   Enter open/read")
 		}
 	case 3:
 		b.WriteString("Tools available through the application services.\n\nUse the command palette to navigate available actions.\n\n")
