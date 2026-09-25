@@ -16,6 +16,8 @@ import (
 	sftpdomain "eiksy/internal/domain/sftp"
 	"eiksy/internal/domain/workspace"
 	"eiksy/internal/securestorage"
+	sshmanager "eiksy/internal/ssh"
+	sftpmanager "eiksy/internal/sftp"
 )
 
 type ShellState struct {
@@ -152,6 +154,13 @@ func NewTUIService(store stateStore) *Service {
 		store:  store,
 		emitFn: func(string, ...interface{}) {},
 	}
+}
+
+// NewTUIRuntimeService creates the application service used by the interactive
+// TUI. It shares the same SSH/SFTP runtime managers as the GUI instead of
+// keeping protocol execution in the TUI layer.
+func NewTUIRuntimeService(store stateStore) *Service {
+	return NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
 }
 
 func (s *Service) SetRuntimeContext(ctx context.Context, emitFn func(eventName string, data ...interface{})) {
