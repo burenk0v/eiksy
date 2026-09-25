@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
 
 	agentai "eiksy/internal/ai"
+	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
 	domainsessions "eiksy/internal/domain/sessions"
@@ -70,6 +72,16 @@ type SessionProfileBackend interface {
 	DeleteSessionProfile(string) error
 }
 
+type RuntimeSessionBackend interface {
+	LaunchSession(string) (appservice.RuntimeSessionView, error)
+	ConnectSession(string) error
+	ReconnectSession(string) error
+	DisconnectSession(string) error
+	CloseSession(string) error
+	SendSSHInput(string, string) error
+	AcceptSSHHostKey(string) error
+}
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
@@ -109,6 +121,9 @@ type Model struct {
 	profiles         []domainsessions.Profile
 	activeProfile    int
 	profileForm      *sessionProfileForm
+	runtimeBackend   RuntimeSessionBackend
+	runtimeSessions  map[string]appservice.RuntimeSessionView
+	pendingHostKey   string
 }
 
 type sessionProfileForm struct {
@@ -184,6 +199,10 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.sessionSelector = backend
 		m.sessionForker = backend
 		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
+		if runtimeBackend, ok := backend.(RuntimeSessionBackend); ok {
+			m.runtimeBackend = runtimeBackend
+			if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
+		}
 		m.refreshSessions()
 		m.refreshProfiles()
 	}
@@ -209,6 +228,15 @@ func (m Model) WithTerminalSession(sessionID, title string) Model {
 
 func (m Model) hasTerminalSession() bool {
 	return len(m.tabs) > 1 && m.tabs[1].Session != nil
+}
+
+func (m Model) runtimeSessionsForSession(sessionID string) (appservice.RuntimeSessionView, bool) {
+	for _, view := range m.runtimeSessions {
+		if view.ID == sessionID {
+			return view, true
+		}
+	}
+	return appservice.RuntimeSessionView{}, false
 }
 
 // WithSessionSelector connects session selection to the application service.
@@ -282,6 +310,44 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
 	case sessionProfileCreateError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
+	case runtimeLaunchDone:
+		if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
+		m.runtimeSessions[msg.view.ProfileID] = msg.view
+		m.bindRuntimeTerminal(msg.view)
+		return m, m.connectRuntime(msg.view.ID)
+	case runtimeOperationDone:
+		if view, ok := m.runtimeSessions[msg.profileID]; ok {
+			view.Status = msg.status
+			if msg.status == "closed" {
+				delete(m.runtimeSessions, msg.profileID)
+				m.tabs[1].UnbindSession()
+			} else {
+				m.runtimeSessions[msg.profileID] = view
+				if msg.status == "connected" { m.bindRuntimeTerminal(view) }
+			}
+		}
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:msg.message})
+	case runtimeOperationError:
+		if view, ok := m.runtimeSessions[msg.profileID]; ok {
+			view.Status = "error"
+			m.runtimeSessions[msg.profileID] = view
+			if strings.Contains(strings.ToLower(msg.err.Error()), "unknown host key") {
+				m.pendingHostKey = view.ID
+				m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Unknown SSH host key. Press Ctrl+Y to accept it, then reconnect.\n%v", msg.err)})
+				break
+			}
+		}
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("%s: %v", msg.operation, msg.err)})
+	case runtimeHostKeyAccepted:
+		m.pendingHostKey = ""
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"SSH host key accepted. Reconnecting..."})
+		return m, m.reconnectActiveRuntime()
+	case runtimeHostKeyAcceptError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SSH host key acceptance failed: %v", msg.err)})
+	case runtimeOutput:
+		if m.tabs[1].Session != nil && m.tabs[1].Session.ID == msg.sessionID {
+			m.terminalLines = append(m.terminalLines, msg.data)
+		}
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyF2:
@@ -347,6 +413,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
+		case tea.KeyCtrlR:
+			if m.activeTab == 0 && m.profileForm == nil { if cmd := m.reconnectActiveRuntime(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlX:
+			if m.profileForm == nil { if cmd := m.disconnectActiveRuntime(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlW:
+			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlY:
+			if m.pendingHostKey != "" && m.runtimeBackend != nil {
+				backend := m.runtimeBackend
+				sessionID := m.pendingHostKey
+				return m, func() tea.Msg {
+					if err := backend.AcceptSSHHostKey(sessionID); err != nil { return runtimeHostKeyAcceptError{err: err} }
+					return runtimeHostKeyAccepted{}
+				}
+			}
 		case tea.KeyLeft:
 			m.activeView = ""
 			m.selectPreviousTab()
@@ -366,10 +447,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
+			if m.activeTab == 0 && len(m.profiles) > 0 {
+				if cmd := m.openActiveProfile(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 1 {
-				m.submitTerminalInput()
+				if cmd := m.submitTerminalInput(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectActiveSession(); cmd != nil {
 					return m, cmd
@@ -594,14 +679,136 @@ func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
 	return m
 }
 
-func (m *Model) submitTerminalInput() {
+func (m *Model) submitTerminalInput() tea.Cmd {
 	if !m.hasTerminalSession() {
-		return
+		return nil
 	}
-	content := strings.TrimSpace(m.terminalInput)
-	if content == "" { return }
-	m.terminalLines = append(m.terminalLines, "$ "+content)
+	content := m.terminalInput
+	if content == "" {
+		return nil
+	}
+	sessionID := m.tabs[1].Session.ID
+	m.terminalLines = append(m.terminalLines, "$ "+strings.TrimSpace(content))
 	m.terminalInput = ""
+
+	if m.runtimeBackend == nil {
+		return nil
+	}
+
+	backend := m.runtimeBackend
+	profileID := ""
+	if view, ok := m.runtimeSessionsForSession(sessionID); ok {
+		profileID = view.ProfileID
+	}
+	return func() tea.Msg {
+		if err := backend.SendSSHInput(sessionID, content+"\n"); err != nil {
+			return runtimeOperationError{operation:"Terminal input failed", profileID:profileID, err:err}
+		}
+		return nil
+	}
+}
+type runtimeLaunchDone struct{ view appservice.RuntimeSessionView }
+type runtimeOperationDone struct {
+	profileID string
+	status string
+	message string
+}
+type runtimeOperationError struct {
+	operation string
+	profileID string
+	err error
+}
+type runtimeOutput struct {
+	sessionID string
+	data string
+}
+type runtimeHostKeyAccepted struct{}
+type runtimeHostKeyAcceptError struct{ err error }
+
+func (m *Model) activeRuntime() (appservice.RuntimeSessionView, bool) {
+	if len(m.profiles) == 0 || m.runtimeSessions == nil { return appservice.RuntimeSessionView{}, false }
+	profile := m.profiles[m.activeProfile]
+	view, ok := m.runtimeSessions[profile.ID]
+	return view, ok
+}
+
+func (m *Model) bindRuntimeTerminal(view appservice.RuntimeSessionView) {
+	if view.Status == "connected" || view.Status == "connecting" {
+		m.tabs[1].BindSession(view.ID, view.Title)
+	}
+	m.activeTab = 1
+}
+
+func (m *Model) openActiveProfile() tea.Cmd {
+	if m.runtimeBackend == nil { m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Runtime session management unavailable."}); return nil }
+	profile := m.profiles[m.activeProfile]
+	if view, ok := m.activeRuntime(); ok {
+		switch view.Status {
+		case "connected":
+			m.bindRuntimeTerminal(view)
+			return nil
+		case "connecting":
+			return nil
+		case "disconnected", "error":
+			return m.connectRuntime(view.ID)
+		}
+	}
+	backend := m.runtimeBackend
+	return func() tea.Msg {
+		view, err := backend.LaunchSession(profile.ID)
+		if err != nil { return runtimeOperationError{operation:"Session launch failed", profileID:profile.ID, err:err} }
+		return runtimeLaunchDone{view:view}
+	}
+}
+
+func (m *Model) connectRuntime(sessionID string) tea.Cmd {
+	backend := m.runtimeBackend
+	profileID := m.profiles[m.activeProfile].ID
+	return func() tea.Msg {
+		if err := backend.ConnectSession(sessionID); err != nil {
+			return runtimeOperationError{operation:"Session connect failed", profileID:profileID, err:err}
+		}
+		return runtimeOperationDone{profileID:profileID,status:"connected",message:"Session connected."}
+	}
+}
+
+func (m *Model) reconnectActiveRuntime() tea.Cmd {
+	view, ok := m.activeRuntime()
+	if !ok || m.runtimeBackend == nil { return nil }
+	backend := m.runtimeBackend
+	profileID := view.ProfileID
+	return func() tea.Msg {
+		if err := backend.ReconnectSession(view.ID); err != nil {
+			return runtimeOperationError{operation:"Session reconnect failed", profileID:profileID, err:err}
+		}
+		return runtimeOperationDone{profileID:profileID,status:"connected",message:"Session reconnected."}
+	}
+}
+
+func (m *Model) disconnectActiveRuntime() tea.Cmd {
+	view, ok := m.activeRuntime()
+	if !ok || m.runtimeBackend == nil { return nil }
+	backend := m.runtimeBackend
+	profileID := view.ProfileID
+	return func() tea.Msg {
+		if err := backend.DisconnectSession(view.ID); err != nil {
+			return runtimeOperationError{operation:"Session disconnect failed", profileID:profileID, err:err}
+		}
+		return runtimeOperationDone{profileID:profileID,status:"disconnected",message:"Session disconnected."}
+	}
+}
+
+func (m *Model) closeActiveRuntime() tea.Cmd {
+	view, ok := m.activeRuntime()
+	if !ok || m.runtimeBackend == nil { return nil }
+	backend := m.runtimeBackend
+	profileID := view.ProfileID
+	return func() tea.Msg {
+		if err := backend.CloseSession(view.ID); err != nil {
+			return runtimeOperationError{operation:"Session close failed", profileID:profileID, err:err}
+		}
+		return runtimeOperationDone{profileID:profileID,status:"closed",message:"Session closed."}
+	}
 }
 
 func (m *Model) submitChatInput() {
@@ -820,7 +1027,11 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 	b.WriteString(key.Render("Tab")); b.WriteString(" next tab\n")
 	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n")
 	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session\n")
-	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n\n")
+	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n")
+	b.WriteString(key.Render("Ctrl+R")); b.WriteString(" reconnect  ")
+	b.WriteString(key.Render("Ctrl+X")); b.WriteString(" disconnect  ")
+	b.WriteString(key.Render("Ctrl+W")); b.WriteString(" close runtime  ")
+	b.WriteString(key.Render("Ctrl+Y")); b.WriteString(" accept host key\n\n")
 	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("\n\n")
 	if len(m.profiles)>0 { b.WriteString(m.profiles[m.activeProfile].Name) } else if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
 	return panelFixed(b.String(), width, height)
@@ -848,13 +1059,14 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		b.WriteString("\n\n> "); b.WriteString(m.input)
 	case 1:
 		if !m.hasTerminalSession() {
-			b.WriteString("No active terminal session.\n\nConnect or select a runtime session to use the terminal.")
+			b.WriteString("No active terminal session.\n\nSelect a session and press Enter to launch/connect.")
 		} else {
 			fmt.Fprintf(&b, "Session: %s\n\n", m.tabs[1].Session.Title)
 			if len(m.terminalLines) == 0 { b.WriteString("Connected. Ready for input.") } else {
 				for _, line := range m.terminalLines { b.WriteString(line); b.WriteByte('\n') }
 			}
 			b.WriteString("\n\n> "); b.WriteString(m.terminalInput)
+			if view, ok := m.activeRuntime(); ok { fmt.Fprintf(&b, "\n\nStatus: %s", view.Status) }
 		}
 	case 2:
 		path := m.filePath; if path == "" { path = "." }
@@ -909,7 +1121,9 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 		"←/→  previous/next tab",
 		"Tab  next tab      Shift+Tab previous tab",
 		"↑/↓  previous/next session",
-		"Enter select/send  Ctrl+N new session  Ctrl+D delete profile",
+		"Enter select/connect  Ctrl+N new session  Ctrl+D delete profile",
+		"Ctrl+R reconnect      Ctrl+X disconnect       Ctrl+W close runtime",
+		"Ctrl+Y accept unknown SSH host key",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
 	} { b.WriteString(line); b.WriteByte('\n') }
@@ -919,6 +1133,17 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 // Config contains presentation/runtime options for the terminal UI.
 func Run(backend Backend) error {
 	model := NewModel().WithBackend(backend)
-	_, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
+	program := tea.NewProgram(model, tea.WithAltScreen())
+	if service, ok := backend.(*appservice.Service); ok {
+		service.SetRuntimeContext(context.Background(), func(eventName string, data ...interface{}) {
+			if eventName != "" && len(data) > 0 {
+				if payload, ok := data[0].(map[string]string); ok {
+					sessionID := strings.TrimPrefix(eventName, "terminal:output:")
+						if sessionID != eventName { program.Send(runtimeOutput{sessionID: sessionID, data: payload["data"]}) }
+				}
+			}
+		})
+	}
+	_, err := program.Run()
 	return err
 }
