@@ -680,23 +680,33 @@ func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
 }
 
 func (m *Model) submitTerminalInput() tea.Cmd {
-	if !m.hasTerminalSession() || m.runtimeBackend == nil {
+	if !m.hasTerminalSession() {
 		return nil
 	}
 	content := m.terminalInput
-	if content == "" { return nil }
+	if content == "" {
+		return nil
+	}
 	sessionID := m.tabs[1].Session.ID
 	m.terminalLines = append(m.terminalLines, "$ "+strings.TrimSpace(content))
 	m.terminalInput = ""
+
+	if m.runtimeBackend == nil {
+		return nil
+	}
+
 	backend := m.runtimeBackend
+	profileID := ""
+	if view, ok := m.runtimeSessionsForSession(sessionID); ok {
+		profileID = view.ProfileID
+	}
 	return func() tea.Msg {
 		if err := backend.SendSSHInput(sessionID, content+"\n"); err != nil {
-			return runtimeOperationError{operation:"Terminal input failed", err:err}
+			return runtimeOperationError{operation:"Terminal input failed", profileID:profileID, err:err}
 		}
 		return nil
 	}
 }
-
 type runtimeLaunchDone struct{ view appservice.RuntimeSessionView }
 type runtimeOperationDone struct {
 	profileID string
