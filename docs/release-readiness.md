@@ -56,12 +56,7 @@ Build or run the CLI and verify:
 ```bash
 eiksy --help
 eiksy --version
-eiksy tui
-eiksy tui --no-alt-screen
-eiksy tui --view chat
-eiksy tui --view terminal
-eiksy tui --view files
-eiksy tui --view tools
+ --view tools
 ```
 
 Verify manually:

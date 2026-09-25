@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"runtime/debug"
 	"strings"
 
+	"eiksy/internal/app"
 	"eiksy/internal/cli"
+	"eiksy/internal/sftp"
+	"eiksy/internal/ssh"
+	"eiksy/internal/storage/disk"
 	"eiksy/internal/tui"
 )
 
@@ -33,20 +38,32 @@ func resolveReleaseVersion() string {
 		}
 	}
 
-	if version != "" {
-		return version
-	}
+	return version
+}
 
-	return "dev"
+func newBackend() *app.Service {
+	store, err := disk.NewStore()
+	if err != nil {
+		panic(fmt.Sprintf("eiksy-cli: initialize storage: %v", err))
+	}
+	service := app.NewService(store, sshmanager.NewManager(), sftpmanager.NewManager())
+	service.SetRuntimeContext(context.Background(), func(string, ...interface{}) {})
+	return service
 }
 
 func main() {
-	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr, func(config cli.TUIConfig) error {
-		return tui.Run(tui.Config{AltScreen: config.AltScreen, InitialView: config.InitialView})
-	}); handled {
+	if len(os.Args) == 1 {
+		if err := tui.Run(newBackend()); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "eiksy-cli: tui: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr); handled {
 		os.Exit(exitCode)
 	}
 
-	_, _ = fmt.Fprintln(os.Stderr, "eiksy-cli: no command specified")
+	_, _ = fmt.Fprintln(os.Stderr, "eiksy-cli: unexpected command state")
 	os.Exit(2)
 }

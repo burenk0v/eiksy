@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	agentai "eiksy/internal/ai"
+	domainai "eiksy/internal/domain/ai"
+	domainsettings "eiksy/internal/domain/settings"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -53,11 +55,20 @@ type SessionSelector interface {
 }
 
 type SessionForker interface {
-	ForkChatSession(sessionID, title string) (SessionRef, error)
+	ForkChatSession(sessionID, title string) (domainai.ChatSession, error)
 }
 
 type ApprovalResolver interface {
 	ResolveApproval(requestID, mode string) error
+}
+
+type Backend interface {
+	ListChatSessions() []domainai.ChatSession
+	CreateChatSession(title string) (domainai.ChatSession, error)
+	SelectChatSession(sessionID string) error
+	ForkChatSession(sessionID, title string) (domainai.ChatSession, error)
+	GetSettings() domainsettings.AppSettings
+	UpdateSettings(domainsettings.AppSettings) error
 }
 
 type Model struct {
@@ -83,6 +94,9 @@ type Model struct {
 	sessionForker   SessionForker
 
 	approvalResolver ApprovalResolver
+	backend         Backend
+	settings        domainsettings.AppSettings
+	settingsIndex   int
 }
 
 type PaletteCommand struct {
@@ -111,6 +125,7 @@ func NewModel() Model {
 			{Title: "Terminal"},
 			{Title: "Files"},
 			{Title: "Tools"},
+			{Title: "Settings"},
 			{Title: "AI"},
 		},
 	}
@@ -118,6 +133,17 @@ func NewModel() Model {
 
 // WithChatSessions provides application-owned session metadata to the TUI.
 // Message bodies are intentionally not part of this presentation model.
+func (m Model) WithBackend(backend Backend) Model {
+	m.backend = backend
+	if backend != nil {
+		m.settings = backend.GetSettings()
+		m.sessionSelector = backend
+		m.sessionForker = backend
+		m.refreshSessions()
+	}
+	return m
+}
+
 func (m Model) WithChatSessions(sessions []SessionRef) Model {
 	m.sessions = append([]SessionRef(nil), sessions...)
 	if m.activeSession >= len(m.sessions) {
@@ -183,7 +209,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessionSelectionError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session selection failed: %v", msg.err)})
 	case sessionForkDone:
-		m.sessions = append(m.sessions, msg.session)
+		m.sessions = append(m.sessions, SessionRef{ID: msg.session.ID, Title: msg.session.Title})
 		m.activeSession = len(m.sessions) - 1
 		m.syncActiveSessionTab()
 		m.messages = nil
@@ -191,6 +217,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s forked.", msg.session.Title)})
 	case sessionForkError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session fork failed: %v", msg.err)})
+	case sessionCreateDone:
+		m.sessions = append(m.sessions, msg.session)
+		m.activeSession = len(m.sessions) - 1
+		m.syncActiveSessionTab()
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s created.", msg.session.Title)})
+	case settingsUpdateDone:
+		m.settings = msg.settings
+	case settingsUpdateError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyF2:
@@ -211,6 +246,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case tea.KeyF6:
 			m.activeTab = 4
+			m.activeView = ""
+			return m, nil
+		case tea.KeyF7:
+			m.activeTab = 5
 			m.activeView = ""
 			return m, nil
 		}
@@ -248,6 +287,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		switch msg.Type {
+		case tea.KeyCtrlN:
+			if m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
+				if cmd := m.createChatSession(); cmd != nil { return m, cmd }
+			}
 		case tea.KeyLeft:
 			m.activeView = ""
 			m.selectPreviousTab()
@@ -258,11 +301,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
-			m.selectPreviousSession()
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
-			m.selectNextSession()
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
-			if m.activeTab == 1 {
+			if m.activeTab == 4 {
+				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
+			} else if m.activeTab == 1 {
 				m.submitTerminalInput()
 			} else if m.activeTab == 0 && len(m.sessions) > 0 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectActiveSession(); cmd != nil {
@@ -475,7 +520,7 @@ func (m *Model) forkActiveSession() tea.Cmd {
 	}
 }
 
-type sessionForkDone struct{ session SessionRef }
+type sessionForkDone struct{ session domainai.ChatSession }
 type sessionForkError struct{ err error }
 
 func (m Model) WithFileEntries(path string, entries []FileEntry) Model {
@@ -566,13 +611,58 @@ func (m Model) View() string {
 	if len(m.sessions) == 0 { statusText = fmt.Sprintf(" %s  |  No session selected", active) }
 	statusBar := lipgloss.NewStyle().Foreground(muted).Width(width).Height(statusHeight).Render(statusText)
 
-	footerText := key.Render("F2-F6") + " switch view   " + key.Render("Enter") + " select/send   " +
+	footerText := key.Render("F2-F7") + " switch view   " + key.Render("Enter") + " select/send   " +
 		key.Render("Ctrl+P") + " menu   " + key.Render("F10") + " exit   " + key.Render("?") + " help"
 	footer := lipgloss.NewStyle().Width(width).Height(footerHeight).BorderTop(true).BorderForeground(border).
 		Padding(0, 1).Render(footerText)
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabRow, body, statusBar, footer)
 }
+
+func (m Model) settingsCount() int { return 3 }
+
+func boolLabel(value bool) string { if value { return "ON" }; return "OFF" }
+func nonEmpty(value, fallback string) string { if strings.TrimSpace(value) == "" { return fallback }; return value }
+
+func (m *Model) refreshSessions() {
+	if m.backend == nil { return }
+	items := m.backend.ListChatSessions()
+	m.sessions = make([]SessionRef, 0, len(items))
+	for _, item := range items { m.sessions = append(m.sessions, SessionRef{ID: item.ID, Title: item.Title}) }
+	if m.activeSession >= len(m.sessions) { m.activeSession = 0 }
+	m.syncActiveSessionTab()
+}
+
+func (m *Model) createChatSession() tea.Cmd {
+	if m.backend == nil { m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Session creation unavailable."}); return nil }
+	backend := m.backend
+	return func() tea.Msg {
+		created, err := backend.CreateChatSession("New session")
+		if err != nil { return sessionForkError{err: err} }
+		return sessionCreateDone{session: SessionRef{ID: created.ID, Title: created.Title}}
+	}
+}
+
+type sessionCreateDone struct{ session SessionRef }
+
+func (m *Model) toggleSetting() tea.Cmd {
+	if m.backend == nil { return nil }
+	updated := m.settings
+	switch m.settingsIndex {
+	case 0: updated.PromptBeforeAI = !updated.PromptBeforeAI
+	case 1: updated.AllowCloudModels = !updated.AllowCloudModels
+	case 2:
+		if strings.EqualFold(updated.Theme, "dark") { updated.Theme = "light" } else { updated.Theme = "dark" }
+	}
+	backend := m.backend
+	return func() tea.Msg {
+		if err := backend.UpdateSettings(updated); err != nil { return settingsUpdateError{err: err} }
+		return settingsUpdateDone{settings: updated}
+	}
+}
+
+type settingsUpdateDone struct{ settings domainsettings.AppSettings }
+type settingsUpdateError struct{ err error }
 
 func (m Model) currentViewName() string {
 	if m.activeTab < 0 || m.activeTab >= len(m.tabs) { return "Sessions" }
@@ -653,6 +743,19 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		b.WriteString("Tools available through the application services.\n\nUse the command palette to navigate available actions.\n\n")
 		b.WriteString(key.Render("Ctrl+P")); b.WriteString("  command palette")
 	case 4:
+		b.WriteString("Persistent application settings.\n\n")
+		lines := []string{
+			fmt.Sprintf("Prompt before AI actions: %s", boolLabel(m.settings.PromptBeforeAI)),
+			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
+			fmt.Sprintf("Theme:                    %s", nonEmpty(m.settings.Theme, "default")),
+		}
+		for i, line := range lines {
+			marker := "  "
+			if i == m.settingsIndex { marker = "› " }
+			b.WriteString(marker + line + "\n")
+		}
+		b.WriteString("\n↑/↓ select   Enter change")
+	case 5:
 		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n> "); b.WriteString(m.input)
 	}
 	return panelFixed(b.String(), width, height)
@@ -675,12 +778,12 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 	for _, line := range []string{
 		"F2  Sessions       F3  Terminal",
 		"F4  Files          F5  Tools",
-		"F6  AI             F10 Exit",
+		"F6  Tools          F7  AI          F10 Exit",
 		"",
 		"←/→  previous/next tab",
 		"Tab  next tab      Shift+Tab previous tab",
 		"↑/↓  previous/next session",
-		"Enter select/send  Ctrl+F fork session",
+		"Enter select/send  Ctrl+N new session  Ctrl+F fork session",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
 	} { b.WriteString(line); b.WriteByte('\n') }
@@ -688,30 +791,8 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 }
 
 // Config contains presentation/runtime options for the terminal UI.
-type Config struct {
-	AltScreen   bool
-	InitialView string
-}
-
-func Run(config Config) error {
-	model := NewModel()
-	switch config.InitialView {
-	case "sessions", "chat":
-		model.activeTab = 0
-	case "terminal":
-		model.activeTab = 1
-	case "files":
-		model.activeTab = 2
-	case "tools":
-		model.activeTab = 3
-	case "ai":
-		model.activeTab = 4
-		model.activeView = ""
-	}
-	options := []tea.ProgramOption{}
-	if config.AltScreen {
-		options = append(options, tea.WithAltScreen())
-	}
-	_, err := tea.NewProgram(model, options...).Run()
+func Run(backend Backend) error {
+	model := NewModel().WithBackend(backend)
+	_, err := tea.NewProgram(model, tea.WithAltScreen()).Run()
 	return err
 }

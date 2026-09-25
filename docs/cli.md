@@ -12,11 +12,12 @@ Running Eiksy without arguments starts the desktop application:
 eiksy
 ```
 
-To start the terminal UI:
+The standalone CLI binary starts directly in the terminal UI:
 
 ```bash
-eiksy tui
+eiksy-cli
 ```
+
 
 The TUI uses the same application services and backend security controls as the desktop application.
 
@@ -48,48 +49,6 @@ eiksy -v
 eiksy version
 ```
 
-## TUI options
-
-### Disable alternate-screen mode
-
-By default, the TUI uses the terminal alternate screen. Use `--no-alt-screen` when the terminal should keep the existing screen contents:
-
-```bash
-eiksy tui --no-alt-screen
-```
-
-This is a presentation option only. It does not change application behavior or security controls.
-
-### Select the initial view
-
-Use `--view` to choose the view shown when the TUI starts:
-
-```bash
-eiksy tui --view chat
-eiksy tui --view terminal
-eiksy tui --view files
-eiksy tui --view tools
-eiksy tui --view ai
-```
-
-The available views are:
-
-| View | Purpose |
-| --- | --- |
-| `chat` | AI conversation and operation workflow |
-| `terminal` | Terminal interaction surface for the active session |
-| `files` | File browsing and presentation |
-| `tools` | Tool-related interaction surface |
-| `ai` | AI interaction surface |
-
-If `--view` is omitted, the TUI starts in `chat`.
-
-Options can be combined:
-
-```bash
-eiksy tui --no-alt-screen --view terminal
-```
-
 ## TUI navigation
 
 The TUI uses a keyboard-first layout inspired by classic terminal file managers and editors. The active view is always visible in the header, and the footer shows the primary actions.
@@ -100,13 +59,15 @@ The TUI uses a keyboard-first layout inspired by classic terminal file managers 
 | `F3` | Terminal |
 | `F4` | Files |
 | `F5` | Tools |
-| `F6` | AI |
+| `F6` | Settings |
+| `F7` | AI |
 | `F10` | Exit |
 | `←` / `→` | Previous / next view |
 | `Tab` / `Shift+Tab` | Next / previous view |
 | `↑` / `↓` | Previous / next session |
 | `Enter` | Select session or submit active input |
 | `Ctrl+P` | Open command palette |
+| `Ctrl+N` | Create a new chat session |
 | `Ctrl+F` | Fork the active chat session |
 | `Ctrl+Q` | Quit |
 | `?` | Show keyboard shortcuts |
@@ -117,6 +78,8 @@ Printable characters belong to the active input field. Global navigation uses fu
 The Terminal view is only interactive when a connected runtime session is bound to it. With no active runtime session, it shows an explicit empty state and does not accept terminal input.
 
 The Files view currently presents application-provided file metadata only; it does not add file-management or editor capabilities to the CLI.
+
+The Sessions view is backed by the same persistent application session store. `Ctrl+N` creates a new chat session and activates it. The Settings view reads and updates persistent application settings through the same application service used by the desktop UI; `↑/↓` selects a setting and `Enter` changes it.
 ## Sessions
 
 Chat sessions are application-owned and persistent. The CLI displays session metadata and uses application services to select or fork sessions.
@@ -160,12 +123,6 @@ The CLI uses the following exit codes for command-line handling:
 | `0` | Command completed successfully |
 | `1` | TUI/application execution returned an error |
 | `2` | Invalid or unknown command-line input |
-
-For example, an unsupported view returns exit code `2`:
-
-```bash
-eiksy tui --view unknown
-```
 
 ## Architecture
 

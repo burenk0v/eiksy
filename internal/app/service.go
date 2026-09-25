@@ -240,6 +240,10 @@ func (s *Service) resolveContext(ctx context.Context) context.Context {
 	return context.Background()
 }
 
+func (s *Service) GetSettings() settings.AppSettings {
+	return s.store.Settings()
+}
+
 func (s *Service) GetSecureStorageStatus() securestorage.Status {
 	return s.store.SecureStorageStatus()
 }
