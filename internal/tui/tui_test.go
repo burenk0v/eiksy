@@ -373,6 +373,9 @@ func (b *runtimeTestBackend) DisconnectSession(sessionID string) error { b.disco
 func (b *runtimeTestBackend) CloseSession(sessionID string) error { b.closed = append(b.closed, sessionID); return nil }
 func (b *runtimeTestBackend) SendSSHInput(sessionID, data string) error { b.sent = append(b.sent, sessionID+":"+data); return nil }
 func (b *runtimeTestBackend) AcceptSSHHostKey(string) error { return nil }
+func (b *runtimeTestBackend) ListSFTPFiles(string, string) ([]sftpdomain.FileEntry, error) { return nil, nil }
+func (b *runtimeTestBackend) NavigateSFTP(string, string) ([]sftpdomain.FileEntry, error) { return nil, nil }
+func (b *runtimeTestBackend) ReadSFTPFile(string, string) (string, error) { return "", nil }
 
 type sftpRuntimeTestBackend struct {
 	runtimeTestBackend
