@@ -123,6 +123,7 @@ type Model struct {
 	profileForm      *sessionProfileForm
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
+	pendingHostKey   string
 }
 
 type sessionProfileForm struct {
@@ -309,7 +310,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:msg.message})
 	case runtimeOperationError:
+		if view, ok := m.activeRuntime(); ok {
+			view.Status = "error"
+			m.runtimeSessions[view.ProfileID] = view
+			if strings.Contains(strings.ToLower(msg.err.Error()), "unknown host key") {
+				m.pendingHostKey = view.ID
+				m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Unknown SSH host key. Press Ctrl+Y to accept it, then reconnect.\n%v", msg.err)})
+				break
+			}
+		}
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("%s: %v", msg.operation, msg.err)})
+	case runtimeHostKeyAccepted:
+		m.pendingHostKey = ""
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"SSH host key accepted. Reconnecting..."})
+		return m, m.reconnectActiveRuntime()
+	case runtimeHostKeyAcceptError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SSH host key acceptance failed: %v", msg.err)})
 	case runtimeOutput:
 		if m.tabs[1].Session != nil && m.tabs[1].Session.ID == msg.sessionID {
 			m.terminalLines = append(m.terminalLines, msg.data)
@@ -385,6 +401,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm == nil { if cmd := m.disconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlW:
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlY:
+			if m.pendingHostKey != "" && m.runtimeBackend != nil {
+				backend := m.runtimeBackend
+				sessionID := m.pendingHostKey
+				return m, func() tea.Msg {
+					if err := backend.AcceptSSHHostKey(sessionID); err != nil { return runtimeHostKeyAcceptError{err: err} }
+					return runtimeHostKeyAccepted{}
+				}
+			}
 		case tea.KeyLeft:
 			m.activeView = ""
 			m.selectPreviousTab()
@@ -668,6 +693,8 @@ type runtimeOutput struct {
 	sessionID string
 	data string
 }
+type runtimeHostKeyAccepted struct{}
+type runtimeHostKeyAcceptError struct{ err error }
 
 func (m *Model) activeRuntime() (appservice.RuntimeSessionView, bool) {
 	if len(m.profiles) == 0 || m.runtimeSessions == nil { return appservice.RuntimeSessionView{}, false }
@@ -976,7 +1003,8 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n")
 	b.WriteString(key.Render("Ctrl+R")); b.WriteString(" reconnect  ")
 	b.WriteString(key.Render("Ctrl+X")); b.WriteString(" disconnect  ")
-	b.WriteString(key.Render("Ctrl+W")); b.WriteString(" close runtime\n\n")
+	b.WriteString(key.Render("Ctrl+W")); b.WriteString(" close runtime  ")
+	b.WriteString(key.Render("Ctrl+Y")); b.WriteString(" accept host key\n\n")
 	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("\n\n")
 	if len(m.profiles)>0 { b.WriteString(m.profiles[m.activeProfile].Name) } else if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
 	return panelFixed(b.String(), width, height)
@@ -1068,6 +1096,7 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 		"↑/↓  previous/next session",
 		"Enter select/connect  Ctrl+N new session  Ctrl+D delete profile",
 		"Ctrl+R reconnect      Ctrl+X disconnect       Ctrl+W close runtime",
+		"Ctrl+Y accept unknown SSH host key",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
 	} { b.WriteString(line); b.WriteByte('\n') }
