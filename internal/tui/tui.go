@@ -280,8 +280,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Session profile deleted."})
 	case sessionProfileDeleteError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
-	case sessionProfileDeleteError:
-		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile deletion failed: %v", msg.err)})
 	case sessionProfileCreateError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
 	case tea.KeyMsg:
