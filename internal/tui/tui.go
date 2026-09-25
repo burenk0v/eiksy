@@ -2,11 +2,13 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	agentai "eiksy/internal/ai"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
+	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -62,6 +64,10 @@ type ApprovalResolver interface {
 	ResolveApproval(requestID, mode string) error
 }
 
+type SessionProfileBackend interface {
+	CreateSessionProfile(domainsessions.ProfileInput) error
+}
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
@@ -97,6 +103,40 @@ type Model struct {
 	backend         Backend
 	settings        domainsettings.AppSettings
 	settingsIndex   int
+	profileBackend   SessionProfileBackend
+	profileForm      *sessionProfileForm
+}
+
+type sessionProfileForm struct {
+	field int
+	name string
+	host string
+	port string
+	username string
+	password string
+}
+
+func newSessionProfileForm() *sessionProfileForm { return &sessionProfileForm{port: "22"} }
+
+func (f *sessionProfileForm) value() string {
+	switch f.field {
+	case 0: return f.name
+	case 1: return f.host
+	case 2: return f.port
+	case 3: return f.username
+	case 4: return f.password
+	}
+	return ""
+}
+
+func (f *sessionProfileForm) setValue(v string) {
+	switch f.field {
+	case 0: f.name = v
+	case 1: f.host = v
+	case 2: f.port = v
+	case 3: f.username = v
+	case 4: f.password = v
+	}
 }
 
 type PaletteCommand struct {
@@ -139,6 +179,7 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.settings = backend.GetSettings()
 		m.sessionSelector = backend
 		m.sessionForker = backend
+		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
 		m.refreshSessions()
 	}
 	return m
@@ -226,6 +267,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settings = msg.settings
 	case settingsUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
+	case sessionProfileCreateDone:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:"Session profile created."})
+	case sessionProfileCreateError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Session profile creation failed: %v", msg.err)})
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyF2:
@@ -288,9 +333,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Type {
 		case tea.KeyCtrlN:
-			if m.activeTab == 0 && strings.TrimSpace(m.input) == "" {
-				if cmd := m.createChatSession(); cmd != nil { return m, cmd }
-			}
+			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
 		case tea.KeyLeft:
 			m.activeView = ""
 			m.selectPreviousTab()
@@ -301,10 +344,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
+			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
+			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 1 {
@@ -316,7 +362,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.submitChatInput()
 			}
+		case tea.KeyEsc:
+			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.profileForm != nil { v:=m.profileForm.value(); if len(v)>0 { m.profileForm.setValue(v[:len(v)-1]) }; break }
 			if m.activeTab == 1 {
 				if len(m.terminalInput) > 0 {
 					m.terminalInput = m.terminalInput[:len(m.terminalInput)-1]
@@ -329,6 +378,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.profileForm != nil { for _, r := range msg.Runes { if r>=32 { m.profileForm.setValue(m.profileForm.value()+string(r)) } }; break }
 			if m.activeTab == 1 {
 				if !m.hasTerminalSession() {
 					break
@@ -604,6 +654,7 @@ func (m Model) View() string {
 	)
 
 	if m.shortcuts { body = m.renderHelp(width-2, bodyHeight-2, panelTitle) }
+	if m.profileForm != nil { body = m.renderProfileForm(width-2, bodyHeight-2, panelTitle, key) }
 	if m.palette != nil { body = m.renderPalette(width-2, bodyHeight-2, panelTitle, key) }
 
 	active := m.currentViewName()
@@ -631,6 +682,33 @@ func (m *Model) refreshSessions() {
 	for _, item := range items { m.sessions = append(m.sessions, SessionRef{ID: item.ID, Title: item.Title}) }
 	if m.activeSession >= len(m.sessions) { m.activeSession = 0 }
 	m.syncActiveSessionTab()
+}
+
+func (m *Model) submitProfileForm() tea.Cmd {
+	f:=m.profileForm
+	if f==nil { return nil }
+	if m.profileBackend==nil { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Session profile management unavailable."}); m.profileForm=nil; return nil }
+	if strings.TrimSpace(f.name)=="" || strings.TrimSpace(f.host)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Session name and host are required."}); return nil }
+	port:=22
+	if p,err:=strconv.Atoi(strings.TrimSpace(f.port)); err==nil && p>0 { port=p }
+	input:=domainsessions.ProfileInput{Name:f.name,ProtocolID:"ssh",Host:f.host,Port:port,Username:f.username,Password:f.password,Options:map[string]string{"auth_method":"password"}}
+	backend:=m.profileBackend
+	m.profileForm=nil
+	return func() tea.Msg { if err:=backend.CreateSessionProfile(input); err!=nil { return sessionProfileCreateError{err} }; return sessionProfileCreateDone{} }
+}
+
+type sessionProfileCreateDone struct{}
+type sessionProfileCreateError struct{ err error }
+
+func (m Model) renderProfileForm(width,height int,title,key lipgloss.Style) string {
+	f:=m.profileForm
+	labels:=[]string{"Name","Host","Port","Username","Password"}
+	values:=[]string{f.name,f.host,f.port,f.username,strings.Repeat("*",len(f.password))}
+	var b strings.Builder
+	b.WriteString(title.Render("NEW SSH SESSION")); b.WriteString("\n\n")
+	for i,label:=range labels { marker:="  "; if i==f.field { marker="› " }; value:=values[i]; if i==f.field { value+="▌" }; fmt.Fprintf(&b,"%s%-10s %s\n",marker,label,value) }
+	b.WriteString("\n"); b.WriteString(key.Render("↑/↓")); b.WriteString(" field  "); b.WriteString(key.Render("Enter")); b.WriteString(" save  "); b.WriteString(key.Render("Esc")); b.WriteString(" cancel")
+	return panelFixed(b.String(),width,height)
 }
 
 func (m *Model) createChatSession() tea.Cmd {
