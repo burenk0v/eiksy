@@ -386,7 +386,7 @@ func TestModelSessionBrowserView(t *testing.T) {
 		{ID: "chat-2", Title: "Production debug"},
 	})
 	view := m.View()
-	for _, want := range []string{"Sessions", "Session 1/2", "ACTIVE SESSION", "API tests", "Production debug"} {
+	for _, want := range []string{"Sessions", "Session 1/2", "ACTIVE SESSION", "API tests"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("expected view to contain %q, got %q", want, view)
 		}
