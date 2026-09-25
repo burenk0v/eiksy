@@ -199,6 +199,10 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.sessionSelector = backend
 		m.sessionForker = backend
 		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
+		if runtimeBackend, ok := backend.(RuntimeSessionBackend); ok {
+			m.runtimeBackend = runtimeBackend
+			if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
+		}
 		m.refreshSessions()
 		m.refreshProfiles()
 	}
