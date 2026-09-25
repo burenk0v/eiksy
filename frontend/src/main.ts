@@ -535,6 +535,9 @@ class EiksyShell {
     // the UI boundary so rendering code can safely use array methods.
     state.protocols ??= [];
     state.sessionProfiles ??= [];
+    state.sessionProfiles.forEach((profile) => {
+      profile.tags ??= [];
+    });
     state.activeSessions ??= [];
     state.sessionHistory ??= [];
     state.workspace ??= {} as ShellState["workspace"];
