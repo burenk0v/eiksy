@@ -149,6 +149,43 @@ func TestModelChatInput(t *testing.T) {
 	}
 }
 
+type aiTestBackend struct {
+	runtimeTestBackend
+	sent []string
+}
+
+func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
+	b.sent = append(b.sent, message+"|"+activeSessionID)
+	return nil
+}
+
+func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{} }
+
+func TestModelAISendsMessageThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+	m.input = "inspect the host"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected AI request command")
+	}
+	m = next.(Model)
+	if m.input != "" {
+		t.Fatal("expected input to clear")
+	}
+	if len(m.messages) != 1 || m.messages[0].Role != "You" {
+		t.Fatalf("unexpected messages: %+v", m.messages)
+	}
+	if result := cmd(); result == nil {
+		t.Fatal("expected AI completion message")
+	}
+	if len(backend.sent) != 1 || backend.sent[0] != "inspect the host|" {
+		t.Fatalf("unexpected AI requests: %#v", backend.sent)
+	}
+}
+
 func TestModelChatIgnoresEmptyInput(t *testing.T) {
 	m := NewModel()
 	m.input = "   "
