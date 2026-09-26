@@ -4,16 +4,33 @@ import (
 	"embed"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 
 	"eiksy/internal/cli"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/windows"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+const webviewUserDataDirName = "eiksy"
+
+func webviewUserDataPath() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+
+	configDir, err := os.UserConfigDir()
+	if err != nil || configDir == "" {
+		return ""
+	}
+	return filepath.Join(configDir, webviewUserDataDirName)
+}
 
 func main() {
 	if handled, exitCode := cli.Run(os.Args[1:], resolveReleaseVersion(), os.Stdout, os.Stderr); handled {
@@ -35,9 +52,12 @@ func main() {
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 11, G: 18, B: 32, A: 1},
-		OnStartup:        app.startup,
-		OnDomReady:       app.restoreWindow,
-		OnBeforeClose:    app.beforeClose,
+		Windows: &windows.Options{
+			WebviewUserDataPath: webviewUserDataPath(),
+		},
+		OnStartup:    app.startup,
+		OnDomReady:   app.restoreWindow,
+		OnBeforeClose: app.beforeClose,
 		Bind: []interface{}{
 			app,
 		},
