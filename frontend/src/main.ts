@@ -2205,7 +2205,7 @@ class EiksyShell {
                                 : ""
                             }
                         </div>
-                        <button class="icon-button" data-open-notification-center title="Notifications">🔔${this.notifications.length > 0 ? ` ${this.notifications.length}` : ""}</button>
+                        <button class="icon-button notification-button" data-open-notification-center title="Notifications" aria-label="Notifications${this.notifications.length > 0 ? `, ${this.notifications.length} unread` : ""}">${this.notifications.length > 0 ? `<span class="notification-count digits-${Math.min(String(this.notifications.length).length, 4)}">${this.notifications.length}</span>` : "🔔"}</button>
                         <button class="icon-button panel-toggle-button" data-toggle-sidebar-panel title="Collapse sessions panel" aria-label="Collapse sessions panel">◀</button>
                     </div>
                 </div>
