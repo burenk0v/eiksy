@@ -472,6 +472,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlE:
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+		case tea.KeyBackspace:
+			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.fileContent == "" {
+				parent := path.Dir(m.sftpPath)
+				if parent == "" { parent = "." }
+				return m, m.loadSFTPFiles(parent)
+			}
 		case tea.KeyCtrlY:
 			if m.pendingHostKey != "" && m.runtimeBackend != nil {
 				backend := m.runtimeBackend
