@@ -65,6 +65,49 @@ func (a *App) startup(ctx context.Context) {
 	debuglog.Printf("startup: complete")
 }
 
+func (a *App) restoreWindow(ctx context.Context) {
+	service := a.currentService()
+	state := service.GetShellState().Settings.WindowState
+	if !state.Saved {
+		// First launch: use the available screen/work area instead of a fixed size.
+		runtime.WindowMaximise(ctx)
+		return
+	}
+	if state.Maximized {
+		runtime.WindowMaximise(ctx)
+		return
+	}
+	if state.Width > 0 && state.Height > 0 {
+		runtime.WindowSetSize(ctx, state.Width, state.Height)
+	}
+	runtime.WindowSetPosition(ctx, state.X, state.Y)
+}
+
+func (a *App) saveWindowState(ctx context.Context) {
+	if a.service == nil {
+		return
+	}
+	state := a.service.GetShellState().Settings
+	width, height := runtime.WindowGetSize(ctx)
+	x, y := runtime.WindowGetPosition(ctx)
+	state.WindowState = settings.WindowState{
+		Width:     width,
+		Height:    height,
+		X:         x,
+		Y:         y,
+		Maximized: runtime.WindowIsMaximised(ctx),
+		Saved:     true,
+	}
+	if err := a.service.UpdateSettings(state); err != nil {
+		debuglog.Printf("shutdown: unable to save window state: %v", err)
+	}
+}
+
+func (a *App) beforeClose(ctx context.Context) bool {
+	a.saveWindowState(ctx)
+	return false
+}
+
 func (a *App) GetShellState() app.ShellState {
 	debuglog.Printf("wails: GetShellState called")
 	state := a.currentService().GetShellState()
