@@ -358,7 +358,12 @@ class EiksyShell {
       await this.refresh();
       this.startupComplete = true;
       void this.promptForMasterPasswordOnStartup();
-      window.addEventListener("resize", () => this.fitActiveTerminal());
+      window.addEventListener("resize", () => {
+        this.fitActiveTerminal();
+        if (this.showSidebarActionsMenu || this.sessionContextMenu.visible) {
+          this.positionFloatingMenus();
+        }
+      });
     } catch (error) {
       const message = formatError("Eiksy could not start", error);
       this.errorMessage = message;
