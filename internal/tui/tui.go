@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"path"
 	"strconv"
 	"strings"
 
