@@ -307,6 +307,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s created.", msg.session.Title)})
 	case settingsUpdateDone:
 		m.settings = msg.settings
+	case aiProviderSelectDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
+	case aiProviderSelectError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider selection failed: %v", msg.err)})
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
@@ -1191,7 +1195,10 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		}
 		b.WriteString("\n↑/↓ select   Enter change")
 	case 5:
-		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n")
+		b.WriteString("AI Providers\n\n")
+		b.WriteString(m.aiProviderView())
+		b.WriteString("\n\n↑/↓ select provider   Enter activate")
+		b.WriteString("\n\nChat\n")
 		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
 		b.WriteString("\n> "); b.WriteString(m.input)
 	}
