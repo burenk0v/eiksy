@@ -509,21 +509,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.resolveApproval("deny")
 			}
 		}
-		if m.masterPasswordPrompt {
-			switch msg.Type {
-			case tea.KeyEsc:
-				m.masterPasswordPrompt = false; m.masterPasswordInput = ""
-			case tea.KeyEnter:
-				if m.masterPasswordInput == "" || m.secureStorageBackend == nil { return m, nil }
-				password := m.masterPasswordInput; backend := m.secureStorageBackend
-				return m, func() tea.Msg { if err := backend.EnsureMasterPassword(password); err != nil { return secureStorageError{err: err} }; return secureStorageDone{} }
-			case tea.KeyBackspace:
-				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
-			case tea.KeyRunes:
-				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
-			}
-			return m, nil
-		}
 		if m.activeTab == 2 && m.sftpEdit {
 			return m.updateSFTPEditor(msg)
 		}
