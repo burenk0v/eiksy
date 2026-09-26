@@ -567,8 +567,7 @@ func TestModelSFTPEditAndSave(t *testing.T) {
 	next, _ = m.Update(result)
 	m = next.(Model)
 
-	if len(backend.saved) != 1 || backend.saved[0] != "ssh-1:/etc/readme.txt:hello
-updated from remote" {
+	if len(backend.saved) != 1 || backend.saved[0] != "ssh-1:/etc/readme.txt:hello\nupdated from remote" {
 		t.Fatalf("unexpected SFTP save calls: %v", backend.saved)
 	}
 	if m.sftpEdit { t.Fatal("expected editor to close after save") }
