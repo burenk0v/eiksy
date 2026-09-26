@@ -1359,6 +1359,13 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		b.WriteString("\nPending approvals\n")
 		if len(state.AI.CommandPolicy.PendingRequests) == 0 { b.WriteString("  None.\n") } else { for _, request := range state.AI.CommandPolicy.PendingRequests { fmt.Fprintf(&b, "  %s: %s\n", request.ID, request.Command) } }
 		b.WriteString("\n↑/↓ select tool   Enter toggle")
+		for i := len(m.messages) - 1; i >= 0; i-- {
+			if m.messages[i].Role == "System" {
+				b.WriteString("\n\n")
+				b.WriteString(m.messages[i].Content)
+				break
+			}
+		}
 	case 4:
 		b.WriteString("Persistent application settings.\n\n")
 		lines := []string{
