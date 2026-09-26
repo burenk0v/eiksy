@@ -565,6 +565,24 @@ func TestModelSFTPDirectoryNavigation(t *testing.T) {
 	if len(backend.listed) != 1 || backend.listed[0] != "ssh-1:/etc/config" { t.Fatalf("unexpected directory list calls: %v", backend.listed) }
 }
 
+func TestModelSFTPParentDirectoryNavigation(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{runtimeTestBackend: runtimeTestBackend{}}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+	m.sftpPath = "/etc/config"
+	m.sftpEntries = []sftpdomain.FileEntry{{Name:"readme.txt", Path:"/etc/config/readme.txt"}}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	if cmd == nil { t.Fatal("expected parent directory navigation command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if m.sftpPath != "/etc" { t.Fatalf("expected parent directory /etc, got %q", m.sftpPath) }
+	if len(backend.listed) != 1 || backend.listed[0] != "ssh-1:/etc" { t.Fatalf("unexpected parent navigation calls: %v", backend.listed) }
+}
+
 func TestModelRuntimeSessionLifecycle(t *testing.T) {
 	backend := &runtimeTestBackend{profiles: []domainsessions.Profile{{ID:"prod",Name:"prod",ProtocolID:"ssh",Host:"host",Port:22,Username:"ops"}}}
 	m := NewModel().WithBackend(backend)
