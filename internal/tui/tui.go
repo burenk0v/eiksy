@@ -604,8 +604,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitChatInput(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyEsc:
+			if m.masterPasswordPrompt { m.masterPasswordPrompt = false; m.masterPasswordInput = ""; return m, nil }
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.masterPasswordPrompt {
+				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
+				break
+			}
 			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.sftpPath != "/" && m.fileContent == "" {
 				parent := path.Dir(m.sftpPath)
 				if parent == "" { parent = "." }
@@ -624,6 +629,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.masterPasswordPrompt {
+				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
+				break
+			}
 			if m.profileForm != nil { for _, r := range msg.Runes { if r>=32 { m.profileForm.setValue(m.profileForm.value()+string(r)) } }; break }
 			if m.activeTab == 1 {
 				if !m.hasTerminalSession() {
