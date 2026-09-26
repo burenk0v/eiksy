@@ -584,6 +584,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.masterPasswordPrompt {
+				if m.masterPasswordInput == "" || m.secureStorageBackend == nil { return m, nil }
+				password := m.masterPasswordInput
+				backend := m.secureStorageBackend
+				return m, func() tea.Msg { if err := backend.EnsureMasterPassword(password); err != nil { return secureStorageError{err: err} }; return secureStorageDone{} }
+			}
 			if m.activeTab == 3 { if cmd := m.toggleAITool(); cmd != nil { return m, cmd } }
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 0 {
@@ -1064,8 +1070,6 @@ func (m Model) View() string {
 
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabRow, body, statusBar, footer)
 }
-
-func (m Model) settingsCount() int { return 3 }
 
 func boolLabel(value bool) string { if value { return "ON" }; return "OFF" }
 func nonEmpty(value, fallback string) string { if strings.TrimSpace(value) == "" { return fallback }; return value }
