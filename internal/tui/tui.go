@@ -179,6 +179,10 @@ func newSessionProfileEditForm(profile domainsessions.Profile) *sessionProfileFo
 	return &sessionProfileForm{id: profile.ID, name: profile.Name, host: profile.Host, port: strconv.Itoa(profile.Port), username: profile.Username}
 }
 
+func newSessionProfileEditForm(profile domainsessions.Profile) *sessionProfileForm {
+	return &sessionProfileForm{id: profile.ID, name: profile.Name, host: profile.Host, port: strconv.Itoa(profile.Port), username: profile.Username}
+}
+
 func (f *sessionProfileForm) value() string {
 	switch f.field {
 	case 0: return f.name
@@ -499,6 +503,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
+		case tea.KeyCtrlE:
+			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
+				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
+				return m, nil
+			}
 		case tea.KeyCtrlE:
 			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
 				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
@@ -1289,7 +1298,7 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 	b.WriteString(key.Render("←/→")); b.WriteString(" tabs\n")
 	b.WriteString(key.Render("Tab")); b.WriteString(" next tab\n")
 	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n")
-	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session\n")
+	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session\n"); b.WriteString(key.Render("Ctrl+E")); b.WriteString(" edit session\n")
 	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n")
 	b.WriteString(key.Render("Ctrl+R")); b.WriteString(" reconnect  ")
 	b.WriteString(key.Render("Ctrl+X")); b.WriteString(" disconnect  ")
