@@ -1093,30 +1093,89 @@ small {
 
 .theme-toggle-row {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.65rem;
     padding: 0.75rem 0;
+}
+
+.theme-settings-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+}
+
+.theme-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.theme-setting-label {
+    color: var(--color-muted);
+    font-size: 0.86rem;
+    font-weight: 600;
 }
 
 .theme-switch {
     display: flex;
+    flex-wrap: wrap;
     gap: 0.5rem;
 }
 
 .theme-switch button {
+    min-width: 120px;
     padding: 0.5rem 1.1rem;
     border: 1px solid var(--border-card);
     border-radius: 8px;
-    background: transparent;
-    color: var(--color-muted);
     font: inherit;
+    font-weight: 600;
     cursor: pointer;
+    transition: filter 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.theme-switch button:hover {
+    filter: brightness(1.08);
 }
 
 .theme-switch button.active {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: #fff;
+    box-shadow: 0 0 0 2px var(--color-text);
+}
+
+.theme-button-dark {
+    background: #111827;
+    border-color: #374151 !important;
+    color: #f9fafb;
+}
+
+.theme-button-light {
+    background: #ffffff;
+    border-color: #9ca3af !important;
+    color: #111827;
+}
+
+.theme-button-green {
+    background: #14532d;
+    border-color: #22c55e !important;
+    color: #bbf7d0;
+}
+
+.terminal-theme-black-white {
+    background: #ffffff;
+    border-color: #6b7280 !important;
+    color: #000000;
+}
+
+.terminal-theme-gray-black {
+    background: #000000;
+    border-color: #6b7280 !important;
+    color: #b8b8b8;
+}
+
+.terminal-theme-green-black {
+    background: #000000;
+    border-color: #00ff66 !important;
+    color: #00ff66;
 }
 
 .settings-dialog.about-light {
