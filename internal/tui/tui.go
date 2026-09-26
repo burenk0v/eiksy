@@ -798,8 +798,7 @@ func (m *Model) submitTerminalInput() tea.Cmd {
 		profileID = view.ProfileID
 	}
 	return func() tea.Msg {
-		if err := backend.SendSSHInput(sessionID, content+"
-"); err != nil {
+		if err := backend.SendSSHInput(sessionID, content+"\n"); err != nil {
 			return runtimeOperationError{operation:"Terminal input failed", profileID:profileID, err:err}
 		}
 		return nil
