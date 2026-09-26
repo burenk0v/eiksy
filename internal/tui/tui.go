@@ -164,6 +164,7 @@ type Model struct {
 }
 
 type sessionProfileForm struct {
+	id string
 	field int
 	name string
 	host string
@@ -173,6 +174,10 @@ type sessionProfileForm struct {
 }
 
 func newSessionProfileForm() *sessionProfileForm { return &sessionProfileForm{port: "22"} }
+
+func newSessionProfileEditForm(profile domainsessions.Profile) *sessionProfileForm {
+	return &sessionProfileForm{id: profile.ID, name: profile.Name, host: profile.Host, port: strconv.Itoa(profile.Port), username: profile.Username}
+}
 
 func (f *sessionProfileForm) value() string {
 	switch f.field {
@@ -494,6 +499,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
+		case tea.KeyCtrlE:
+			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
+				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
+				return m, nil
+			}
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
 		case tea.KeyCtrlR:
@@ -1195,7 +1205,7 @@ func (m *Model) submitProfileForm() tea.Cmd {
 	if strings.TrimSpace(f.name)=="" || strings.TrimSpace(f.host)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Session name and host are required."}); return nil }
 	port:=22
 	if p,err:=strconv.Atoi(strings.TrimSpace(f.port)); err==nil && p>0 { port=p }
-	input:=domainsessions.ProfileInput{Name:f.name,ProtocolID:"ssh",Host:f.host,Port:port,Username:f.username,Password:f.password,Options:map[string]string{"auth_method":"password"}}
+	input:=domainsessions.ProfileInput{ID:f.id,Name:f.name,ProtocolID:"ssh",Host:f.host,Port:port,Username:f.username,Password:f.password,Options:map[string]string{"auth_method":"password"}}
 	backend:=m.profileBackend
 	m.profileForm=nil
 	return func() tea.Msg { if err:=backend.CreateSessionProfileInput(input); err!=nil { return sessionProfileCreateError{err} }; return sessionProfileCreateDone{} }
@@ -1209,7 +1219,7 @@ func (m Model) renderProfileForm(width,height int,title,key lipgloss.Style) stri
 	labels:=[]string{"Name","Host","Port","Username","Password"}
 	values:=[]string{f.name,f.host,f.port,f.username,strings.Repeat("*",len(f.password))}
 	var b strings.Builder
-	b.WriteString(title.Render("NEW SSH SESSION")); b.WriteString("\n\n")
+	if f.id != "" { b.WriteString(title.Render("EDIT SSH SESSION")) } else { b.WriteString(title.Render("NEW SSH SESSION")) }; b.WriteString("\n\n")
 	for i,label:=range labels { marker:="  "; if i==f.field { marker="› " }; value:=values[i]; if i==f.field { value+="▌" }; fmt.Fprintf(&b,"%s%-10s %s\n",marker,label,value) }
 	b.WriteString("\n"); b.WriteString(key.Render("↑/↓")); b.WriteString(" field  "); b.WriteString(key.Render("Enter")); b.WriteString(" save  "); b.WriteString(key.Render("Esc")); b.WriteString(" cancel")
 	return panelFixed(b.String(),width,height)
