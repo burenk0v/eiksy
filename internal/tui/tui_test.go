@@ -152,6 +152,7 @@ func TestModelChatInput(t *testing.T) {
 type aiTestBackend struct {
 	runtimeTestBackend
 	sent []string
+	aiState domainai.WorkspaceState
 }
 
 func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
@@ -159,7 +160,45 @@ func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
 	return nil
 }
 
-func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{} }
+func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{AI: b.aiState} }
+func (b *aiTestBackend) SelectAIProvider(providerID string) error {
+	for i := range b.aiState.Providers {
+		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
+	}
+	return nil
+}
+
+func TestModelAISelectsProviderThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{
+		Providers: []domainai.ProviderDescriptor{
+			{ID: "cloud", Name: "Cloud", Model: "gpt-test", Status: "ready", Selected: true, Configured: true},
+			{ID: "local", Name: "Local", Model: "qwen-test", Status: "stopped", Configured: true},
+		},
+	}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd != nil {
+		t.Fatal("expected provider navigation without command")
+	}
+	m = next.(Model)
+	if m.aiProviderIndex != 1 {
+		t.Fatalf("expected second provider selected, got %d", m.aiProviderIndex)
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected provider activation command")
+	}
+	m = next.(Model)
+	if result := cmd(); result == nil {
+		t.Fatal("expected provider activation result")
+	}
+	if !backend.aiState.Providers[1].Selected {
+		t.Fatal("expected local provider to be selected")
+	}
+}
 
 func TestModelAISendsMessageThroughSharedBackend(t *testing.T) {
 	backend := &aiTestBackend{}

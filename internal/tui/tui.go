@@ -128,6 +128,7 @@ type Model struct {
 	activeProfile    int
 	profileForm      *sessionProfileForm
 	aiBackend        AIBackend
+	aiProviderIndex  int
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
 	pendingHostKey   string
@@ -306,6 +307,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s created.", msg.session.Title)})
 	case settingsUpdateDone:
 		m.settings = msg.settings
+	case aiProviderSelectDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
+	case aiProviderSelectError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider selection failed: %v", msg.err)})
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
@@ -466,12 +471,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected-1+len(m.sftpEntries))%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else { m.selectPreviousSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected+1)%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else { m.selectNextSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 0 {
@@ -483,6 +488,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.activeTab == 4 {
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
+			} else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" {
+				if cmd := m.selectAIProvider(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 1 {
 				if cmd := m.submitTerminalInput(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 2 {
@@ -1188,7 +1195,10 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		}
 		b.WriteString("\n↑/↓ select   Enter change")
 	case 5:
-		b.WriteString("Ask Eiksy to inspect, connect, or operate.\n\n")
+		b.WriteString("AI Providers\n\n")
+		b.WriteString(m.aiProviderView())
+		b.WriteString("\n\n↑/↓ select provider   Enter activate")
+		b.WriteString("\n\nChat\n")
 		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
 		b.WriteString("\n> "); b.WriteString(m.input)
 	}
