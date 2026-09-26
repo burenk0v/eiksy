@@ -22,6 +22,9 @@ func (s *Service) UpdateSettings(updated settings.AppSettings) error {
 	if updated.WindowLayout.AssistantWidth == 0 {
 		updated.WindowLayout.AssistantWidth = current.WindowLayout.AssistantWidth
 	}
+	if !updated.WindowState.Saved && current.WindowState.Saved {
+		updated.WindowState = current.WindowState
+	}
 	if strings.TrimSpace(updated.VaultMountPoint) == "" {
 		updated.VaultMountPoint = current.VaultMountPoint
 	}
