@@ -515,14 +515,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
+		case tea.KeyCtrlE:
+			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
+				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
+				return m, nil
+			}
+			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
 		case tea.KeyCtrlR:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd := m.reconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlX:
 			if m.profileForm == nil { if cmd := m.disconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlW:
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
-		case tea.KeyCtrlE:
-			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+		
 		case tea.KeyCtrlU:
 			if m.activeTab == 2 && !m.sftpEdit { if cmd := m.uploadSFTPFiles(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlO:
