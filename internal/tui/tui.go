@@ -1061,7 +1061,7 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabRow, body, statusBar, footer)
 }
 
-func (m Model) settingsCount() int { return 3 }
+func (m Model) settingsCount() int { if m.secureStorageBackend != nil { return 4 }; return 3 }
 
 func boolLabel(value bool) string { if value { return "ON" }; return "OFF" }
 func nonEmpty(value, fallback string) string { if strings.TrimSpace(value) == "" { return fallback }; return value }
