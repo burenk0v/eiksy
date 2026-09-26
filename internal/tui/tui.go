@@ -474,7 +474,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyCtrlE:
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
 		case tea.KeyBackspace:
-			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.fileContent == "" {
+			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.sftpPath != "/" && m.fileContent == "" {
 				parent := path.Dir(m.sftpPath)
 				if parent == "" { parent = "." }
 				return m, m.loadSFTPFiles(parent)
@@ -1263,7 +1263,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 				kind := "file"; if entry.IsDir { kind = "dir" }
 				fmt.Fprintf(&b, "%s[%-4s] %s\n", marker, kind, entry.Name)
 			}
-			b.WriteString("\n↑/↓ select   Enter open/read")
+			b.WriteString("\n↑/↓ select   Enter open/read   Backspace parent")
 		}
 	case 3:
 		b.WriteString("Tools available through the application services.\n\nUse the command palette to navigate available actions.\n\n")
