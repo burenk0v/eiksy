@@ -1129,8 +1129,7 @@ func (m *Model) updateSFTPEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
 func (m *Model) saveSFTPEditor() tea.Cmd {
 	backend,ok:=m.backend.(SFTPWriteBackend)
 	if !ok || m.runtimeBackend==nil || m.activeRuntimeSessionID()=="" || strings.TrimSpace(m.sftpEditPath)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SFTP file saving unavailable."}); return nil }
-	content:=strings.Join(m.sftpEditLines,"
-"); path:=m.sftpEditPath; sessionID:=m.activeRuntimeSessionID()
+	content:=strings.Join(m.sftpEditLines,"\n"); path:=m.sftpEditPath; sessionID:=m.activeRuntimeSessionID()
 	return func() tea.Msg { if err:=backend.SaveSFTPFile(sessionID,path,content); err!=nil { return sftpSaveError{err:err} }; return sftpSaveDone{path:path,content:content} }
 }
 
@@ -1207,13 +1206,9 @@ func (m Model) renderProfileForm(width,height int,title,key lipgloss.Style) stri
 	labels:=[]string{"Name","Host","Port","Username","Password"}
 	values:=[]string{f.name,f.host,f.port,f.username,strings.Repeat("*",len(f.password))}
 	var b strings.Builder
-	b.WriteString(title.Render("NEW SSH SESSION")); b.WriteString("
-
-")
-	for i,label:=range labels { marker:="  "; if i==f.field { marker="› " }; value:=values[i]; if i==f.field { value+="▌" }; fmt.Fprintf(&b,"%s%-10s %s
-",marker,label,value) }
-	b.WriteString("
-"); b.WriteString(key.Render("↑/↓")); b.WriteString(" field  "); b.WriteString(key.Render("Enter")); b.WriteString(" save  "); b.WriteString(key.Render("Esc")); b.WriteString(" cancel")
+	b.WriteString(title.Render("NEW SSH SESSION")); b.WriteString("\n\n")
+	for i,label:=range labels { marker:="  "; if i==f.field { marker="› " }; value:=values[i]; if i==f.field { value+="▌" }; fmt.Fprintf(&b,"%s%-10s %s\n",marker,label,value) }
+	b.WriteString("\n"); b.WriteString(key.Render("↑/↓")); b.WriteString(" field  "); b.WriteString(key.Render("Enter")); b.WriteString(" save  "); b.WriteString(key.Render("Esc")); b.WriteString(" cancel")
 	return panelFixed(b.String(),width,height)
 }
 
@@ -1264,12 +1259,9 @@ func panelFixed(content string, width, height int) string {
 
 func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) string {
 	var b strings.Builder
-	b.WriteString(title.Render("SESSIONS")); b.WriteString("
-
-")
+	b.WriteString(title.Render("SESSIONS")); b.WriteString("\n\n")
 	if len(m.profiles) == 0 {
-		b.WriteString("No session profiles
-")
+		b.WriteString("No session profiles\n")
 	} else {
 		for i, profile := range m.profiles {
 			marker := "  "; if i == m.activeProfile { marker = "› " }
@@ -1280,165 +1272,95 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 ')
 		}
 	}
-	b.WriteString("
-"); b.WriteString(title.Render("NAVIGATION")); b.WriteString("
-
-")
-	b.WriteString(key.Render("↑/↓")); b.WriteString(" sessions
-")
-	b.WriteString(key.Render("←/→")); b.WriteString(" tabs
-")
-	b.WriteString(key.Render("Tab")); b.WriteString(" next tab
-")
-	b.WriteString(key.Render("Enter")); b.WriteString(" select/send
-")
-	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session
-")
-	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile
-")
+	b.WriteString("\n"); b.WriteString(title.Render("NAVIGATION")); b.WriteString("\n\n")
+	b.WriteString(key.Render("↑/↓")); b.WriteString(" sessions\n")
+	b.WriteString(key.Render("←/→")); b.WriteString(" tabs\n")
+	b.WriteString(key.Render("Tab")); b.WriteString(" next tab\n")
+	b.WriteString(key.Render("Enter")); b.WriteString(" select/send\n")
+	b.WriteString(key.Render("Ctrl+N")); b.WriteString(" new session\n")
+	b.WriteString(key.Render("Ctrl+D")); b.WriteString(" delete profile\n")
 	b.WriteString(key.Render("Ctrl+R")); b.WriteString(" reconnect  ")
 	b.WriteString(key.Render("Ctrl+X")); b.WriteString(" disconnect  ")
 	b.WriteString(key.Render("Ctrl+W")); b.WriteString(" close runtime  ")
-	b.WriteString(key.Render("Ctrl+Y")); b.WriteString(" accept host key
-
-")
-	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("
-
-")
+	b.WriteString(key.Render("Ctrl+Y")); b.WriteString(" accept host key\n\n")
+	b.WriteString(title.Render("ACTIVE SESSION")); b.WriteString("\n\n")
 	if len(m.profiles)>0 { b.WriteString(m.profiles[m.activeProfile].Name) } else if s := m.ActiveSession(); s != nil { b.WriteString(s.Title) } else { b.WriteString("none") }
 	return panelFixed(b.String(), width, height)
 }
 
 func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) string {
 	var b strings.Builder
-	b.WriteString(title.Render(strings.ToUpper(m.currentViewName()))); b.WriteString("
-
-")
+	b.WriteString(title.Render(strings.ToUpper(m.currentViewName()))); b.WriteString("\n\n")
 	switch m.activeTab {
 	case 0:
 		if m.approval != nil {
-			b.WriteString(title.Render("ACTION REQUEST")); b.WriteString("
-
-")
-			fmt.Fprintf(&b, "Tool:    %s
-Session: %s
-Command: %s
-", m.approval.ToolID, m.approval.SessionID, m.approval.Command)
-			if m.approval.Reason != "" { fmt.Fprintf(&b, "Reason:  %s
-", m.approval.Reason) }
-			b.WriteString("
-" + key.Render("[Y]") + " now   " + key.Render("[S]") + " session   " + key.Render("[A]") + " always   " + key.Render("[N]") + " deny")
+			b.WriteString(title.Render("ACTION REQUEST")); b.WriteString("\n\n")
+			fmt.Fprintf(&b, "Tool:    %s\nSession: %s\nCommand: %s\n", m.approval.ToolID, m.approval.SessionID, m.approval.Command)
+			if m.approval.Reason != "" { fmt.Fprintf(&b, "Reason:  %s\n", m.approval.Reason) }
+			b.WriteString("\n" + key.Render("[Y]") + " now   " + key.Render("[S]") + " session   " + key.Render("[A]") + " always   " + key.Render("[N]") + " deny")
 		} else if len(m.messages) == 0 && len(m.toolCalls) == 0 {
-			b.WriteString("No messages yet.
-
-Ask Eiksy something in the input line below.")
+			b.WriteString("No messages yet.\n\nAsk Eiksy something in the input line below.")
 		} else {
-			for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s
-", message.Role, message.Content) }
+			for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) }
 			for _, tool := range m.toolCalls {
-				fmt.Fprintf(&b, "
-[%s] %s
-", tool.Name, tool.Status)
-				if tool.Output != "" { fmt.Fprintf(&b, "  %s
-", tool.Output) }
+				fmt.Fprintf(&b, "\n[%s] %s\n", tool.Name, tool.Status)
+				if tool.Output != "" { fmt.Fprintf(&b, "  %s\n", tool.Output) }
 			}
 		}
-		b.WriteString("
-
-> "); b.WriteString(m.input)
+		b.WriteString("\n\n> "); b.WriteString(m.input)
 	case 1:
 		if !m.hasTerminalSession() {
-			b.WriteString("No active terminal session.
-
-Select a session and press Enter to launch/connect.")
+			b.WriteString("No active terminal session.\n\nSelect a session and press Enter to launch/connect.")
 		} else {
-			fmt.Fprintf(&b, "Session: %s
-
-", m.tabs[1].Session.Title)
+			fmt.Fprintf(&b, "Session: %s\n\n", m.tabs[1].Session.Title)
 			if len(m.terminalLines) == 0 { b.WriteString("Connected. Ready for input.") } else {
 				for _, line := range m.terminalLines { b.WriteString(line); b.WriteByte('
 ') }
 			}
-			b.WriteString("
-
-> "); b.WriteString(m.terminalInput)
-			if view, ok := m.activeRuntime(); ok { fmt.Fprintf(&b, "
-
-Status: %s", view.Status) }
+			b.WriteString("\n\n> "); b.WriteString(m.terminalInput)
+			if view, ok := m.activeRuntime(); ok { fmt.Fprintf(&b, "\n\nStatus: %s", view.Status) }
 		}
 	case 2:
 		path := m.sftpPath; if path == "" { path = "." }
-		fmt.Fprintf(&b, "Path: %s
-
-", path)
-		if m.sftpTransferStatus != "" { b.WriteString(m.sftpTransferStatus); b.WriteString("
-
-") }
+		fmt.Fprintf(&b, "Path: %s\n\n", path)
+		if m.sftpTransferStatus != "" { b.WriteString(m.sftpTransferStatus); b.WriteString("\n\n") }
 		if m.sftpEdit {
-			b.WriteString("EDIT: "); b.WriteString(m.sftpEditPath); b.WriteString("
-
-")
+			b.WriteString("EDIT: "); b.WriteString(m.sftpEditPath); b.WriteString("\n\n")
 			for i, line := range m.sftpEditLines {
 				if i == m.sftpEditRow { r:=[]rune(line); b.WriteString(string(r[:m.sftpEditCol])); b.WriteString("▌"); b.WriteString(string(r[m.sftpEditCol:])) } else { b.WriteString(line) }
 				b.WriteByte('
 ')
 			}
-			b.WriteString("
-Ctrl+S save   Esc cancel")
+			b.WriteString("\nCtrl+S save   Esc cancel")
 		} else if m.fileContent != "" {
-			b.WriteString("FILE: "); b.WriteString(path); b.WriteString("
-
-")
+			b.WriteString("FILE: "); b.WriteString(path); b.WriteString("\n\n")
 			b.WriteString(m.fileContent)
-			b.WriteString("
-
-Ctrl+E edit")
+			b.WriteString("\n\nCtrl+E edit")
 		} else if len(m.sftpEntries) == 0 {
-			if m.activeRuntimeSessionID() == "" { b.WriteString("No active SSH session.
-
-Connect a session from Sessions first.") } else { b.WriteString("No files loaded yet.
-
-Press Enter to load the remote directory.") }
+			if m.activeRuntimeSessionID() == "" { b.WriteString("No active SSH session.\n\nConnect a session from Sessions first.") } else { b.WriteString("No files loaded yet.\n\nPress Enter to load the remote directory.") }
 		} else {
 			for i, entry := range m.sftpEntries {
 				marker := "  "; if i == m.sftpSelected { marker = "> " }
 				kind := "file"; if entry.IsDir { kind = "dir" }
-				fmt.Fprintf(&b, "%s[%-4s] %s
-", marker, kind, entry.Name)
+				fmt.Fprintf(&b, "%s[%-4s] %s\n", marker, kind, entry.Name)
 			}
-			b.WriteString("
-↑/↓ select   Enter open/read   Backspace parent")
+			b.WriteString("\n↑/↓ select   Enter open/read   Backspace parent")
 		}
 	case 3:
-		b.WriteString("AI command policy
-
-")
+		b.WriteString("AI command policy\n\n")
 		state := appservice.ShellState{}
 		if m.aiBackend != nil { state = m.aiBackend.GetShellState() }
 		tools := state.AI.CommandPolicy.Tools
-		if len(tools) == 0 { b.WriteString("No AI tools configured.
-") } else {
-			for i, tool := range tools { marker := "  "; if i == m.aiToolIndex { marker = "› " }; status := "OFF"; if tool.Enabled { status = "ON" }; fmt.Fprintf(&b, "%s[%s] %s
-", marker, status, nonEmpty(tool.Name, tool.ID)) }
+		if len(tools) == 0 { b.WriteString("No AI tools configured.\n") } else {
+			for i, tool := range tools { marker := "  "; if i == m.aiToolIndex { marker = "› " }; status := "OFF"; if tool.Enabled { status = "ON" }; fmt.Fprintf(&b, "%s[%s] %s\n", marker, status, nonEmpty(tool.Name, tool.ID)) }
 		}
-		b.WriteString("
-Command rules
-")
-		if len(state.AI.CommandPolicy.CommandRules) == 0 { b.WriteString("  No explicit rules.
-") } else { for _, rule := range state.AI.CommandPolicy.CommandRules { fmt.Fprintf(&b, "  [%s] %s %s
-", rule.Action, nonEmpty(rule.ToolID, "*"), rule.Pattern) } }
-		b.WriteString("
-Pending approvals
-")
-		if len(state.AI.CommandPolicy.PendingRequests) == 0 { b.WriteString("  None.
-") } else { for _, request := range state.AI.CommandPolicy.PendingRequests { fmt.Fprintf(&b, "  %s: %s
-", request.ID, request.Command) } }
-		b.WriteString("
-↑/↓ select tool   Enter toggle")
+		b.WriteString("\nCommand rules\n")
+		if len(state.AI.CommandPolicy.CommandRules) == 0 { b.WriteString("  No explicit rules.\n") } else { for _, rule := range state.AI.CommandPolicy.CommandRules { fmt.Fprintf(&b, "  [%s] %s %s\n", rule.Action, nonEmpty(rule.ToolID, "*"), rule.Pattern) } }
+		b.WriteString("\nPending approvals\n")
+		if len(state.AI.CommandPolicy.PendingRequests) == 0 { b.WriteString("  None.\n") } else { for _, request := range state.AI.CommandPolicy.PendingRequests { fmt.Fprintf(&b, "  %s: %s\n", request.ID, request.Command) } }
+		b.WriteString("\n↑/↓ select tool   Enter toggle")
 	case 4:
-		b.WriteString("Persistent application settings.
-
-")
+		b.WriteString("Persistent application settings.\n\n")
 		lines := []string{
 			fmt.Sprintf("Prompt before AI actions: %s", boolLabel(m.settings.PromptBeforeAI)),
 			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
@@ -1447,53 +1369,34 @@ Pending approvals
 		for i, line := range lines {
 			marker := "  "
 			if i == m.settingsIndex { marker = "› " }
-			b.WriteString(marker + line + "
-")
+			b.WriteString(marker + line + "\n")
 		}
-		b.WriteString("
-↑/↓ select   Enter change")
+		b.WriteString("\n↑/↓ select   Enter change")
 	case 5:
-		b.WriteString("AI Providers
-
-")
+		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
-		b.WriteString("
-
-↑/↓ select provider   Enter activate")
-		b.WriteString("
-
-Chat
-")
-		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s
-", message.Role, message.Content) } }
-		b.WriteString("
-> "); b.WriteString(m.input)
+		b.WriteString("\n\n↑/↓ select provider   Enter activate")
+		b.WriteString("\n\nChat\n")
+		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
+		b.WriteString("\n> "); b.WriteString(m.input)
 	}
 	return panelFixed(b.String(), width, height)
 }
 
 func (m Model) renderPalette(width, height int, title, key lipgloss.Style) string {
 	var b strings.Builder
-	b.WriteString(title.Render("COMMAND PALETTE")); b.WriteString("
-
-> "); b.WriteString(m.palette.Query); b.WriteString("
-
-")
+	b.WriteString(title.Render("COMMAND PALETTE")); b.WriteString("\n\n> "); b.WriteString(m.palette.Query); b.WriteString("\n\n")
 	for i, command := range m.filteredPaletteCommands() {
 		marker := "  "; if i == m.palette.Selected { marker = "› " }
-		fmt.Fprintf(&b, "%s%s
-", marker, command.Title)
+		fmt.Fprintf(&b, "%s%s\n", marker, command.Title)
 	}
-	b.WriteString("
-"); b.WriteString(key.Render("↑/↓")); b.WriteString(" select  "); b.WriteString(key.Render("Enter")); b.WriteString(" run  "); b.WriteString(key.Render("Esc")); b.WriteString(" close")
+	b.WriteString("\n"); b.WriteString(key.Render("↑/↓")); b.WriteString(" select  "); b.WriteString(key.Render("Enter")); b.WriteString(" run  "); b.WriteString(key.Render("Esc")); b.WriteString(" close")
 	return panelFixed(b.String(), width, height)
 }
 
 func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 	var b strings.Builder
-	b.WriteString(title.Render("KEYBOARD")); b.WriteString("
-
-")
+	b.WriteString(title.Render("KEYBOARD")); b.WriteString("\n\n")
 	for _, line := range []string{
 		"F2  Sessions       F3  Terminal",
 		"F4  Files          F5  Tools",
