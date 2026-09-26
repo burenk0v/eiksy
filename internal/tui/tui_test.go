@@ -1091,3 +1091,61 @@ func TestModelCommandPolicyTogglesToolThroughSharedBackend(t *testing.T) {
 	if !backend.aiState.CommandPolicy.Tools[1].Enabled { t.Fatal("expected SFTP tool to be enabled") }
 	if !strings.Contains(m.View(), "Command policy updated.") { t.Fatal("expected update confirmation") }
 }
+
+
+type editProfileTestBackend struct {
+	runtimeTestBackend
+	updated domainsessions.ProfileInput
+}
+
+func (b *editProfileTestBackend) CreateSessionProfileInput(input domainsessions.ProfileInput) error {
+	b.updated = input
+	return nil
+}
+
+func TestModelEditsSessionProfileThroughSharedBackend(t *testing.T) {
+	backend := &editProfileTestBackend{runtimeTestBackend: runtimeTestBackend{
+		profiles: []domainsessions.Profile{{
+			ID: "prod-1", Name: "Production", ProtocolID: "ssh",
+			Host: "old.example", Port: 22, Username: "ops",
+		}},
+	}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 0
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	if cmd != nil {
+		t.Fatal("expected local profile editor activation")
+	}
+	m = next.(Model)
+	if m.profileForm == nil || m.profileForm.id != "prod-1" {
+		t.Fatalf("expected editor for prod-1, got %+v", m.profileForm)
+	}
+	if !strings.Contains(m.View(), "EDIT SSH SESSION") {
+		t.Fatal("expected edit session form")
+	}
+
+	m.profileForm.name = "Production EU"
+	m.profileForm.host = "new.example"
+	m.profileForm.username = "admin"
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("expected profile update command")
+	}
+	m = next.(Model)
+	result := cmd()
+	if result == nil {
+		t.Fatal("expected profile update result")
+	}
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if backend.updated.ID != "prod-1" || backend.updated.Name != "Production EU" ||
+		backend.updated.Host != "new.example" || backend.updated.Username != "admin" {
+		t.Fatalf("unexpected profile update: %+v", backend.updated)
+	}
+	if !strings.Contains(m.View(), "Session profile created.") {
+		t.Fatal("expected profile update confirmation")
+	}
+}
