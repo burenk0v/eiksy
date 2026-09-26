@@ -86,6 +86,10 @@ type RuntimeSessionBackend interface {
 	ReadSFTPFile(string, string) (string, error)
 }
 
+type SFTPWriteBackend interface {
+	SaveSFTPFile(string, string, string) error
+}
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
@@ -109,6 +113,11 @@ type Model struct {
 	sftpPath string
 	sftpSelected int
 	fileContent string
+	sftpEdit bool
+	sftpEditPath string
+	sftpEditLines []string
+	sftpEditRow int
+	sftpEditCol int
 	activeView  string
 	palette   *CommandPalette
 	shortcuts bool
@@ -338,8 +347,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sftpReadDone:
 		m.fileContent = msg.content
 		m.sftpPath = msg.path
+		m.sftpEditPath = msg.path
 	case sftpReadError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP read failed: %v", msg.err)})
+	case sftpSaveDone:
+		m.fileContent = msg.content
+		m.sftpEdit = false
+		m.sftpEditLines = nil
+		m.sftpEditPath = ""
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP file saved: %s", msg.path)})
+	case sftpSaveError:
+		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP save failed: %v", msg.err)})
 	case runtimeLaunchDone:
 		if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
 		m.runtimeSessions[msg.view.ProfileID] = msg.view
@@ -438,6 +456,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.resolveApproval("deny")
 			}
 		}
+		if m.activeTab == 2 && m.sftpEdit {
+			return m.updateSFTPEditor(msg)
+		}
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
@@ -449,6 +470,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm == nil { if cmd := m.disconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlW:
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlE:
+			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
 		case tea.KeyCtrlY:
 			if m.pendingHostKey != "" && m.runtimeBackend != nil {
 				backend := m.runtimeBackend
@@ -744,6 +767,8 @@ type sftpListDone struct { sessionID, path string; entries []sftpdomain.FileEntr
 type sftpListError struct { err error }
 type sftpReadDone struct { path, content string }
 type sftpReadError struct { err error }
+type sftpSaveDone struct { path, content string }
+type sftpSaveError struct { err error }
 
 type runtimeLaunchDone struct{ view appservice.RuntimeSessionView }
 type runtimeOperationDone struct {
@@ -1020,6 +1045,53 @@ func (m *Model) openSFTPSelection() tea.Cmd {
 	}
 }
 
+func (m *Model) startSFTPEditor() {
+	m.sftpEdit = true
+	m.sftpEditLines = strings.Split(m.fileContent, "\n")
+	if len(m.sftpEditLines) == 0 { m.sftpEditLines = []string{""} }
+	m.sftpEditRow, m.sftpEditCol = 0, 0
+}
+
+func (m *Model) updateSFTPEditor(msg tea.KeyMsg) (Model, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEsc:
+		m.sftpEdit = false; m.sftpEditLines = nil; m.sftpEditPath = ""
+	case tea.KeyCtrlS:
+		return *m, m.saveSFTPEditor()
+	case tea.KeyLeft:
+		if m.sftpEditCol > 0 { m.sftpEditCol-- } else if m.sftpEditRow > 0 { m.sftpEditRow--; m.sftpEditCol = len([]rune(m.sftpEditLines[m.sftpEditRow])) }
+	case tea.KeyRight:
+		if m.sftpEditCol < len([]rune(m.sftpEditLines[m.sftpEditRow])) { m.sftpEditCol++ } else if m.sftpEditRow+1 < len(m.sftpEditLines) { m.sftpEditRow++; m.sftpEditCol = 0 }
+	case tea.KeyUp:
+		if m.sftpEditRow > 0 { m.sftpEditRow--; if n:=len([]rune(m.sftpEditLines[m.sftpEditRow])); m.sftpEditCol > n { m.sftpEditCol=n } }
+	case tea.KeyDown:
+		if m.sftpEditRow+1 < len(m.sftpEditLines) { m.sftpEditRow++; if n:=len([]rune(m.sftpEditLines[m.sftpEditRow])); m.sftpEditCol > n { m.sftpEditCol=n } }
+	case tea.KeyEnter:
+		line:=[]rune(m.sftpEditLines[m.sftpEditRow]); left,right:=string(line[:m.sftpEditCol]),string(line[m.sftpEditCol:])
+		m.sftpEditLines[m.sftpEditRow]=left; m.sftpEditLines=append(m.sftpEditLines,"")
+		copy(m.sftpEditLines[m.sftpEditRow+1:],m.sftpEditLines[m.sftpEditRow:len(m.sftpEditLines)-1]); m.sftpEditLines[m.sftpEditRow+1]=right
+		m.sftpEditRow++; m.sftpEditCol=0
+	case tea.KeyBackspace:
+		if m.sftpEditCol>0 { line:=[]rune(m.sftpEditLines[m.sftpEditRow]); m.sftpEditLines[m.sftpEditRow]=string(line[:m.sftpEditCol-1])+string(line[m.sftpEditCol:]); m.sftpEditCol--
+		} else if m.sftpEditRow>0 { m.sftpEditCol=len([]rune(m.sftpEditLines[m.sftpEditRow-1])); m.sftpEditLines[m.sftpEditRow-1]+=m.sftpEditLines[m.sftpEditRow]; m.sftpEditLines=append(m.sftpEditLines[:m.sftpEditRow],m.sftpEditLines[m.sftpEditRow+1:]...); m.sftpEditRow-- }
+	case tea.KeyDelete:
+		line:=[]rune(m.sftpEditLines[m.sftpEditRow])
+		if m.sftpEditCol<len(line) { m.sftpEditLines[m.sftpEditRow]=string(line[:m.sftpEditCol])+string(line[m.sftpEditCol+1:]) } else if m.sftpEditRow+1<len(m.sftpEditLines) { m.sftpEditLines[m.sftpEditRow]+=m.sftpEditLines[m.sftpEditRow+1]; m.sftpEditLines=append(m.sftpEditLines[:m.sftpEditRow+1],m.sftpEditLines[m.sftpEditRow+2:]...) }
+	case tea.KeyRunes:
+		line:=[]rune(m.sftpEditLines[m.sftpEditRow])
+		for _,r:=range msg.Runes { if r>=32 { line=append(line,0); copy(line[m.sftpEditCol+1:],line[m.sftpEditCol:]); line[m.sftpEditCol]=r; m.sftpEditCol++ } }
+		m.sftpEditLines[m.sftpEditRow]=string(line)
+	}
+	return *m,nil
+}
+
+func (m *Model) saveSFTPEditor() tea.Cmd {
+	backend,ok:=m.backend.(SFTPWriteBackend)
+	if !ok || m.runtimeBackend==nil || m.activeRuntimeSessionID()=="" || strings.TrimSpace(m.sftpEditPath)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SFTP file saving unavailable."}); return nil }
+	content:=strings.Join(m.sftpEditLines,"\n"); path:=m.sftpEditPath; sessionID:=m.activeRuntimeSessionID()
+	return func() tea.Msg { if err:=backend.SaveSFTPFile(sessionID,path,content); err!=nil { return sftpSaveError{err:err} }; return sftpSaveDone{path:path,content:content} }
+}
+
 func (m *Model) refreshSessions() {
 	if m.backend == nil { return }
 	items := m.backend.ListChatSessions()
@@ -1165,9 +1237,17 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 	case 2:
 		path := m.sftpPath; if path == "" { path = "." }
 		fmt.Fprintf(&b, "Path: %s\n\n", path)
-		if m.fileContent != "" {
+		if m.sftpEdit {
+			b.WriteString("EDIT: "); b.WriteString(m.sftpEditPath); b.WriteString("\n\n")
+			for i, line := range m.sftpEditLines {
+				if i == m.sftpEditRow { r:=[]rune(line); b.WriteString(string(r[:m.sftpEditCol])); b.WriteString("▌"); b.WriteString(string(r[m.sftpEditCol:])) } else { b.WriteString(line) }
+				b.WriteByte('\n')
+			}
+			b.WriteString("\nCtrl+S save   Esc cancel")
+		} else if m.fileContent != "" {
 			b.WriteString("FILE: "); b.WriteString(path); b.WriteString("\n\n")
 			b.WriteString(m.fileContent)
+			b.WriteString("\n\nCtrl+E edit")
 		} else if len(m.sftpEntries) == 0 {
 			if m.activeRuntimeSessionID() == "" { b.WriteString("No active SSH session.\n\nConnect a session from Sessions first.") } else { b.WriteString("No files loaded yet.\n\nPress Enter to load the remote directory.") }
 		} else {
