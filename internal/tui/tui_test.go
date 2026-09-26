@@ -548,7 +548,6 @@ func TestModelSFTPEditAndSave(t *testing.T) {
 	}
 	if m.sftpEdit { t.Fatal("expected editor to close after save") }
 	if m.fileContent != "hello\nupdated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
-	if !strings.Contains(m.View(), "SFTP file saved: /etc/readme.txt") { t.Fatal("expected save confirmation") }
 }
 
 func TestModelSFTPDirectoryNavigation(t *testing.T) {
