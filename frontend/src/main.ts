@@ -639,8 +639,79 @@ class EiksyShell {
         `;
 
     this.bindEvents();
+    this.positionFloatingMenus();
     this.attachActiveTerminal();
     this.scrollChatToBottom();
+  }
+
+  private positionFloatingMenus(): void {
+    requestAnimationFrame(() => {
+      const viewportPadding = 8;
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      const clamp = (
+        value: number,
+        min: number,
+        max: number,
+      ): number => Math.min(Math.max(value, min), Math.max(min, max));
+
+      const positionMenu = (
+        menu: HTMLElement,
+        preferredLeft: number,
+        preferredTop: number,
+      ): boolean => {
+        const rect = menu.getBoundingClientRect();
+        const left = clamp(
+          preferredLeft,
+          viewportPadding,
+          viewportWidth - rect.width - viewportPadding,
+        );
+        let top = preferredTop;
+
+        if (top + rect.height > viewportHeight - viewportPadding) {
+          top = preferredTop - rect.height - 14;
+        }
+        top = clamp(
+          top,
+          viewportPadding,
+          viewportHeight - rect.height - viewportPadding,
+        );
+
+        const changed =
+          Math.abs(rect.left - left) > 0.5 || Math.abs(rect.top - top) > 0.5;
+        if (changed) {
+          menu.style.left = `${Math.round(left)}px`;
+          menu.style.top = `${Math.round(top)}px`;
+        }
+        return changed;
+      };
+
+      const contextMenu =
+        root?.querySelector<HTMLElement>("[data-session-context-menu]");
+      if (contextMenu && this.sessionContextMenu.visible) {
+        positionMenu(
+          contextMenu,
+          this.sessionContextMenu.x,
+          this.sessionContextMenu.y,
+        );
+      }
+
+      const sidebarMenu =
+        root?.querySelector<HTMLElement>("[data-sidebar-actions-menu]");
+      const sidebarTrigger =
+        root?.querySelector<HTMLButtonElement>(
+          "[data-toggle-sidebar-actions-menu]",
+        );
+      if (sidebarMenu && sidebarTrigger && this.showSidebarActionsMenu) {
+        const triggerRect = sidebarTrigger.getBoundingClientRect();
+        positionMenu(
+          sidebarMenu,
+          triggerRect.right - sidebarMenu.getBoundingClientRect().width,
+          triggerRect.bottom + 7,
+        );
+      }
+    });
   }
 
   private bindEvents(): void {
@@ -3166,7 +3237,7 @@ class EiksyShell {
     }
     return `
             <div class="session-context-overlay" data-session-context-overlay>
-                <div class="session-context-menu" style="left:${this.sessionContextMenu.x}px;top:${this.sessionContextMenu.y}px;">
+                <div class="session-context-menu" data-session-context-menu style="left:${this.sessionContextMenu.x}px;top:${this.sessionContextMenu.y}px;">
                     <button class="session-context-item" data-session-context-open="${escapeHtml(this.sessionContextMenu.profileId)}">Open</button>
                     <button class="session-context-item" data-session-context-edit="${escapeHtml(this.sessionContextMenu.profileId)}">Edit settings</button>
                     <button class="session-context-item danger" data-session-context-delete="${escapeHtml(this.sessionContextMenu.profileId)}">Delete</button>
