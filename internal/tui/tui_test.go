@@ -161,7 +161,9 @@ func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
 }
 
 func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{AI: b.aiState} }
-func (b *aiTestBackend) UpdateCommandPolicy(policy domainai.CommandPolicy) error { b.aiState.CommandPolicy = policy; return nil }\n\nfunc (b *aiTestBackend) SelectAIProvider(providerID string) error {
+func (b *aiTestBackend) UpdateCommandPolicy(policy domainai.CommandPolicy) error { b.aiState.CommandPolicy = policy; return nil }
+
+func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 	for i := range b.aiState.Providers {
 		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
 	}
@@ -565,11 +567,13 @@ func TestModelSFTPEditAndSave(t *testing.T) {
 	next, _ = m.Update(result)
 	m = next.(Model)
 
-	if len(backend.saved) != 1 || backend.saved[0] != "ssh-1:/etc/readme.txt:hello\nupdated from remote" {
+	if len(backend.saved) != 1 || backend.saved[0] != "ssh-1:/etc/readme.txt:hello
+updated from remote" {
 		t.Fatalf("unexpected SFTP save calls: %v", backend.saved)
 	}
 	if m.sftpEdit { t.Fatal("expected editor to close after save") }
-	if m.fileContent != "hello\nupdated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
+	if m.fileContent != "hello
+updated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
 }
 
 func TestModelSFTPUploadFiles(t *testing.T) {
@@ -680,7 +684,8 @@ func TestModelRuntimeSessionLifecycle(t *testing.T) {
 	if cmd == nil { t.Fatal("expected terminal send command") }
 	_ = cmd()
 	m = next.(Model)
-	if len(backend.sent) != 1 || backend.sent[0] != "ssh-1:ls\n" { t.Fatalf("unexpected terminal input: %v", backend.sent) }
+	if len(backend.sent) != 1 || backend.sent[0] != "ssh-1:ls
+" { t.Fatalf("unexpected terminal input: %v", backend.sent) }
 
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	if cmd == nil { t.Fatal("expected disconnect command") }
