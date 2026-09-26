@@ -1088,6 +1088,6 @@ func TestModelCommandPolicyTogglesToolThroughSharedBackend(t *testing.T) {
 	if m.aiToolIndex != 1 { t.Fatalf("expected second tool selected, got %d", m.aiToolIndex) }
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter}); if cmd == nil { t.Fatal("expected policy update command") }; m = next.(Model)
 	result := cmd(); if result == nil { t.Fatal("expected policy update result") }; next, _ = m.Update(result); m = next.(Model)
-	if backend.aiState.CommandPolicy.Tools[1].Enabled { t.Fatal("expected SFTP tool to be disabled") }
+	if !backend.aiState.CommandPolicy.Tools[1].Enabled { t.Fatal("expected SFTP tool to be enabled") }
 	if !strings.Contains(m.View(), "Command policy updated.") { t.Fatal("expected update confirmation") }
 }
