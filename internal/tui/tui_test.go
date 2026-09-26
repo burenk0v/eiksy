@@ -457,6 +457,7 @@ type sftpRuntimeTestBackend struct {
 	runtimeTestBackend
 	listed []string
 	read []string
+	saved []string
 }
 
 func (b *sftpRuntimeTestBackend) ListSFTPFiles(sessionID, targetPath string) ([]sftpdomain.FileEntry, error) {
@@ -474,6 +475,11 @@ func (b *sftpRuntimeTestBackend) NavigateSFTP(sessionID, targetPath string) ([]s
 func (b *sftpRuntimeTestBackend) ReadSFTPFile(sessionID, filePath string) (string, error) {
 	b.read = append(b.read, sessionID+":"+filePath)
 	return "hello from remote", nil
+}
+
+func (b *sftpRuntimeTestBackend) SaveSFTPFile(sessionID, filePath, content string) error {
+	b.saved = append(b.saved, sessionID+":"+filePath+":"+content)
+	return nil
 }
 
 func TestModelSFTPFilesBrowseAndRead(t *testing.T) {
@@ -505,6 +511,43 @@ func TestModelSFTPFilesBrowseAndRead(t *testing.T) {
 	if len(backend.read) != 1 || backend.read[0] != "ssh-1:/etc/readme.txt" { t.Fatalf("unexpected SFTP read calls: %v", backend.read) }
 	if m.fileContent != "hello from remote" { t.Fatalf("unexpected file content: %q", m.fileContent) }
 	if !strings.Contains(m.View(), "FILE: /etc/readme.txt") || !strings.Contains(m.View(), "hello from remote") { t.Fatal("expected remote file content in Files view") }
+}
+
+func TestModelSFTPEditAndSave(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{runtimeTestBackend: runtimeTestBackend{}}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+	m.fileContent = "hello from remote"
+	m.sftpEditPath = "/etc/readme.txt"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	if cmd != nil { t.Fatal("expected local editor activation") }
+	m = next.(Model)
+	if !m.sftpEdit { t.Fatal("expected SFTP editor to open") }
+
+	for i := 0; i < 5; i++ {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+		m = next.(Model)
+	}
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	for _, r := range []rune("updated") {
+		next, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = next.(Model)
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlS})
+	if cmd == nil { t.Fatal("expected SFTP save command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if len(backend.saved) != 1 || backend.saved[0] != "ssh-1:/etc/readme.txt:hello\nupdated from remote" {
+		t.Fatalf("unexpected SFTP save calls: %v", backend.saved)
+	}
+	if m.sftpEdit { t.Fatal("expected editor to close after save") }
+	if m.fileContent != "hello\nupdated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
 }
 
 func TestModelSFTPDirectoryNavigation(t *testing.T) {
