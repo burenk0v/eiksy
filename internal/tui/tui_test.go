@@ -571,8 +571,7 @@ func TestModelSFTPEditAndSave(t *testing.T) {
 		t.Fatalf("unexpected SFTP save calls: %v", backend.saved)
 	}
 	if m.sftpEdit { t.Fatal("expected editor to close after save") }
-	if m.fileContent != "hello
-updated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
+	if m.fileContent != "hello\nupdated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
 }
 
 func TestModelSFTPUploadFiles(t *testing.T) {
@@ -683,8 +682,7 @@ func TestModelRuntimeSessionLifecycle(t *testing.T) {
 	if cmd == nil { t.Fatal("expected terminal send command") }
 	_ = cmd()
 	m = next.(Model)
-	if len(backend.sent) != 1 || backend.sent[0] != "ssh-1:ls
-" { t.Fatalf("unexpected terminal input: %v", backend.sent) }
+	if len(backend.sent) != 1 || backend.sent[0] != "ssh-1:ls\n" { t.Fatalf("unexpected terminal input: %v", backend.sent) }
 
 	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlX})
 	if cmd == nil { t.Fatal("expected disconnect command") }
