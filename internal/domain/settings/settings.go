@@ -5,6 +5,15 @@ type WindowLayout struct {
 	AssistantWidth int `json:"assistantWidth"`
 }
 
+type WindowState struct {
+	Width      int  `json:"width"`
+	Height     int  `json:"height"`
+	X          int  `json:"x"`
+	Y          int  `json:"y"`
+	Maximized  bool `json:"maximized"`
+	Saved      bool `json:"saved"`
+}
+
 const (
 	DefaultVaultMountPoint = "secret"
 	DefaultVaultProvider   = "vault"
@@ -24,6 +33,7 @@ type AppSettings struct {
 	Theme               string            `json:"theme"`
 	DefaultProtocol     string            `json:"defaultProtocol"`
 	WindowLayout        WindowLayout      `json:"windowLayout"`
+	WindowState         WindowState       `json:"windowState"`
 	PromptBeforeAI      bool              `json:"promptBeforeAi"`
 	AllowCloudModels    bool              `json:"allowCloudModels"`
 	PortForwardRules    []PortForwardRule `json:"portForwardRules"`

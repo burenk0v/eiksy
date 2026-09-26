@@ -456,6 +456,28 @@ export namespace settings {
 	        this.assistantWidth = source["assistantWidth"];
 	    }
 	}
+	export class WindowState {
+	    width: number;
+	    height: number;
+	    x: number;
+	    y: number;
+	    maximized: boolean;
+	    saved: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new WindowState(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.width = source["width"];
+	        this.height = source["height"];
+	        this.x = source["x"];
+	        this.y = source["y"];
+	        this.maximized = source["maximized"];
+	        this.saved = source["saved"];
+	    }
+	}
 	export class PortForwardRule {
 	    localPort: string;
 	    remoteHost: string;
@@ -480,6 +502,7 @@ export namespace settings {
 	    theme: string;
 	    defaultProtocol: string;
 	    windowLayout: WindowLayout;
+	    windowState: WindowState;
 	    promptBeforeAi: boolean;
 	    allowCloudModels: boolean;
 	    portForwardRules: PortForwardRule[];
@@ -507,6 +530,7 @@ export namespace settings {
 	        this.theme = source["theme"];
 	        this.defaultProtocol = source["defaultProtocol"];
 	        this.windowLayout = this.convertValues(source["windowLayout"], WindowLayout);
+	        this.windowState = this.convertValues(source["windowState"], WindowState);
 	        this.promptBeforeAi = source["promptBeforeAi"];
 	        this.allowCloudModels = source["allowCloudModels"];
 	        this.portForwardRules = this.convertValues(source["portForwardRules"], PortForwardRule);
