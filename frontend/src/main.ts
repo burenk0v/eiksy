@@ -115,6 +115,7 @@ type TerminalState = {
 };
 
 type Theme = "dark" | "light" | "green";
+type TerminalTheme = "black-on-white" | "gray-on-black" | "green-on-black";
 type SettingsTab =
   "ai" | "commandpolicy" | "sshconfig" | "portforward" | "theme" | "about";
 type SessionModalTab = "host" | "auth" | "network" | "other";
@@ -187,10 +188,12 @@ type HostKeyDialogState = {
 };
 
 const THEME_KEY = "eiksy-theme";
+const TERMINAL_THEME_KEY = "eiksy-terminal-theme";
 const SIDEBAR_COLLAPSED_KEY = "eiksy-sidebar-collapsed";
 const ASSISTANT_COLLAPSED_KEY = "eiksy-assistant-collapsed";
 const SESSION_INNER_TABS_KEY = "eiksy-session-inner-tabs";
 const THEMES: Theme[] = ["dark", "light", "green"];
+const TERMINAL_THEMES: TerminalTheme[] = ["black-on-white", "gray-on-black", "green-on-black"];
 const APP_METADATA = {
   name: "Eiksy",
   repositoryUrl: "https://github.com/burenk0v/eiksy",
@@ -202,6 +205,10 @@ const APP_METADATA = {
 
 function isTheme(value: string | null | undefined): value is Theme {
   return !!value && THEMES.includes(value as Theme);
+}
+
+function isTerminalTheme(value: string | null | undefined): value is TerminalTheme {
+  return !!value && TERMINAL_THEMES.includes(value as TerminalTheme);
 }
 
 const root = document.querySelector<HTMLDivElement>("#app");
@@ -243,6 +250,7 @@ class EiksyShell {
   };
   private sshConfigDraft = "";
   private theme: Theme;
+  private terminalTheme: TerminalTheme;
   private sessionContextMenu: SessionContextMenuState = {
     visible: false,
     x: 0,
@@ -311,6 +319,8 @@ class EiksyShell {
   constructor() {
     const saved = localStorage.getItem(THEME_KEY);
     this.theme = isTheme(saved) ? saved : "dark";
+    const savedTerminalTheme = localStorage.getItem(TERMINAL_THEME_KEY);
+    this.terminalTheme = isTerminalTheme(savedTerminalTheme) ? savedTerminalTheme : "gray-on-black";
     this.sidebarCollapsed =
       localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
     this.assistantCollapsed =
@@ -326,6 +336,31 @@ class EiksyShell {
       document.documentElement.classList.add(this.theme);
     }
     localStorage.setItem(THEME_KEY, this.theme);
+  }
+
+  private terminalThemeOptions(): Terminal["options"]["theme"] {
+    switch (this.terminalTheme) {
+      case "black-on-white":
+        return { background: "#ffffff", foreground: "#000000", cursor: "#000000", selectionBackground: "#b8c7dc" };
+      case "green-on-black":
+        return { background: "#000000", foreground: "#00ff66", cursor: "#00ff66", selectionBackground: "#145c36" };
+      case "gray-on-black":
+      default:
+        return { background: "#000000", foreground: "#b8b8b8", cursor: "#b8b8b8", selectionBackground: "#3a3a3a" };
+    }
+  }
+
+  private applyTerminalTheme(): void {
+    const theme = this.terminalThemeOptions();
+    for (const state of this.terminals.values()) state.terminal.options.theme = theme;
+    localStorage.setItem(TERMINAL_THEME_KEY, this.terminalTheme);
+  }
+
+  private setTerminalTheme(theme: TerminalTheme): void {
+    if (this.terminalTheme === theme) return;
+    this.terminalTheme = theme;
+    this.applyTerminalTheme();
+    this.render();
   }
 
   private applyFavicon(): void {
@@ -1413,6 +1448,15 @@ class EiksyShell {
       });
 
     root
+      ?.querySelectorAll<HTMLButtonElement>("[data-set-terminal-theme]")
+      .forEach((button) => {
+        button.addEventListener("click", () => {
+          const t = button.dataset.setTerminalTheme as TerminalTheme;
+          if (isTerminalTheme(t)) this.setTerminalTheme(t);
+        });
+      });
+
+    root
       ?.querySelector<HTMLFormElement>("[data-vault-settings-form]")
       ?.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -2163,7 +2207,7 @@ class EiksyShell {
       cursorBlink: true,
       fontFamily:
         "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      theme: { background: "#06101f", foreground: "#e6edf7" },
+      theme: this.terminalThemeOptions(),
       scrollback: 2000,
     });
     const fitAddon = new FitAddon();
@@ -3020,12 +3064,22 @@ class EiksyShell {
             `,
       theme: `
                 <div class="section-title">Appearance</div>
-                <div class="theme-toggle-row">
-                    <span>Theme</span>
-                    <div class="theme-switch">
-                        <button class="${this.theme === "dark" ? "active" : ""}" data-set-theme="dark">🌙 Dark</button>
-                        <button class="${this.theme === "light" ? "active" : ""}" data-set-theme="light">☀ Light</button>
-                        <button class="${this.theme === "green" ? "active" : ""}" data-set-theme="green">🟢 Green</button>
+                <div class="theme-settings-group">
+                    <div class="theme-setting">
+                        <span class="theme-setting-label">Application theme</span>
+                        <div class="theme-switch">
+                            <button class="theme-button theme-button-dark ${this.theme === "dark" ? "active" : ""}" data-set-theme="dark">Dark</button>
+                            <button class="theme-button theme-button-light ${this.theme === "light" ? "active" : ""}" data-set-theme="light">Light</button>
+                            <button class="theme-button theme-button-green ${this.theme === "green" ? "active" : ""}" data-set-theme="green">Green</button>
+                        </div>
+                    </div>
+                    <div class="theme-setting">
+                        <span class="theme-setting-label">SSH terminal theme</span>
+                        <div class="theme-switch">
+                            <button class="theme-button terminal-theme-button terminal-theme-black-white ${this.terminalTheme === "black-on-white" ? "active" : ""}" data-set-terminal-theme="black-on-white">Black on white</button>
+                            <button class="theme-button terminal-theme-button terminal-theme-gray-black ${this.terminalTheme === "gray-on-black" ? "active" : ""}" data-set-terminal-theme="gray-on-black">Gray on black</button>
+                            <button class="theme-button terminal-theme-button terminal-theme-green-black ${this.terminalTheme === "green-on-black" ? "active" : ""}" data-set-terminal-theme="green-on-black">Green on black</button>
+                        </div>
                     </div>
                 </div>
             `,
