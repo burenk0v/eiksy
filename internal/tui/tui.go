@@ -96,12 +96,12 @@ type SFTPUploadBackend interface {
 	UploadSFTPFiles(string, string, []string) error
 }
 
-type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy) error }
-
 type SFTPDownloadBackend interface {
 	SelectDownloadDirectory() (string, error)
 	DownloadSFTPFiles(string, string, []string) error
 }
+
+type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy) error }
 
  type sftpUploadDone struct{ count int }
 type sftpUploadError struct{ err error }
@@ -157,7 +157,7 @@ type Model struct {
 	profileForm      *sessionProfileForm
 	aiBackend        AIBackend
 	aiProviderIndex  int
-	aiToolIndex       int
+	aiToolIndex      int
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
 	pendingHostKey   string
@@ -338,10 +338,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settings = msg.settings
 	case aiProviderSelectDone:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
-	case commandPolicyUpdateDone:
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Command policy updated."})
-	case commandPolicyUpdateError:
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Command policy update failed: %v", msg.err)})
 	case aiProviderSelectError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider selection failed: %v", msg.err)})
 	case aiSendDone:
@@ -349,6 +345,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
 	case aiRefreshDone:
 		m.messages = append([]ChatMessage(nil), msg.messages...)
+	case commandPolicyUpdateDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Command policy updated."})
+	case commandPolicyUpdateError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Command policy update failed: %v", msg.err)})
 	case settingsUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
 	case sessionProfileCreateDone:
@@ -508,6 +508,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 2 && !m.sftpEdit { if cmd := m.uploadSFTPFiles(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlO:
 			if m.activeTab == 2 && !m.sftpEdit { if cmd := m.downloadSFTPSelection(); cmd != nil { return m, cmd } }
+		case tea.KeyEnter:
+			if m.activeTab == 3 { if cmd := m.toggleAITool(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlY:
 			if m.pendingHostKey != "" && m.runtimeBackend != nil {
 				backend := m.runtimeBackend
@@ -530,12 +532,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected-1+len(m.sftpEntries))%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex = (m.aiToolIndex - 1 + m.aiToolCount()) % m.aiToolCount() } else { m.selectPreviousSession() }
+			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex-1+m.aiToolCount())%m.aiToolCount(); break }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected+1)%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex = (m.aiToolIndex + 1) % m.aiToolCount() } else { m.selectNextSession() }
+			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 0 {
@@ -1268,8 +1272,7 @@ func (m Model) renderSidebar(width, height int, title, key lipgloss.Style) strin
 			name := profile.Name; if name == "" { name = profile.ID }
 			line := marker + name
 			if i == m.activeProfile { line = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("255")).Background(lipgloss.Color("24")).Width(width).Render(line) }
-			b.WriteString(line); b.WriteByte('
-')
+			b.WriteString(line); b.WriteByte('\n')
 		}
 	}
 	b.WriteString("\n"); b.WriteString(title.Render("NAVIGATION")); b.WriteString("\n\n")
@@ -1314,8 +1317,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		} else {
 			fmt.Fprintf(&b, "Session: %s\n\n", m.tabs[1].Session.Title)
 			if len(m.terminalLines) == 0 { b.WriteString("Connected. Ready for input.") } else {
-				for _, line := range m.terminalLines { b.WriteString(line); b.WriteByte('
-') }
+				for _, line := range m.terminalLines { b.WriteString(line); b.WriteByte('\n') }
 			}
 			b.WriteString("\n\n> "); b.WriteString(m.terminalInput)
 			if view, ok := m.activeRuntime(); ok { fmt.Fprintf(&b, "\n\nStatus: %s", view.Status) }
@@ -1328,8 +1330,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			b.WriteString("EDIT: "); b.WriteString(m.sftpEditPath); b.WriteString("\n\n")
 			for i, line := range m.sftpEditLines {
 				if i == m.sftpEditRow { r:=[]rune(line); b.WriteString(string(r[:m.sftpEditCol])); b.WriteString("▌"); b.WriteString(string(r[m.sftpEditCol:])) } else { b.WriteString(line) }
-				b.WriteByte('
-')
+				b.WriteByte('\n')
 			}
 			b.WriteString("\nCtrl+S save   Esc cancel")
 		} else if m.fileContent != "" {
@@ -1411,8 +1412,7 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 		"Ctrl+U upload files      Ctrl+O download selected file",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
-	} { b.WriteString(line); b.WriteByte('
-') }
+	} { b.WriteString(line); b.WriteByte('\n') }
 	return panelFixed(b.String(), width, height)
 }
 
@@ -1445,14 +1445,21 @@ func Run(backend Backend) error {
 	return err
 }
 
-func (m Model) aiToolCount() int { if m.aiBackend == nil { return 0 }; return len(m.aiBackend.GetShellState().AI.CommandPolicy.Tools) }
-
+func (m Model) aiToolCount() int {
+	if m.aiBackend == nil { return 0 }
+	return len(m.aiBackend.GetShellState().AI.CommandPolicy.Tools)
+}
 type commandPolicyUpdateDone struct{}
 type commandPolicyUpdateError struct{ err error }
-
 func (m *Model) toggleAITool() tea.Cmd {
-\tbackend, ok := m.backend.(CommandPolicyBackend); if !ok || m.aiBackend == nil { return nil }
-\tstate := m.aiBackend.GetShellState(); if m.aiToolIndex < 0 || m.aiToolIndex >= len(state.AI.CommandPolicy.Tools) { return nil }
-\tstate.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled = !state.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled
-\tpolicy := state.AI.CommandPolicy; return func() tea.Msg { if err := backend.UpdateCommandPolicy(policy); err != nil { return commandPolicyUpdateError{err: err} }; return commandPolicyUpdateDone{} }
+	backend, ok := m.backend.(CommandPolicyBackend)
+	if !ok || m.aiBackend == nil { return nil }
+	state := m.aiBackend.GetShellState()
+	if m.aiToolIndex < 0 || m.aiToolIndex >= len(state.AI.CommandPolicy.Tools) { return nil }
+	state.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled = !state.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled
+	policy := state.AI.CommandPolicy
+	return func() tea.Msg {
+		if err := backend.UpdateCommandPolicy(policy); err != nil { return commandPolicyUpdateError{err: err} }
+		return commandPolicyUpdateDone{}
+	}
 }
