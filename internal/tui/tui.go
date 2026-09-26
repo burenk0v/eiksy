@@ -413,8 +413,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.runtimeSessions[msg.profileID] = view
 			if strings.Contains(strings.ToLower(msg.err.Error()), "unknown host key") {
 				m.pendingHostKey = view.ID
-				m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Unknown SSH host key. Press Ctrl+Y to accept it, then reconnect.
-%v", msg.err)})
+				m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("Unknown SSH host key. Press Ctrl+Y to accept it, then reconnect.\n%v", msg.err)})
 				break
 			}
 		}
@@ -1090,8 +1089,7 @@ func (m *Model) openSFTPSelection() tea.Cmd {
 
 func (m *Model) startSFTPEditor() {
 	m.sftpEdit = true
-	m.sftpEditLines = strings.Split(m.fileContent, "
-")
+	m.sftpEditLines = strings.Split(m.fileContent, "\n")
 	if len(m.sftpEditLines) == 0 { m.sftpEditLines = []string{""} }
 	m.sftpEditRow, m.sftpEditCol = 0, 0
 }
