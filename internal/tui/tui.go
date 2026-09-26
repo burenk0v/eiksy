@@ -91,6 +91,16 @@ type SFTPWriteBackend interface {
 	SaveSFTPFile(string, string, string) error
 }
 
+type SFTPUploadBackend interface {
+	SelectUploadFiles() ([]string, error)
+	UploadSFTPFiles(string, string, []string) error
+}
+
+type SFTPDownloadBackend interface {
+	SelectDownloadDirectory() (string, error)
+	DownloadSFTPFiles(string, string, []string) error
+}
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
@@ -119,6 +129,7 @@ type Model struct {
 	sftpEditLines []string
 	sftpEditRow int
 	sftpEditCol int
+	sftpTransferStatus string
 	activeView  string
 	palette   *CommandPalette
 	shortcuts bool
@@ -359,6 +370,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP file saved: %s", msg.path)})
 	case sftpSaveError:
 		m.messages = append(m.messages, ChatMessage{Role:"System", Content:fmt.Sprintf("SFTP save failed: %v", msg.err)})
+	case sftpUploadDone:
+		m.sftpTransferStatus = fmt.Sprintf("Uploaded %d file(s) to %s.", msg.count, nonEmpty(m.sftpPath, "."))
+	case sftpUploadError:
+		m.sftpTransferStatus = fmt.Sprintf("SFTP upload failed: %v", msg.err)
+	case sftpDownloadDone:
+		m.sftpTransferStatus = fmt.Sprintf("Downloaded %s.", msg.path)
+	case sftpDownloadError:
+		m.sftpTransferStatus = fmt.Sprintf("SFTP download failed: %v", msg.err)
 	case runtimeLaunchDone:
 		if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
 		m.runtimeSessions[msg.view.ProfileID] = msg.view
@@ -473,6 +492,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlE:
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+		case tea.KeyCtrlU:
+			if m.activeTab == 2 && !m.sftpEdit { if cmd := m.uploadSFTPFiles(); cmd != nil { return m, cmd } }
+		case tea.KeyCtrlO:
+			if m.activeTab == 2 && !m.sftpEdit { if cmd := m.downloadSFTPSelection(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlY:
 			if m.pendingHostKey != "" && m.runtimeBackend != nil {
 				backend := m.runtimeBackend
@@ -1098,6 +1121,49 @@ func (m *Model) saveSFTPEditor() tea.Cmd {
 	return func() tea.Msg { if err:=backend.SaveSFTPFile(sessionID,path,content); err!=nil { return sftpSaveError{err:err} }; return sftpSaveDone{path:path,content:content} }
 }
 
+func (m *Model) uploadSFTPFiles() tea.Cmd {
+	backend, ok := m.backend.(SFTPUploadBackend)
+	if !ok || m.runtimeBackend == nil || m.activeRuntimeSessionID() == "" {
+		m.sftpTransferStatus = "SFTP upload unavailable."
+		return nil
+	}
+	sessionID := m.activeRuntimeSessionID()
+	remoteDir := nonEmpty(m.sftpPath, ".")
+	return func() tea.Msg {
+		paths, err := backend.SelectUploadFiles()
+		if err != nil { return sftpUploadError{err: err} }
+		if len(paths) == 0 { return sftpUploadDone{count: 0} }
+		if err := backend.UploadSFTPFiles(sessionID, remoteDir, paths); err != nil { return sftpUploadError{err: err} }
+		return sftpUploadDone{count: len(paths)}
+	}
+}
+
+func (m *Model) downloadSFTPSelection() tea.Cmd {
+	backend, ok := m.backend.(SFTPDownloadBackend)
+	if !ok || m.runtimeBackend == nil || m.activeRuntimeSessionID() == "" {
+		m.sftpTransferStatus = "SFTP download unavailable."
+		return nil
+	}
+	if len(m.sftpEntries) == 0 || m.sftpSelected < 0 || m.sftpSelected >= len(m.sftpEntries) {
+		m.sftpTransferStatus = "Select a remote file to download."
+		return nil
+	}
+	entry := m.sftpEntries[m.sftpSelected]
+	if entry.IsDir {
+		m.sftpTransferStatus = "Select a remote file to download."
+		return nil
+	}
+	sessionID := m.activeRuntimeSessionID()
+	remotePath := entry.Path
+	return func() tea.Msg {
+		localDir, err := backend.SelectDownloadDirectory()
+		if err != nil { return sftpDownloadError{err: err} }
+		if strings.TrimSpace(localDir) == "" { return sftpDownloadError{err: fmt.Errorf("download directory is empty")} }
+		if err := backend.DownloadSFTPFiles(sessionID, localDir, []string{remotePath}); err != nil { return sftpDownloadError{err: err} }
+		return sftpDownloadDone{path: remotePath}
+	}
+}
+
 func (m *Model) refreshSessions() {
 	if m.backend == nil { return }
 	items := m.backend.ListChatSessions()
@@ -1316,6 +1382,7 @@ func (m Model) renderHelp(width, height int, title lipgloss.Style) string {
 		"Enter select/connect  Ctrl+N new session  Ctrl+D delete profile",
 		"Ctrl+R reconnect      Ctrl+X disconnect       Ctrl+W close runtime",
 		"Ctrl+Y accept unknown SSH host key",
+		"Ctrl+U upload files      Ctrl+O download selected file",
 		"Ctrl+P command palette",
 		"Ctrl+Q quit        Esc close overlay",
 	} { b.WriteString(line); b.WriteByte('\n') }
