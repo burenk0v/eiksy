@@ -101,6 +101,11 @@ type SFTPDownloadBackend interface {
 	DownloadSFTPFiles(string, string, []string) error
 }
 
+ type sftpUploadDone struct{ count int }
+type sftpUploadError struct{ err error }
+type sftpDownloadDone struct{ path string }
+type sftpDownloadError struct{ err error }
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
