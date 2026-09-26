@@ -1314,6 +1314,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 	case 2:
 		path := m.sftpPath; if path == "" { path = "." }
 		fmt.Fprintf(&b, "Path: %s\n\n", path)
+		if m.sftpTransferStatus != "" { b.WriteString(m.sftpTransferStatus); b.WriteString("\n\n") }
 		if m.sftpEdit {
 			b.WriteString("EDIT: "); b.WriteString(m.sftpEditPath); b.WriteString("\n\n")
 			for i, line := range m.sftpEditLines {
