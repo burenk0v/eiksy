@@ -179,10 +179,6 @@ func newSessionProfileEditForm(profile domainsessions.Profile) *sessionProfileFo
 	return &sessionProfileForm{id: profile.ID, name: profile.Name, host: profile.Host, port: strconv.Itoa(profile.Port), username: profile.Username}
 }
 
-func newSessionProfileEditForm(profile domainsessions.Profile) *sessionProfileForm {
-	return &sessionProfileForm{id: profile.ID, name: profile.Name, host: profile.Host, port: strconv.Itoa(profile.Port), username: profile.Username}
-}
-
 func (f *sessionProfileForm) value() string {
 	switch f.field {
 	case 0: return f.name
@@ -503,16 +499,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
-		case tea.KeyCtrlE:
-			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
-				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
-				return m, nil
-			}
-		case tea.KeyCtrlE:
-			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
-				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
-				return m, nil
-			}
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
 		case tea.KeyCtrlE:
