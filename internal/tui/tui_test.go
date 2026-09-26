@@ -152,7 +152,7 @@ func TestModelChatInput(t *testing.T) {
 type aiTestBackend struct {
 	runtimeTestBackend
 	sent []string
-	aiState agentai.WorkspaceState
+	aiState domainai.WorkspaceState
 }
 
 func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
@@ -169,7 +169,7 @@ func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 }
 
 func TestModelAISelectsProviderThroughSharedBackend(t *testing.T) {
-	backend := &aiTestBackend{aiState: agentai.WorkspaceState{
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{
 		Providers: []domainai.ProviderDescriptor{
 			{ID: "cloud", Name: "Cloud", Model: "gpt-test", Status: "ready", Selected: true, Configured: true},
 			{ID: "local", Name: "Local", Model: "qwen-test", Status: "stopped", Configured: true},
