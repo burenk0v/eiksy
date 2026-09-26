@@ -473,12 +473,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm == nil { if cmd := m.closeActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlE:
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
-		case tea.KeyBackspace:
-			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.sftpPath != "/" && m.fileContent == "" {
-				parent := path.Dir(m.sftpPath)
-				if parent == "" { parent = "." }
-				return m, m.loadSFTPFiles(parent)
-			}
 		case tea.KeyCtrlY:
 			if m.pendingHostKey != "" && m.runtimeBackend != nil {
 				backend := m.runtimeBackend
@@ -534,6 +528,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyEsc:
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.sftpPath != "/" && m.fileContent == "" {
+				parent := path.Dir(m.sftpPath)
+				if parent == "" { parent = "." }
+				return m, m.loadSFTPFiles(parent)
+			}
 			if m.profileForm != nil { v:=m.profileForm.value(); if len(v)>0 { m.profileForm.setValue(v[:len(v)-1]) }; break }
 			if m.activeTab == 1 {
 				if len(m.terminalInput) > 0 {
