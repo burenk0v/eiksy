@@ -1756,6 +1756,7 @@ class EiksyShell {
       if (profile.protocolId === "ssh") {
         this.ensureTerminalSubscription(tab.id);
         if (await this.connectSSHWithHostKeyHandling(tab.id, profileID)) {
+          await this.refresh("");
           this.fitActiveTerminal();
           await this.ensureActiveSFTPLoaded(true);
         }
