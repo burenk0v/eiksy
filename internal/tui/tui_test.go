@@ -458,6 +458,10 @@ type sftpRuntimeTestBackend struct {
 	listed []string
 	read []string
 	saved []string
+	uploadSelected []string
+	uploaded []string
+	downloadDir string
+	downloaded []string
 }
 
 func (b *sftpRuntimeTestBackend) ListSFTPFiles(sessionID, targetPath string) ([]sftpdomain.FileEntry, error) {
@@ -479,6 +483,24 @@ func (b *sftpRuntimeTestBackend) ReadSFTPFile(sessionID, filePath string) (strin
 
 func (b *sftpRuntimeTestBackend) SaveSFTPFile(sessionID, filePath, content string) error {
 	b.saved = append(b.saved, sessionID+":"+filePath+":"+content)
+	return nil
+}
+
+func (b *sftpRuntimeTestBackend) SelectUploadFiles() ([]string, error) {
+	return append([]string(nil), b.uploadSelected...), nil
+}
+
+func (b *sftpRuntimeTestBackend) UploadSFTPFiles(sessionID, remoteDir string, localPaths []string) error {
+	b.uploaded = append(b.uploaded, sessionID+":"+remoteDir+":"+strings.Join(localPaths, ","))
+	return nil
+}
+
+func (b *sftpRuntimeTestBackend) SelectDownloadDirectory() (string, error) {
+	return b.downloadDir, nil
+}
+
+func (b *sftpRuntimeTestBackend) DownloadSFTPFiles(sessionID, localDir string, remotePaths []string) error {
+	b.downloaded = append(b.downloaded, sessionID+":"+localDir+":"+strings.Join(remotePaths, ","))
 	return nil
 }
 
@@ -548,6 +570,57 @@ func TestModelSFTPEditAndSave(t *testing.T) {
 	}
 	if m.sftpEdit { t.Fatal("expected editor to close after save") }
 	if m.fileContent != "hello\nupdated from remote" { t.Fatalf("unexpected saved content: %q", m.fileContent) }
+}
+
+func TestModelSFTPUploadFiles(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{
+		runtimeTestBackend: runtimeTestBackend{},
+		uploadSelected: []string{"/tmp/one.txt", "/tmp/two.txt"},
+	}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+	m.sftpPath = "/etc/config"
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	if cmd == nil { t.Fatal("expected SFTP upload command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if len(backend.uploaded) != 1 || backend.uploaded[0] != "ssh-1:/etc/config:/tmp/one.txt,/tmp/two.txt" {
+		t.Fatalf("unexpected SFTP upload calls: %v", backend.uploaded)
+	}
+	if !strings.Contains(m.View(), "Uploaded 2 file(s) to /etc/config.") {
+		t.Fatal("expected upload confirmation")
+	}
+}
+
+func TestModelSFTPDownloadSelectedFile(t *testing.T) {
+	backend := &sftpRuntimeTestBackend{
+		runtimeTestBackend: runtimeTestBackend{},
+		downloadDir: "/tmp/downloads",
+	}
+	m := NewModel().WithBackend(backend).WithTerminalSession("ssh-1", "prod")
+	m.activeTab = 2
+	m.sftpPath = "/etc/config"
+	m.sftpEntries = []sftpdomain.FileEntry{
+		{Name: "readme.txt", Path: "/etc/config/readme.txt"},
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	if cmd == nil { t.Fatal("expected SFTP download command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+
+	if len(backend.downloaded) != 1 || backend.downloaded[0] != "ssh-1:/tmp/downloads:/etc/config/readme.txt" {
+		t.Fatalf("unexpected SFTP download calls: %v", backend.downloaded)
+	}
+	if !strings.Contains(m.View(), "Downloaded /etc/config/readme.txt.") {
+		t.Fatal("expected download confirmation")
+	}
 }
 
 func TestModelSFTPDirectoryNavigation(t *testing.T) {
