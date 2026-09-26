@@ -96,6 +96,8 @@ type SFTPUploadBackend interface {
 	UploadSFTPFiles(string, string, []string) error
 }
 
+type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy) error }
+
 type SFTPDownloadBackend interface {
 	SelectDownloadDirectory() (string, error)
 	DownloadSFTPFiles(string, string, []string) error
@@ -155,6 +157,7 @@ type Model struct {
 	profileForm      *sessionProfileForm
 	aiBackend        AIBackend
 	aiProviderIndex  int
+	aiToolIndex       int
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
 	pendingHostKey   string
@@ -335,6 +338,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.settings = msg.settings
 	case aiProviderSelectDone:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
+	case commandPolicyUpdateDone:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Command policy updated."})
+	case commandPolicyUpdateError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Command policy update failed: %v", msg.err)})
 	case aiProviderSelectError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider selection failed: %v", msg.err)})
 	case aiSendDone:
@@ -523,12 +530,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected-1+len(m.sftpEntries))%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex = (m.aiToolIndex - 1 + m.aiToolCount()) % m.aiToolCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected+1)%len(m.sftpEntries); break }
-			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
+			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex = (m.aiToolIndex + 1) % m.aiToolCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 0 {
@@ -1337,8 +1344,18 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			b.WriteString("\n↑/↓ select   Enter open/read   Backspace parent")
 		}
 	case 3:
-		b.WriteString("Tools available through the application services.\n\nUse the command palette to navigate available actions.\n\n")
-		b.WriteString(key.Render("Ctrl+P")); b.WriteString("  command palette")
+		b.WriteString("AI command policy\n\n")
+		state := appservice.ShellState{}
+		if m.aiBackend != nil { state = m.aiBackend.GetShellState() }
+		tools := state.AI.CommandPolicy.Tools
+		if len(tools) == 0 { b.WriteString("No AI tools configured.\n") } else {
+			for i, tool := range tools { marker := "  "; if i == m.aiToolIndex { marker = "› " }; status := "OFF"; if tool.Enabled { status = "ON" }; fmt.Fprintf(&b, "%s[%s] %s\n", marker, status, nonEmpty(tool.Name, tool.ID)) }
+		}
+		b.WriteString("\nCommand rules\n")
+		if len(state.AI.CommandPolicy.CommandRules) == 0 { b.WriteString("  No explicit rules.\n") } else { for _, rule := range state.AI.CommandPolicy.CommandRules { fmt.Fprintf(&b, "  [%s] %s %s\n", rule.Action, nonEmpty(rule.ToolID, "*"), rule.Pattern) } }
+		b.WriteString("\nPending approvals\n")
+		if len(state.AI.CommandPolicy.PendingRequests) == 0 { b.WriteString("  None.\n") } else { for _, request := range state.AI.CommandPolicy.PendingRequests { fmt.Fprintf(&b, "  %s: %s\n", request.ID, request.Command) } }
+		b.WriteString("\n↑/↓ select tool   Enter toggle")
 	case 4:
 		b.WriteString("Persistent application settings.\n\n")
 		lines := []string{
@@ -1423,3 +1440,4 @@ func Run(backend Backend) error {
 	_, err := program.Run()
 	return err
 }
+\nfunc (m Model) aiToolCount() int { if m.aiBackend == nil { return 0 }; return len(m.aiBackend.GetShellState().AI.CommandPolicy.Tools) }\n\ntype commandPolicyUpdateDone struct{}\ntype commandPolicyUpdateError struct{ err error }\n\nfunc (m *Model) toggleAITool() tea.Cmd {\n\tbackend, ok := m.backend.(CommandPolicyBackend); if !ok || m.aiBackend == nil { return nil }\n\tstate := m.aiBackend.GetShellState(); if m.aiToolIndex < 0 || m.aiToolIndex >= len(state.AI.CommandPolicy.Tools) { return nil }\n\tstate.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled = !state.AI.CommandPolicy.Tools[m.aiToolIndex].Enabled\n\tpolicy := state.AI.CommandPolicy; return func() tea.Msg { if err := backend.UpdateCommandPolicy(policy); err != nil { return commandPolicyUpdateError{err: err} }; return commandPolicyUpdateDone{} }\n}\n
