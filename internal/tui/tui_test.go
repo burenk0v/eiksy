@@ -8,6 +8,7 @@ import (
 	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
+	securestorage "eiksy/internal/securestorage"
 	sftpdomain "eiksy/internal/domain/sftp"
 	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
@@ -1101,6 +1102,39 @@ type editProfileTestBackend struct {
 func (b *editProfileTestBackend) CreateSessionProfileInput(input domainsessions.ProfileInput) error {
 	b.updated = input
 	return nil
+}
+
+type secureStorageTestBackend struct {
+	runtimeTestBackend
+	status securestorage.Status
+	password string
+	locked bool
+}
+
+func (b *secureStorageTestBackend) GetSecureStorageStatus() securestorage.Status { return b.status }
+func (b *secureStorageTestBackend) EnsureMasterPassword(password string) error { b.password=password; b.status.Configured=true; b.status.Unlocked=true; return nil }
+func (b *secureStorageTestBackend) LockSecureStorage() { b.locked=true; b.status.Unlocked=false }
+
+func TestModelSecureStorageLifecycleThroughSharedBackend(t *testing.T) {
+	backend := &secureStorageTestBackend{runtimeTestBackend: runtimeTestBackend{}, status: securestorage.Status{Available:true, Configured:false, Unlocked:false}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 4
+	if !strings.Contains(m.View(), "not configured") { t.Fatalf("expected secure storage status in settings: %s", m.View()) }
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlM})
+	m = next.(Model)
+	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s','e','c','r','e','t'}})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(Model)
+	if cmd == nil { t.Fatal("expected secure storage command") }
+	msg := cmd()
+	next, _ = m.Update(msg)
+	m = next.(Model)
+	if backend.password != "secret" || !backend.status.Unlocked { t.Fatalf("expected shared secure storage unlock: %+v", backend.status) }
+	if !strings.Contains(m.View(), "unlocked") { t.Fatalf("expected unlocked status: %s", m.View()) }
+	next, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	m = next.(Model)
+	if !backend.locked || backend.status.Unlocked { t.Fatalf("expected shared secure storage lock: %+v", backend.status) }
+	if !strings.Contains(m.View(), "locked") { t.Fatalf("expected locked status: %s", m.View()) }
 }
 
 func TestModelEditsSessionProfileThroughSharedBackend(t *testing.T) {

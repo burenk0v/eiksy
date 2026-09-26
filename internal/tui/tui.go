@@ -11,6 +11,7 @@ import (
 	appservice "eiksy/internal/app"
 	domainai "eiksy/internal/domain/ai"
 	domainsettings "eiksy/internal/domain/settings"
+	securestorage "eiksy/internal/securestorage"
 	sftpdomain "eiksy/internal/domain/sftp"
 	domainsessions "eiksy/internal/domain/sessions"
 	tea "github.com/charmbracelet/bubbletea"
@@ -103,6 +104,8 @@ type SFTPDownloadBackend interface {
 
 type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy) error }
 
+type SecureStorageBackend interface { GetSecureStorageStatus() securestorage.Status; EnsureMasterPassword(string) error; LockSecureStorage() }
+
  type sftpUploadDone struct{ count int }
 type sftpUploadError struct{ err error }
 type sftpDownloadDone struct{ path string }
@@ -151,6 +154,10 @@ type Model struct {
 	backend         Backend
 	settings        domainsettings.AppSettings
 	settingsIndex   int
+	secureStorageBackend SecureStorageBackend
+	secureStorageStatus securestorage.Status
+	masterPasswordInput string
+	masterPasswordPrompt bool
 	profileBackend   SessionProfileBackend
 	profiles         []domainsessions.Profile
 	activeProfile    int
@@ -242,6 +249,7 @@ func (m Model) WithBackend(backend Backend) Model {
 		m.sessionForker = backend
 		if profileBackend, ok := backend.(SessionProfileBackend); ok { m.profileBackend = profileBackend }
 		if aiBackend, ok := backend.(AIBackend); ok { m.aiBackend = aiBackend }
+		if secureBackend, ok := backend.(SecureStorageBackend); ok { m.secureStorageBackend = secureBackend; m.secureStorageStatus = secureBackend.GetSecureStorageStatus() }
 		if runtimeBackend, ok := backend.(RuntimeSessionBackend); ok {
 			m.runtimeBackend = runtimeBackend
 			if m.runtimeSessions == nil { m.runtimeSessions = make(map[string]appservice.RuntimeSessionView) }
@@ -354,6 +362,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Command policy updated."})
 	case commandPolicyUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Command policy update failed: %v", msg.err)})
+	case secureStorageDone:
+		m.masterPasswordInput = ""
+		m.masterPasswordPrompt = false
+		if m.secureStorageBackend != nil { m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus() }
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage unlocked."})
+	case secureStorageError:
+		m.masterPasswordInput = ""
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Secure storage operation failed: %v", msg.err)})
 	case settingsUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Settings update failed: %v", msg.err)})
 	case sessionProfileCreateDone:
@@ -507,6 +523,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+		case tea.KeyCtrlM:
+			if m.activeTab == 4 && m.secureStorageBackend != nil { m.masterPasswordPrompt = true; m.masterPasswordInput = ""; return m, nil }
+		case tea.KeyCtrlL:
+			if m.activeTab == 4 && m.secureStorageBackend != nil { m.secureStorageBackend.LockSecureStorage(); m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus(); m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage locked."}); return m, nil }
 		case tea.KeyCtrlR:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd := m.reconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlX:
@@ -549,6 +569,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.masterPasswordPrompt {
+				if m.masterPasswordInput == "" || m.secureStorageBackend == nil { return m, nil }
+				password := m.masterPasswordInput
+				backend := m.secureStorageBackend
+				return m, func() tea.Msg {
+					if err := backend.EnsureMasterPassword(password); err != nil { return secureStorageError{err: err} }
+					return secureStorageDone{}
+				}
+			}
 			if m.activeTab == 3 { if cmd := m.toggleAITool(); cmd != nil { return m, cmd } }
 			if m.profileForm != nil { if cmd := m.submitProfileForm(); cmd != nil { return m, cmd }; return m, nil }
 			if m.activeTab == 0 {
@@ -559,6 +588,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			if m.activeTab == 4 {
+				if m.secureStorageBackend != nil && m.settingsIndex == 3 { m.masterPasswordPrompt = true; m.masterPasswordInput = ""; return m, nil }
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectAIProvider(); cmd != nil { return m, cmd }
@@ -574,8 +604,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitChatInput(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyEsc:
+			if m.masterPasswordPrompt { m.masterPasswordPrompt = false; m.masterPasswordInput = ""; return m, nil }
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.masterPasswordPrompt {
+				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
+				break
+			}
 			if m.activeTab == 2 && !m.sftpEdit && m.sftpPath != "" && m.sftpPath != "." && m.sftpPath != "/" && m.fileContent == "" {
 				parent := path.Dir(m.sftpPath)
 				if parent == "" { parent = "." }
@@ -594,6 +629,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.masterPasswordPrompt {
+				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
+				break
+			}
 			if m.profileForm != nil { for _, r := range msg.Runes { if r>=32 { m.profileForm.setValue(m.profileForm.value()+string(r)) } }; break }
 			if m.activeTab == 1 {
 				if !m.hasTerminalSession() {
@@ -1029,8 +1068,6 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, header, tabRow, body, statusBar, footer)
 }
 
-func (m Model) settingsCount() int { return 3 }
-
 func boolLabel(value bool) string { if value { return "ON" }; return "OFF" }
 func nonEmpty(value, fallback string) string { if strings.TrimSpace(value) == "" { return fallback }; return value }
 
@@ -1253,12 +1290,17 @@ func (m *Model) toggleSetting() tea.Cmd {
 	}
 }
 
+type secureStorageDone struct{}
+type secureStorageError struct{ err error }
+
 type aiSendDone struct{}
 type aiSendError struct{ err error }
 type aiRefreshDone struct{ messages []ChatMessage }
 
 type settingsUpdateDone struct{ settings domainsettings.AppSettings }
 type settingsUpdateError struct{ err error }
+
+func (m Model) settingsCount() int { if m.secureStorageBackend != nil { return 4 }; return 3 }
 
 func (m Model) currentViewName() string {
 	if m.activeTab < 0 || m.activeTab >= len(m.tabs) { return "Sessions" }
@@ -1378,17 +1420,17 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		}
 	case 4:
 		b.WriteString("Persistent application settings.\n\n")
+		if m.masterPasswordPrompt { b.WriteString("MASTER PASSWORD\n\n> " + strings.Repeat("*", len(m.masterPasswordInput)) + "▌\n\nEnter unlock/create   Esc cancel"); break }
+		status := "unavailable"
+		if m.secureStorageStatus.Available { if !m.secureStorageStatus.Configured { status = "not configured" } else if m.secureStorageStatus.Unlocked { status = "unlocked" } else { status = "locked" } }
 		lines := []string{
 			fmt.Sprintf("Prompt before AI actions: %s", boolLabel(m.settings.PromptBeforeAI)),
 			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
 			fmt.Sprintf("Theme:                    %s", nonEmpty(m.settings.Theme, "default")),
+			fmt.Sprintf("Secure storage:           %s", status),
 		}
-		for i, line := range lines {
-			marker := "  "
-			if i == m.settingsIndex { marker = "› " }
-			b.WriteString(marker + line + "\n")
-		}
-		b.WriteString("\n↑/↓ select   Enter change")
+		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
+		b.WriteString("\n↑/↓ select   Enter change   Ctrl+M unlock/create   Ctrl+L lock")
 	case 5:
 		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
