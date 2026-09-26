@@ -162,7 +162,6 @@ func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
 
 func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{AI: b.aiState} }
 func (b *aiTestBackend) UpdateCommandPolicy(policy domainai.CommandPolicy) error { b.aiState.CommandPolicy = policy; return nil }
-
 func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 	for i := range b.aiState.Providers {
 		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
@@ -1076,34 +1075,19 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	}
 }
 
-
 func TestModelCommandPolicyTogglesToolThroughSharedBackend(t *testing.T) {
-	backend := &aiTestBackend{aiState: domainai.WorkspaceState{
-		CommandPolicy: domainai.CommandPolicy{Tools: []domainai.CommandTool{
-			{ID: "shell", Name: "Shell", Enabled: true},
-			{ID: "sftp", Name: "SFTP", Enabled: false},
-		}},
-	}}
-	m := NewModel().WithBackend(backend)
-	m.activeTab = 3
-
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{CommandPolicy: domainai.CommandPolicy{Tools: []domainai.CommandTool{
+		{ID: "shell", Name: "Shell", Enabled: true}, {ID: "sftp", Name: "SFTP", Enabled: false},
+	}}}}
+	m := NewModel().WithBackend(backend); m.activeTab = 3
 	view := m.View()
 	for _, want := range []string{"AI command policy", "[ON] Shell", "[OFF] SFTP", "Command rules", "Pending approvals"} {
 		if !strings.Contains(view, want) { t.Fatalf("expected tools view to contain %q, got %q", want, view) }
 	}
-
-	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
-	if cmd != nil { t.Fatal("expected tool navigation without command") }
-	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown}); if cmd != nil { t.Fatal("expected tool navigation without command") }; m = next.(Model)
 	if m.aiToolIndex != 1 { t.Fatalf("expected second tool selected, got %d", m.aiToolIndex) }
-
-	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if cmd == nil { t.Fatal("expected policy update command") }
-	m = next.(Model)
-	result := cmd()
-	if result == nil { t.Fatal("expected policy update result") }
-	next, _ = m.Update(result)
-	m = next.(Model)
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter}); if cmd == nil { t.Fatal("expected policy update command") }; m = next.(Model)
+	result := cmd(); if result == nil { t.Fatal("expected policy update result") }; next, _ = m.Update(result); m = next.(Model)
 	if backend.aiState.CommandPolicy.Tools[1].Enabled { t.Fatal("expected SFTP tool to be disabled") }
 	if !strings.Contains(m.View(), "Command policy updated.") { t.Fatal("expected update confirmation") }
 }
