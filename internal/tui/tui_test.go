@@ -178,20 +178,23 @@ func TestModelAISelectsProviderThroughSharedBackend(t *testing.T) {
 	m := NewModel().WithBackend(backend)
 	m.activeTab = 5
 
-	m = m.(Model)
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd != nil {
+		t.Fatal("expected provider navigation without command")
+	}
+	m = next.(Model)
+	if m.aiProviderIndex != 1 {
+		t.Fatalf("expected second provider selected, got %d", m.aiProviderIndex)
+	}
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("expected provider selection command")
-	}
-	if result := cmd(); result == nil {
-		t.Fatal("expected provider selection result")
-	}
-	m.activeAIProvider = 1
-	if _, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); cmd == nil {
 		t.Fatal("expected provider activation command")
 	}
-	cmd = func() tea.Msg { return nil }
-	_ = cmd
+	m = next.(Model)
+	if result := cmd(); result == nil {
+		t.Fatal("expected provider activation result")
+	}
 	if !backend.aiState.Providers[1].Selected {
 		t.Fatal("expected local provider to be selected")
 	}
