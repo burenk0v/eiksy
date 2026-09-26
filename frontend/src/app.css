@@ -484,6 +484,36 @@ small {
     padding: 0.75rem 0.5rem;
 }
 
+.notification-button {
+    width: 42px;
+    height: 38px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 42px;
+    overflow: hidden;
+}
+
+.notification-count {
+    display: block;
+    line-height: 1;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.notification-count.digits-2 {
+    font-size: 0.85rem;
+}
+
+.notification-count.digits-3 {
+    font-size: 0.72rem;
+}
+
+.notification-count.digits-4 {
+    font-size: 0.6rem;
+}
+
 .icon-button.danger {
     color: var(--color-error);
 }
