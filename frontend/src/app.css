@@ -355,6 +355,30 @@ small {
     color: var(--color-label);
 }
 
+.settings-dialog-sshconfig .modal-body {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.settings-dialog-sshconfig .modal-tab-panel.active {
+    flex: 1;
+    min-height: 0;
+}
+
+.settings-dialog-sshconfig .import-box {
+    flex: 1;
+    min-height: 0;
+}
+
+.settings-dialog-sshconfig .import-box textarea {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    box-sizing: border-box;
+    resize: none;
+}
+
 .import-box textarea,
 .remote-editor-input {
     min-height: 110px;
