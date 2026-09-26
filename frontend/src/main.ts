@@ -2971,7 +2971,7 @@ class EiksyShell {
     };
     return `
             <div class="modal-overlay">
-                <div class="modal-dialog wide settings-dialog">
+                <div class="modal-dialog wide settings-dialog ${this.settingsTab === "about" ? "about-light" : ""}">
                     <div class="panel-header compact-header">
                         <div>
                             <div class="eyebrow">Settings window</div>
