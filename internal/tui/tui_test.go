@@ -1185,3 +1185,18 @@ func TestModelEditsSessionProfileThroughSharedBackend(t *testing.T) {
 		t.Fatal("expected profile update confirmation")
 	}
 }
+
+func TestModelAddsPortForwardRuleThroughSharedSettings(t *testing.T) {
+	backend := &runtimeTestBackend{}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 4
+	m.settingsIndex = m.settingsPortForwardIndex()
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter}); if cmd != nil { t.Fatal("expected local form") }; m = next.(Model)
+	if m.portForwardForm == nil { t.Fatal("expected port forwarding form") }
+	m.portForwardForm.localPort="8080"; m.portForwardForm.remoteHost="db.internal"; m.portForwardForm.remotePort="5432"; m.portForwardForm.hostID="prod-1"
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter}); if cmd == nil { t.Fatal("expected settings update command") }; m = next.(Model)
+	result := cmd(); next, _ = m.Update(result); m = next.(Model)
+	if len(m.settings.PortForwardRules) != 1 { t.Fatalf("expected one rule, got %+v", m.settings.PortForwardRules) }
+	rule:=m.settings.PortForwardRules[0]
+	if rule.LocalPort!="8080" || rule.RemoteHost!="db.internal" || rule.RemotePort!="5432" || rule.HostID!="prod-1" || !rule.Enabled { t.Fatalf("unexpected rule: %+v",rule) }
+}
