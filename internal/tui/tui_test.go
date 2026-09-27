@@ -1076,6 +1076,35 @@ func TestModelFunctionKeyNavigation(t *testing.T) {
 	}
 }
 
+type clearChatTestBackend struct {
+	runtimeTestBackend
+	cleared bool
+}
+
+func (b *clearChatTestBackend) ClearChat() error {
+	b.cleared = true
+	return nil
+}
+
+func TestModelClearsAIChatThroughSharedBackend(t *testing.T) {
+	backend := &clearChatTestBackend{}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+	m.messages = []ChatMessage{{Role: "user", Content: "old message"}}
+	m.toolCalls = []ToolCallView{{Name: "shell", Status: "done"}}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	if cmd == nil { t.Fatal("expected clear chat command") }
+	m = next.(Model)
+	result := cmd()
+	if result == nil { t.Fatal("expected clear chat result") }
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if !backend.cleared { t.Fatal("expected shared ClearChat to be called") }
+	if len(m.messages) != 0 || len(m.toolCalls) != 0 { t.Fatalf("expected TUI conversation state to clear: messages=%+v tools=%+v", m.messages, m.toolCalls) }
+	if !strings.Contains(m.View(), "No AI messages yet.") { t.Fatal("expected empty AI conversation view") }
+}
+
 func TestModelCommandPolicyTogglesToolThroughSharedBackend(t *testing.T) {
 	backend := &aiTestBackend{aiState: domainai.WorkspaceState{CommandPolicy: domainai.CommandPolicy{Tools: []domainai.CommandTool{
 		{ID: "shell", Name: "Shell", Enabled: true}, {ID: "sftp", Name: "SFTP", Enabled: false},
