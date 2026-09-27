@@ -1678,22 +1678,20 @@ type aiCloudAuthDone struct{ message string }
 type aiCloudAuthError struct{ err error }
 
 func (m *Model) startCloudProviderAuth() tea.Cmd { backend, ok := m.backend.(CloudProviderAuthBackend); if !ok { m.aiCloudAuthMessage = "Browser authorization unavailable."; return nil }; if m.aiProviderForm == nil || m.aiProviderForm.isLocal() { return nil }; endpoint := strings.TrimSpace(m.aiProviderForm.endpoint); if endpoint == "" { m.aiCloudAuthMessage = "Cloud endpoint is required."; return nil }; m.aiCloudAuthPending = true; m.aiCloudAuthMessage = "Starting browser authorization..."; return func() tea.Msg { session, err := backend.StartCloudProviderAuth(endpoint); if err != nil { return aiCloudAuthError{err: err} }; return aiCloudAuthStarted{session: session} } }
-func (m *Model) pollCloudProviderAuth(sessionID string) tea.Cmd { backend, ok := m.backend.(CloudProviderAuthBackend); if !ok { return nil }; return func() tea.Msg { session, err := backend.GetCloudProviderAuthSession(sessionID); if err != nil { return aiCloudAuthError{err: err} }; switch session.Status { case "completed": return aiCloudAuthDone{message: nonEmpty(session.Message, "Browser authorization completed.")}; case "failed", "expired": return aiCloudAuthError{err: fmt.Errorf("%s", nonEmpty(session.Message, "browser authorization did not complete"))}; default: return tea.Tick(time.Second, func(time.Time) tea.Msg { return aiCloudAuthPoll{sessionID: sessionID} })() } } }
-
-func (m *Model) importSSHConfig() tea.Cmd { backend,ok:=m.backend.(SSHConfigImportBackend); if !ok {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config import unavailable."});return nil}; raw:=m.sshConfigImport; if strings.TrimSpace(raw)=="" {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config is empty."});return nil}; m.sshConfigForm=false;m.sshConfigImport=""; return func() tea.Msg {profiles,err:=backend.ImportSSHConfig(raw);if err!=nil{return sshConfigImportError{err}};return sshConfigImportDone{count:len(profiles)}} }
-
-type sshConfigImportDone struct{count int}
-type sshConfigImportError struct{err error}
-
-func (m *Model) clearAIChat() tea.Cmd {
-	backend, ok := m.backend.(AIChatResetBackend)
-	if !ok {
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI conversation reset unavailable."})
-		return nil
-	}
+func (m *Model) pollCloudProviderAuth(sessionID string) tea.Cmd {
+	backend, ok := m.backend.(CloudProviderAuthBackend)
+	if !ok { return nil }
 	return func() tea.Msg {
-		if err := backend.ClearChat(); err != nil { return aiClearError{err: err} }
-		return aiClearDone{}
+		session, err := backend.GetCloudProviderAuthSession(sessionID)
+		if err != nil { return aiCloudAuthError{err: err} }
+		switch session.Status {
+		case "completed":
+			return aiCloudAuthDone{message: nonEmpty(session.Message, "Browser authorization completed.")}
+		case "failed", "expired":
+			return aiCloudAuthError{err: fmt.Errorf("%s", nonEmpty(session.Message, "browser authorization did not complete"))}
+		default:
+			return aiCloudAuthPoll{sessionID: sessionID}
+		}
 	}
 }
 
