@@ -76,4 +76,3 @@ func (m *Model) pollCloudProviderAuth(sessionID string) tea.Cmd {
 	}
 }
 
-var _ = time.Second
