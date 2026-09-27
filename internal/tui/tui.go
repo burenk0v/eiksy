@@ -5,9 +5,6 @@ import (
 	"fmt"
 	"path"
 	"strconv"
-	"os/exec"
-	"runtime"
-	"time"
 	"strings"
 
 	agentai "eiksy/internal/ai"
@@ -394,26 +391,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiProviderStatus = fmt.Sprintf("Local model %s completed.", msg.action)
 	case aiProviderLocalActionError:
 		m.aiProviderStatus = fmt.Sprintf("Local model operation failed: %v", msg.err)
-	case aiCloudAuthStarted:
-		m.aiCloudAuthSessionID = msg.session.ID
-		m.aiCloudAuthPending = msg.session.Status == "pending"
-		m.aiCloudAuthMessage = nonEmpty(msg.session.Message, "Waiting for browser authorization.")
-		if msg.session.AuthURL != "" {
-			if m.openBrowserURL == nil { m.openBrowserURL = openBrowserURL }
-			if err := m.openBrowserURL(msg.session.AuthURL); err != nil { m.aiCloudAuthPending = false; m.aiCloudAuthMessage = fmt.Sprintf("Unable to open browser: %v", err); return m, nil }
-		}
-		if m.aiCloudAuthPending { return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return aiCloudAuthPoll{sessionID: msg.session.ID} }) }
-	case aiCloudAuthPoll:
-		return m, m.pollCloudProviderAuth(msg.sessionID)
-	case aiCloudAuthDone:
-		m.aiCloudAuthPending = false
-		m.aiCloudAuthMessage = msg.message
-		m.aiCloudModels = nil
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: msg.message})
-	case aiCloudAuthError:
-		m.aiCloudAuthPending = false
-		m.aiCloudAuthMessage = fmt.Sprintf("%v", msg.err)
-		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Browser authorization failed: %v", msg.err)})
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
@@ -1669,29 +1646,20 @@ func Run(backend Backend) error {
 	return err
 }
 
-func openBrowserURL(rawURL string) error { if strings.TrimSpace(rawURL) == "" { return fmt.Errorf("browser authorization URL is empty") }; if runtime.GOOS == "windows" { return exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL).Start() }; if runtime.GOOS == "darwin" { return exec.Command("open", rawURL).Start() }; return exec.Command("xdg-open", rawURL).Start() }
+func (m *Model) importSSHConfig() tea.Cmd { backend,ok:=m.backend.(SSHConfigImportBackend); if !ok {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config import unavailable."});return nil}; raw:=m.sshConfigImport; if strings.TrimSpace(raw)=="" {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config is empty."});return nil}; m.sshConfigForm=false;m.sshConfigImport=""; return func() tea.Msg {profiles,err:=backend.ImportSSHConfig(raw);if err!=nil{return sshConfigImportError{err}};return sshConfigImportDone{count:len(profiles)}} }
 
-type CloudProviderAuthBackend interface { StartCloudProviderAuth(endpoint string) (appservice.CloudProviderAuthSession, error); GetCloudProviderAuthSession(sessionID string) (appservice.CloudProviderAuthSession, error) }
-type aiCloudAuthStarted struct{ session appservice.CloudProviderAuthSession }
-type aiCloudAuthPoll struct{ sessionID string }
-type aiCloudAuthDone struct{ message string }
-type aiCloudAuthError struct{ err error }
+type sshConfigImportDone struct{count int}
+type sshConfigImportError struct{err error}
 
-func (m *Model) startCloudProviderAuth() tea.Cmd { backend, ok := m.backend.(CloudProviderAuthBackend); if !ok { m.aiCloudAuthMessage = "Browser authorization unavailable."; return nil }; if m.aiProviderForm == nil || m.aiProviderForm.isLocal() { return nil }; endpoint := strings.TrimSpace(m.aiProviderForm.endpoint); if endpoint == "" { m.aiCloudAuthMessage = "Cloud endpoint is required."; return nil }; m.aiCloudAuthPending = true; m.aiCloudAuthMessage = "Starting browser authorization..."; return func() tea.Msg { session, err := backend.StartCloudProviderAuth(endpoint); if err != nil { return aiCloudAuthError{err: err} }; return aiCloudAuthStarted{session: session} } }
-func (m *Model) pollCloudProviderAuth(sessionID string) tea.Cmd {
-	backend, ok := m.backend.(CloudProviderAuthBackend)
-	if !ok { return nil }
+func (m *Model) clearAIChat() tea.Cmd {
+	backend, ok := m.backend.(AIChatResetBackend)
+	if !ok {
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI conversation reset unavailable."})
+		return nil
+	}
 	return func() tea.Msg {
-		session, err := backend.GetCloudProviderAuthSession(sessionID)
-		if err != nil { return aiCloudAuthError{err: err} }
-		switch session.Status {
-		case "completed":
-			return aiCloudAuthDone{message: nonEmpty(session.Message, "Browser authorization completed.")}
-		case "failed", "expired":
-			return aiCloudAuthError{err: fmt.Errorf("%s", nonEmpty(session.Message, "browser authorization did not complete"))}
-		default:
-			return aiCloudAuthPoll{sessionID: sessionID}
-		}
+		if err := backend.ClearChat(); err != nil { return aiClearError{err: err} }
+		return aiClearDone{}
 	}
 }
 
