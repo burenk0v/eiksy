@@ -567,6 +567,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 4 && m.portForwardForm == nil { m.portForwardForm = newPortForwardForm(); return m, nil }
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
+			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
+				if cmd := m.downloadAIProviderModel(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 		case tea.KeyCtrlE:
 			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
 				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
@@ -581,13 +585,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitAIProviderConfig(); cmd != nil { return m, cmd }
 				return m, nil
 			}
-		case tea.KeyCtrlD:
-			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
-			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
-				if cmd := m.downloadAIProviderModel(); cmd != nil { return m, cmd }
-				return m, nil
-			}
-		case tea.KeyCtrlK:
+
 			if m.activeTab == 5 {
 				if cmd := m.clearAIChat(); cmd != nil { return m, cmd }
 				return m, nil
@@ -701,6 +699,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.masterPasswordPrompt { m.masterPasswordPrompt = false; m.masterPasswordInput = ""; return m, nil }
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.aiProviderForm != nil {
+				v := []rune(m.aiProviderForm.value())
+				if len(v) > 0 { m.aiProviderForm.setValue(string(v[:len(v)-1])) }
+				break
+			}
 			if m.portForwardForm != nil { v:=m.portForwardForm.value(); if len(v)>0 {m.portForwardForm.setValue(v[:len(v)-1])}; break }
 			if m.masterPasswordPrompt {
 				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
@@ -724,6 +727,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.aiProviderForm != nil {
+				for _, r := range msg.Runes { if r >= 32 { m.aiProviderForm.setValue(m.aiProviderForm.value()+string(r)) } }
+				break
+			}
 			if m.portForwardForm != nil { for _,r:=range msg.Runes {if r>=32 {m.portForwardForm.setValue(m.portForwardForm.value()+string(r))}}; break }
 			if m.masterPasswordPrompt {
 				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
