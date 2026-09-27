@@ -107,6 +107,7 @@ type SFTPDownloadBackend interface {
 }
 
 type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy) error }
+type CommandApprovalBackend interface { ResolveCommandPolicyRequest(requestID, mode string) error }
 
 type SecureStorageBackend interface { GetSecureStorageStatus() securestorage.Status; EnsureMasterPassword(string) error; LockSecureStorage() }
 
@@ -179,6 +180,7 @@ type Model struct {
 	aiBackend        AIBackend
 	aiProviderIndex  int
 	aiToolIndex      int
+	aiApprovalIndex  int
 	aiProviderForm   *aiProviderConfigForm
 	aiCloudModels    []string
 	aiProviderStatus string
@@ -400,6 +402,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append([]ChatMessage(nil), msg.messages...)
 	case commandPolicyUpdateDone:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Command policy updated."})
+	case commandApprovalDone:
+		m.messages=append(m.messages,ChatMessage{Role:"System",Content:fmt.Sprintf("Command request resolved: %s.",msg.mode)}); m.aiApprovalIndex=0
+	case commandApprovalError:
+		m.messages=append(m.messages,ChatMessage{Role:"System",Content:fmt.Sprintf("Command request resolution failed: %v",msg.err)})
 	case commandPolicyUpdateError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Command policy update failed: %v", msg.err)})
 	case secureStorageDone:
@@ -630,6 +636,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
+			if m.activeTab == 3 && len(m.aiPendingRequests()) > 0 { m.aiApprovalIndex=(m.aiApprovalIndex+3)%4; break }
 			if m.aiProviderForm != nil && !m.aiProviderForm.isLocal() { m.aiProviderForm.field = (m.aiProviderForm.field + 2) % 3; break }
 			if m.aiProviderForm != nil && m.aiProviderForm.isLocal() { m.aiProviderForm.field = 0; break }
 			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+3)%4; break }
@@ -639,6 +646,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex-1+m.aiToolCount())%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
+			if m.activeTab == 3 && len(m.aiPendingRequests()) > 0 { m.aiApprovalIndex=(m.aiApprovalIndex+1)%4; break }
 			if m.aiProviderForm != nil && !m.aiProviderForm.isLocal() { m.aiProviderForm.field = (m.aiProviderForm.field + 1) % 3; break }
 			if m.aiProviderForm != nil && m.aiProviderForm.isLocal() { m.aiProviderForm.field = 0; break }
 			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+1)%4; break }
@@ -648,6 +656,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.activeTab == 3 && len(m.aiPendingRequests()) > 0 { if cmd:=m.resolveAIApproval(); cmd!=nil { return m,cmd }; return m,nil }
 			if m.aiProviderForm != nil {
 				if cmd := m.submitAIProviderConfig(); cmd != nil { return m, cmd }
 				return m, nil
@@ -1516,6 +1525,14 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		if len(state.AI.CommandPolicy.CommandRules) == 0 { b.WriteString("  No explicit rules.\n") } else { for _, rule := range state.AI.CommandPolicy.CommandRules { fmt.Fprintf(&b, "  [%s] %s %s\n", rule.Action, nonEmpty(rule.ToolID, "*"), rule.Pattern) } }
 		b.WriteString("\nPending approvals\n")
 		if len(state.AI.CommandPolicy.PendingRequests) == 0 { b.WriteString("  None.\n") } else { for _, request := range state.AI.CommandPolicy.PendingRequests { fmt.Fprintf(&b, "  %s: %s\n", request.ID, request.Command) } }
+		if len(state.AI.CommandPolicy.PendingRequests) > 0 {
+			request := state.AI.CommandPolicy.PendingRequests[0]
+			actions := []string{"Run now", "Allow for session", "Always allow", "Deny"}
+			b.WriteString("\n\nSelected approval\n")
+			fmt.Fprintf(&b, "  %s: %s\n  ", request.ID, request.Command)
+			for i, action := range actions { if i == m.aiApprovalIndex { b.WriteString("[" + action + "] ") } else { b.WriteString(action + " ") } }
+			b.WriteString("\n  ↑/↓ choose action   Enter resolve")
+		}
 		b.WriteString("\n↑/↓ select tool   Enter toggle")
 		for i := len(m.messages) - 1; i >= 0; i-- {
 			if m.messages[i].Role == "System" {
@@ -1639,6 +1656,21 @@ func (m *Model) clearAIChat() tea.Cmd {
 func (m Model) aiToolCount() int {
 	if m.aiBackend == nil { return 0 }
 	return len(m.aiBackend.GetShellState().AI.CommandPolicy.Tools)
+}
+type commandApprovalDone struct{ mode string }
+type commandApprovalError struct{ err error }
+
+func (m Model) aiPendingRequests() []domainai.CommandRequest {
+	if m.aiBackend == nil { return nil }
+	return m.aiBackend.GetShellState().AI.CommandPolicy.PendingRequests
+}
+func (m Model) aiApprovalMode() string {
+	switch m.aiApprovalIndex { case 1: return "session"; case 2: return "always"; case 3: return "deny"; default: return "now" }
+}
+func (m *Model) resolveAIApproval() tea.Cmd {
+	backend, ok := m.backend.(CommandApprovalBackend); if !ok { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Command approval unavailable."}); return nil }
+	requests:=m.aiPendingRequests(); if len(requests)==0 { return nil }; request:=requests[0]; mode:=m.aiApprovalMode()
+	return func() tea.Msg { if err:=backend.ResolveCommandPolicyRequest(request.ID,mode); err!=nil { return commandApprovalError{err:err} }; return commandApprovalDone{mode:mode} }
 }
 type commandPolicyUpdateDone struct{}
 type commandPolicyUpdateError struct{ err error }
