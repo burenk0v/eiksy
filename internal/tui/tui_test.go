@@ -1122,7 +1122,8 @@ func TestModelSecureStorageLifecycleThroughSharedBackend(t *testing.T) {
 	if !strings.Contains(m.View(), "not configured") { t.Fatalf("expected secure storage status in settings: %s", m.View()) }
 	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlM})
 	m = next.(Model)
-	m, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s','e','c','r','e','t'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s','e','c','r','e','t'}})
+	m = updated.(Model)
 	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	m = next.(Model)
 	if cmd == nil { t.Fatal("expected secure storage command") }
