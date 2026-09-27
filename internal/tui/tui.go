@@ -585,7 +585,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitAIProviderConfig(); cmd != nil { return m, cmd }
 				return m, nil
 			}
-
+		case tea.KeyCtrlK:
 			if m.activeTab == 5 {
 				if cmd := m.clearAIChat(); cmd != nil { return m, cmd }
 				return m, nil
