@@ -543,7 +543,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateSFTPEditor(msg)
 		}
 		switch msg.Type {
-		case tea.KeyCtrlI:
+		case tea.KeyF8:
 			if m.activeTab == 4 && !m.sshConfigForm && m.portForwardForm == nil { m.sshConfigForm=true; m.sshConfigImport=""; return m,nil }
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
@@ -1484,7 +1484,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			fmt.Sprintf("Port forwarding rules:    %d", len(m.settings.PortForwardRules)),
 		}
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
-		b.WriteString("\n↑/↓ select   Enter change   Ctrl+I import SSH config   Ctrl+N add forwarding rule   Ctrl+L lock")
+		b.WriteString("\n↑/↓ select   Enter change   F8 import SSH config   Ctrl+N add forwarding rule   Ctrl+L lock")
 	case 5:
 		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
