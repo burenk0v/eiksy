@@ -2,10 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"net/url"
 	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 
 	appservice "eiksy/internal/app"
 
@@ -19,8 +19,17 @@ type CloudProviderAuthBackend interface {
 
 type aiCloudAuthStarted struct{ session appservice.CloudProviderAuthSession }
 type aiCloudAuthPoll struct{ sessionID string }
+type aiCloudAuthPending struct{ sessionID string }
 type aiCloudAuthDone struct{ message string }
 type aiCloudAuthError struct{ err error }
+
+func supportsCloudProviderBrowserAuth(endpoint string) bool {
+	normalized := strings.TrimSpace(endpoint)
+	if normalized == "" { return false }
+	u, err := url.Parse(normalized)
+	if err != nil { return false }
+	return strings.Contains(u.Path, "/.api/llm/openai/") || strings.HasSuffix(u.Path, "/.api/llm/openai") || strings.Contains(u.Path, "/api/llm/openai/") || strings.HasSuffix(u.Path, "/api/llm/openai")
+}
 
 func openBrowserURL(rawURL string) error {
 	if strings.TrimSpace(rawURL) == "" { return fmt.Errorf("browser authorization URL is empty") }
@@ -40,6 +49,7 @@ func (m *Model) startCloudProviderAuth() tea.Cmd {
 	if m.aiProviderForm == nil || m.aiProviderForm.isLocal() { return nil }
 	endpoint := strings.TrimSpace(m.aiProviderForm.endpoint)
 	if endpoint == "" { m.aiCloudAuthMessage = "Cloud endpoint is required."; return nil }
+	if !supportsCloudProviderBrowserAuth(endpoint) { m.aiCloudAuthMessage = "Browser authorization is not supported for this endpoint."; return nil }
 	m.aiCloudAuthPending = true
 	m.aiCloudAuthMessage = "Starting browser authorization..."
 	return func() tea.Msg {
@@ -66,4 +76,3 @@ func (m *Model) pollCloudProviderAuth(sessionID string) tea.Cmd {
 	}
 }
 
-var _ = time.Second
