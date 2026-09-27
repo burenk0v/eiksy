@@ -120,6 +120,8 @@ type sftpUploadError struct{ err error }
 type sftpDownloadDone struct{ path string }
 type sftpDownloadError struct{ err error }
 
+type SSHConfigImportBackend interface { ImportSSHConfig(string) ([]domainsessions.Profile, error) }
+
 type Backend interface {
 	ListChatSessions() []domainai.ChatSession
 	CreateChatSession(title string) (domainai.ChatSession, error)
@@ -172,6 +174,8 @@ type Model struct {
 	activeProfile    int
 	profileForm      *sessionProfileForm
 	portForwardForm  *portForwardForm
+	sshConfigImport string
+	sshConfigForm bool
 	aiBackend        AIBackend
 	aiProviderIndex  int
 	aiToolIndex      int
@@ -369,6 +373,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case aiClearDone:
 		m.messages = nil
 		m.toolCalls = nil
+	case sshConfigImportDone:
+		m.refreshProfiles(); m.messages=append(m.messages,ChatMessage{Role:"System",Content:fmt.Sprintf("Imported %d SSH profile(s).",msg.count)})
+	case sshConfigImportError:
+		m.messages=append(m.messages,ChatMessage{Role:"System",Content:fmt.Sprintf("SSH config import failed: %v",msg.err)})
 	case aiClearError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI clear failed: %v", msg.err)})
 	case aiRefreshDone:
@@ -524,10 +532,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.resolveApproval("deny")
 			}
 		}
+		if m.activeTab == 4 && m.sshConfigForm {
+			if msg.Type==tea.KeyEsc { m.sshConfigForm=false; m.sshConfigImport=""; return m,nil }
+			if msg.Type==tea.KeyCtrlS { if cmd:=m.importSSHConfig(); cmd!=nil{return m,cmd}; return m,nil }
+			if msg.Type==tea.KeyBackspace { r:=[]rune(m.sshConfigImport); if len(r)>0{m.sshConfigImport=string(r[:len(r)-1])}; return m,nil }
+			if msg.Type==tea.KeyEnter { m.sshConfigImport+="\n"; return m,nil }
+			if msg.Type==tea.KeyRunes { m.sshConfigImport+=string(msg.Runes); return m,nil }
+		}
 		if m.activeTab == 2 && m.sftpEdit {
 			return m.updateSFTPEditor(msg)
 		}
 		switch msg.Type {
+		case tea.KeyCtrlI:
+			if m.activeTab == 4 && !m.sshConfigForm && m.portForwardForm == nil { m.sshConfigForm=true; m.sshConfigImport=""; return m,nil }
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
 			if m.activeTab == 4 && m.portForwardForm == nil { m.portForwardForm = newPortForwardForm(); return m, nil }
@@ -1453,6 +1470,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			}
 		}
 	case 4:
+		if m.sshConfigForm { b.WriteString("IMPORT SSH CONFIG\n\n"); b.WriteString(m.sshConfigImport); b.WriteString("▌\n\nCtrl+S import   Esc cancel"); break }
 		if m.portForwardForm != nil { b.WriteString("ADD PORT FORWARDING RULE\n\n"); fields:=[]string{fmt.Sprintf("Local port:  %s",m.portForwardForm.localPort),fmt.Sprintf("Remote host: %s",m.portForwardForm.remoteHost),fmt.Sprintf("Remote port: %s",m.portForwardForm.remotePort),fmt.Sprintf("SSH host:    %s",m.portForwardForm.hostID)}; for i,line:=range fields {marker:="  "; if i==m.portForwardForm.field {marker="› "}; b.WriteString(marker+line+"\n")}; b.WriteString("\n↑/↓ field   Enter save   Esc cancel"); break }
 		b.WriteString("Persistent application settings.\n\n")
 		if m.masterPasswordPrompt { b.WriteString("MASTER PASSWORD\n\n> " + strings.Repeat("*", len(m.masterPasswordInput)) + "▌\n\nEnter unlock/create   Esc cancel"); break }
@@ -1466,7 +1484,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			fmt.Sprintf("Port forwarding rules:    %d", len(m.settings.PortForwardRules)),
 		}
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
-		b.WriteString("\n↑/↓ select   Enter change   Ctrl+N add forwarding rule   Ctrl+L lock")
+		b.WriteString("\n↑/↓ select   Enter change   Ctrl+I import SSH config   Ctrl+N add forwarding rule   Ctrl+L lock")
 	case 5:
 		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
@@ -1539,6 +1557,11 @@ func Run(backend Backend) error {
 	_, err := program.Run()
 	return err
 }
+
+func (m *Model) importSSHConfig() tea.Cmd { backend,ok:=m.backend.(SSHConfigImportBackend); if !ok {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config import unavailable."});return nil}; raw:=m.sshConfigImport; if strings.TrimSpace(raw)=="" {m.messages=append(m.messages,ChatMessage{Role:"System",Content:"SSH config is empty."});return nil}; m.sshConfigForm=false;m.sshConfigImport=""; return func() tea.Msg {profiles,err:=backend.ImportSSHConfig(raw);if err!=nil{return sshConfigImportError{err}};return sshConfigImportDone{count:len(profiles)}} }
+
+type sshConfigImportDone struct{count int}
+type sshConfigImportError struct{err error}
 
 func (m *Model) clearAIChat() tea.Cmd {
 	backend, ok := m.backend.(AIChatResetBackend)
