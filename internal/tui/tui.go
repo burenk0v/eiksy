@@ -112,8 +112,11 @@ type CommandApprovalBackend interface { ResolveCommandPolicyRequest(requestID, m
 
 type SecureStorageBackend interface { GetSecureStorageStatus() securestorage.Status; EnsureMasterPassword(string) error; LockSecureStorage() }
 
-type portForwardForm struct { field int; localPort, remoteHost, remotePort, hostID string }
-func newPortForwardForm() *portForwardForm { return &portForwardForm{} }
+type portForwardForm struct { field int; editIndex int; localPort, remoteHost, remotePort, hostID string }
+func newPortForwardForm() *portForwardForm { return &portForwardForm{editIndex: -1} }
+func editPortForwardForm(rule domainsettings.PortForwardRule, index int) *portForwardForm {
+	return &portForwardForm{editIndex:index, localPort:rule.LocalPort, remoteHost:rule.RemoteHost, remotePort:rule.RemotePort, hostID:rule.HostID}
+}
 func (f *portForwardForm) value() string { switch f.field { case 0:return f.localPort; case 1:return f.remoteHost; case 2:return f.remotePort; case 3:return f.hostID }; return "" }
 func (f *portForwardForm) setValue(v string) { switch f.field { case 0:f.localPort=v; case 1:f.remoteHost=v; case 2:f.remotePort=v; case 3:f.hostID=v } }
 
@@ -374,6 +377,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Session %s created.", msg.session.Title)})
 	case settingsUpdateDone:
 		m.settings = msg.settings
+		if m.settingsIndex >= m.settingsCount() { m.settingsIndex = m.settingsCount()-1 }
 	case aiProviderSelectDone:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
 	case aiProviderSelectError:
@@ -597,12 +601,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
 			if m.activeTab == 4 && m.portForwardForm == nil { m.portForwardForm = newPortForwardForm(); return m, nil }
 		case tea.KeyCtrlD:
+			if m.activeTab == 4 && m.portForwardForm == nil {
+				base := m.settingsPortForwardIndex() + 1
+				if m.settingsIndex >= base && m.settingsIndex < base+len(m.settings.PortForwardRules) {
+					idx := m.settingsIndex - base
+					updated := m.settings
+					updated.PortForwardRules = append([]domainsettings.PortForwardRule(nil), updated.PortForwardRules...)
+					updated.PortForwardRules = append(updated.PortForwardRules[:idx], updated.PortForwardRules[idx+1:]...)
+					backend := m.backend
+					return m, func() tea.Msg {
+						if err := backend.UpdateSettings(updated); err != nil { return settingsUpdateError{err: err} }
+						return settingsUpdateDone{settings: updated}
+					}
+				}
+			}
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
 			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
 				if cmd := m.downloadAIProviderModel(); cmd != nil { return m, cmd }
 				return m, nil
 			}
 		case tea.KeyCtrlE:
+			if m.activeTab == 4 && m.portForwardForm == nil {
+				base := m.settingsPortForwardIndex() + 1
+				if m.settingsIndex >= base && m.settingsIndex < base+len(m.settings.PortForwardRules) {
+					idx := m.settingsIndex - base
+					m.portForwardForm = editPortForwardForm(m.settings.PortForwardRules[idx], idx)
+					return m, nil
+				}
+			}
 			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
 				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
 				return m, nil
@@ -632,6 +658,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.activeTab == 4 && m.secureStorageBackend != nil { m.secureStorageBackend.LockSecureStorage(); m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus(); m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage locked."}); return m, nil }
+		case tea.KeyCtrlT:
+			if m.activeTab == 4 && m.portForwardForm == nil {
+				base := m.settingsPortForwardIndex() + 1
+				if m.settingsIndex >= base && m.settingsIndex < base+len(m.settings.PortForwardRules) {
+					idx := m.settingsIndex - base
+					updated := m.settings
+					updated.PortForwardRules = append([]domainsettings.PortForwardRule(nil), updated.PortForwardRules...)
+					updated.PortForwardRules[idx].Enabled = !updated.PortForwardRules[idx].Enabled
+					backend := m.backend
+					return m, func() tea.Msg {
+						if err := backend.UpdateSettings(updated); err != nil { return settingsUpdateError{err: err} }
+						return settingsUpdateDone{settings: updated}
+					}
+				}
+			}
 		case tea.KeyCtrlR:
 			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
 				if cmd := m.runAIProviderLocalAction(); cmd != nil { return m, cmd }
@@ -694,7 +735,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.portForwardForm != nil {
 				f:=m.portForwardForm
 				if strings.TrimSpace(f.localPort)=="" || strings.TrimSpace(f.remoteHost)=="" || strings.TrimSpace(f.remotePort)=="" || strings.TrimSpace(f.hostID)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Port forwarding rule requires all fields."}); return m,nil }
-				updated:=m.settings; updated.PortForwardRules=append(append([]domainsettings.PortForwardRule(nil),updated.PortForwardRules...),domainsettings.PortForwardRule{LocalPort:f.localPort,RemoteHost:f.remoteHost,RemotePort:f.remotePort,HostID:f.hostID,Enabled:true}); backend:=m.backend; m.portForwardForm=nil
+				updated:=m.settings
+				updated.PortForwardRules=append([]domainsettings.PortForwardRule(nil),updated.PortForwardRules...)
+				rule:=domainsettings.PortForwardRule{LocalPort:f.localPort,RemoteHost:f.remoteHost,RemotePort:f.remotePort,HostID:f.hostID,Enabled:true}
+				if f.editIndex >= 0 && f.editIndex < len(updated.PortForwardRules) {
+					rule.Enabled = updated.PortForwardRules[f.editIndex].Enabled
+					updated.PortForwardRules[f.editIndex] = rule
+				} else {
+					updated.PortForwardRules = append(updated.PortForwardRules, rule)
+				}
+				backend:=m.backend; m.portForwardForm=nil
 				return m,func() tea.Msg { if err:=backend.UpdateSettings(updated); err!=nil{return settingsUpdateError{err:err}}; return settingsUpdateDone{settings:updated} }
 			}
 			if m.masterPasswordPrompt {
@@ -1582,11 +1632,19 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			fmt.Sprintf("Prompt before AI actions: %s", boolLabel(m.settings.PromptBeforeAI)),
 			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
 			fmt.Sprintf("Theme:                    %s", nonEmpty(m.settings.Theme, "default")),
-			fmt.Sprintf("Secure storage:           %s", status),
-			fmt.Sprintf("Port forwarding rules:    %d", len(m.settings.PortForwardRules)),
+		}
+		if m.secureStorageBackend != nil {
+			lines = append(lines, fmt.Sprintf("Secure storage:           %s", status))
 		}
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
-		b.WriteString("\n↑/↓ select   Enter change   F8 import SSH config   Ctrl+N add forwarding rule   Ctrl+L lock")
+		base := m.settingsPortForwardIndex() + 1
+		for i, rule := range m.settings.PortForwardRules {
+			idx := base + i
+			marker := "  "; if idx == m.settingsIndex { marker = "› " }
+			enabled := "OFF"; if rule.Enabled { enabled = "ON" }
+			fmt.Fprintf(&b, "%s[%-3s] %s:%s → %s:%s via %s\\n", marker, enabled, rule.LocalPort, rule.RemoteHost, rule.RemotePort, rule.HostID, rule.HostID)
+		}
+		b.WriteString("\n↑/↓ select   Enter change   F8 import SSH config   Ctrl+N add   Ctrl+E edit   Ctrl+D delete   Ctrl+T toggle   Ctrl+L lock")
 	case 5:
 		if m.aiProviderForm != nil {
 			return m.renderAIProviderConfig(width, height, title, key)
