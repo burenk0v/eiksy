@@ -160,6 +160,8 @@ type aiTestBackend struct {
 	startedLocal bool
 	stoppedLocal bool
 	cloudModels []string
+	cloudAuthSession appservice.CloudProviderAuthSession
+	cloudAuthPolls int
 }
 
 func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
@@ -187,6 +189,8 @@ func (b *aiTestBackend) DownloadLocalModel(downloadURL string) error { b.downloa
 func (b *aiTestBackend) StartLocalModel() error { b.startedLocal = true; return nil }
 func (b *aiTestBackend) StopLocalModel() error { b.stoppedLocal = true; return nil }
 func (b *aiTestBackend) ListCloudModels(endpoint, token string) ([]string, error) { b.cloudModels = []string{"gpt-test", "gpt-other"}; return b.cloudModels, nil }
+func (b *aiTestBackend) StartCloudProviderAuth(endpoint string) (appservice.CloudProviderAuthSession, error) { b.cloudAuthSession = appservice.CloudProviderAuthSession{ID:"auth-1", Status:"pending", AuthURL:"https://example.test/auth", Message:"Waiting for browser authorization.", Endpoint:endpoint}; return b.cloudAuthSession, nil }
+func (b *aiTestBackend) GetCloudProviderAuthSession(sessionID string) (appservice.CloudProviderAuthSession, error) { b.cloudAuthPolls++; b.cloudAuthSession.Status="completed"; b.cloudAuthSession.Message="Token received from browser authorization."; return b.cloudAuthSession, nil }
 
 func (b *aiTestBackend) ResolveCommandPolicyRequest(requestID, mode string) error {
 	b.aiState.CommandPolicy.PendingRequests = nil
@@ -198,6 +202,62 @@ func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
 	}
 	return nil
+}
+
+func TestModelRunsCloudBrowserAuthThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+	m.aiProviderForm = &aiProviderConfigForm{
+		providerIndex: 0,
+		class:         domainai.ProviderClassOpenAICompatible,
+		endpoint:      "https://sourcegraph.example.com/.api/llm/openai/v1",
+	}
+	opened := ""
+	m.openBrowserURL = func(url string) error {
+		opened = url
+		return nil
+	}
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlA})
+	if cmd == nil {
+		t.Fatal("expected browser auth command")
+	}
+	m = next.(Model)
+
+	msg := cmd()
+	next, cmd = m.Update(msg)
+	if cmd == nil {
+		t.Fatal("expected auth poll command")
+	}
+	m = next.(Model)
+
+	if opened != "https://example.test/auth" {
+		t.Fatalf("expected browser URL to open, got %q", opened)
+	}
+	if !m.aiCloudAuthPending {
+		t.Fatal("expected auth polling to remain active")
+	}
+
+	next, cmd = m.Update(aiCloudAuthPoll{sessionID: "auth-1"})
+	if cmd == nil {
+		t.Fatal("expected auth completion command")
+	}
+	m = next.(Model)
+
+	msg = cmd()
+	next, cmd = m.Update(msg)
+	m = next.(Model)
+
+	if m.aiCloudAuthPending {
+		t.Fatal("expected browser auth to complete")
+	}
+	if !strings.Contains(m.aiCloudAuthMessage, "Token received") {
+		t.Fatalf("unexpected auth message: %q", m.aiCloudAuthMessage)
+	}
+	if backend.cloudAuthPolls != 1 {
+		t.Fatalf("expected one auth poll, got %d", backend.cloudAuthPolls)
+	}
 }
 
 func TestModelAISelectsProviderThroughSharedBackend(t *testing.T) {
