@@ -106,6 +106,11 @@ type CommandPolicyBackend interface { UpdateCommandPolicy(domainai.CommandPolicy
 
 type SecureStorageBackend interface { GetSecureStorageStatus() securestorage.Status; EnsureMasterPassword(string) error; LockSecureStorage() }
 
+type portForwardForm struct { field int; localPort, remoteHost, remotePort, hostID string }
+func newPortForwardForm() *portForwardForm { return &portForwardForm{} }
+func (f *portForwardForm) value() string { switch f.field { case 0:return f.localPort; case 1:return f.remoteHost; case 2:return f.remotePort; case 3:return f.hostID }; return "" }
+func (f *portForwardForm) setValue(v string) { switch f.field { case 0:f.localPort=v; case 1:f.remoteHost=v; case 2:f.remotePort=v; case 3:f.hostID=v } }
+
  type sftpUploadDone struct{ count int }
 type sftpUploadError struct{ err error }
 type sftpDownloadDone struct{ path string }
@@ -162,6 +167,7 @@ type Model struct {
 	profiles         []domainsessions.Profile
 	activeProfile    int
 	profileForm      *sessionProfileForm
+	portForwardForm  *portForwardForm
 	aiBackend        AIBackend
 	aiProviderIndex  int
 	aiToolIndex      int
@@ -515,6 +521,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.Type {
 		case tea.KeyCtrlN:
 			if m.activeTab == 0 && m.profileForm == nil { m.profileForm = newSessionProfileForm(); return m, nil }
+			if m.activeTab == 4 && m.portForwardForm == nil { m.portForwardForm = newPortForwardForm(); return m, nil }
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
 		case tea.KeyCtrlE:
@@ -555,18 +562,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
+			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+3)%4; break }
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected-1+len(m.sftpEntries))%len(m.sftpEntries); break }
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex-1+m.aiToolCount())%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
+			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+1)%4; break }
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
 			if m.activeTab == 2 && len(m.sftpEntries)>0 { m.sftpSelected=(m.sftpSelected+1)%len(m.sftpEntries); break }
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.portForwardForm != nil {
+				f:=m.portForwardForm
+				if strings.TrimSpace(f.localPort)=="" || strings.TrimSpace(f.remoteHost)=="" || strings.TrimSpace(f.remotePort)=="" || strings.TrimSpace(f.hostID)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Port forwarding rule requires all fields."}); return m,nil }
+				updated:=m.settings; updated.PortForwardRules=append(append([]domainsettings.PortForwardRule(nil),updated.PortForwardRules...),domainsettings.PortForwardRule{LocalPort:f.localPort,RemoteHost:f.remoteHost,RemotePort:f.remotePort,HostID:f.hostID,Enabled:true}); backend:=m.backend; m.portForwardForm=nil
+				return m,func() tea.Msg { if err:=backend.UpdateSettings(updated); err!=nil{return settingsUpdateError{err:err}}; return settingsUpdateDone{settings:updated} }
+			}
 			if m.masterPasswordPrompt {
 				if m.masterPasswordInput == "" || m.secureStorageBackend == nil { return m, nil }
 				password := m.masterPasswordInput
@@ -587,6 +602,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.activeTab == 4 {
 				if m.secureStorageBackend != nil && m.settingsIndex == 3 { m.masterPasswordPrompt = true; m.masterPasswordInput = ""; return m, nil }
+				if m.settingsIndex == m.settingsPortForwardIndex() { if m.portForwardForm == nil { m.portForwardForm=newPortForwardForm() }; return m,nil }
 				if cmd := m.toggleSetting(); cmd != nil { return m, cmd }
 			} else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" {
 				if cmd := m.selectAIProvider(); cmd != nil { return m, cmd }
@@ -602,9 +618,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitChatInput(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyEsc:
+			if m.portForwardForm != nil { m.portForwardForm=nil; return m,nil }
 			if m.masterPasswordPrompt { m.masterPasswordPrompt = false; m.masterPasswordInput = ""; return m, nil }
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.portForwardForm != nil { v:=m.portForwardForm.value(); if len(v)>0 {m.portForwardForm.setValue(v[:len(v)-1])}; break }
 			if m.masterPasswordPrompt {
 				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
 				break
@@ -627,6 +645,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.portForwardForm != nil { for _,r:=range msg.Runes {if r>=32 {m.portForwardForm.setValue(m.portForwardForm.value()+string(r))}}; break }
 			if m.masterPasswordPrompt {
 				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
 				break
@@ -1298,7 +1317,8 @@ type aiRefreshDone struct{ messages []ChatMessage }
 type settingsUpdateDone struct{ settings domainsettings.AppSettings }
 type settingsUpdateError struct{ err error }
 
-func (m Model) settingsCount() int { if m.secureStorageBackend != nil { return 4 }; return 3 }
+func (m Model) settingsPortForwardIndex() int { if m.secureStorageBackend != nil { return 4 }; return 3 }
+func (m Model) settingsCount() int { return m.settingsPortForwardIndex()+1 }
 
 func (m Model) currentViewName() string {
 	if m.activeTab < 0 || m.activeTab >= len(m.tabs) { return "Sessions" }
@@ -1417,6 +1437,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			}
 		}
 	case 4:
+		if m.portForwardForm != nil { b.WriteString("ADD PORT FORWARDING RULE\n\n"); fields:=[]string{fmt.Sprintf("Local port:  %s",m.portForwardForm.localPort),fmt.Sprintf("Remote host: %s",m.portForwardForm.remoteHost),fmt.Sprintf("Remote port: %s",m.portForwardForm.remotePort),fmt.Sprintf("SSH host:    %s",m.portForwardForm.hostID)}; for i,line:=range fields {marker:="  "; if i==m.portForwardForm.field {marker="› "}; b.WriteString(marker+line+"\n")}; b.WriteString("\n↑/↓ field   Enter save   Esc cancel"); break }
 		b.WriteString("Persistent application settings.\n\n")
 		if m.masterPasswordPrompt { b.WriteString("MASTER PASSWORD\n\n> " + strings.Repeat("*", len(m.masterPasswordInput)) + "▌\n\nEnter unlock/create   Esc cancel"); break }
 		status := "unavailable"
@@ -1426,9 +1447,10 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
 			fmt.Sprintf("Theme:                    %s", nonEmpty(m.settings.Theme, "default")),
 			fmt.Sprintf("Secure storage:           %s", status),
+			fmt.Sprintf("Port forwarding rules:    %d", len(m.settings.PortForwardRules)),
 		}
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
-		b.WriteString("\n↑/↓ select   Enter change   Ctrl+M unlock/create   Ctrl+L lock")
+		b.WriteString("\n↑/↓ select   Enter change   Ctrl+N add forwarding rule   Ctrl+L lock")
 	case 5:
 		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
