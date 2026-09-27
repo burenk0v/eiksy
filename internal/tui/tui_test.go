@@ -154,6 +154,12 @@ type aiTestBackend struct {
 	runtimeTestBackend
 	sent []string
 	aiState domainai.WorkspaceState
+	savedCloud struct{ model, endpoint, token string }
+	savedLocalURL string
+	downloadedLocalURL string
+	startedLocal bool
+	stoppedLocal bool
+	cloudModels []string
 }
 
 func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
@@ -163,6 +169,25 @@ func (b *aiTestBackend) SendChatMessage(message, activeSessionID string) error {
 
 func (b *aiTestBackend) GetShellState() appservice.ShellState { return appservice.ShellState{AI: b.aiState} }
 func (b *aiTestBackend) UpdateCommandPolicy(policy domainai.CommandPolicy) error { b.aiState.CommandPolicy = policy; return nil }
+func (b *aiTestBackend) SaveCloudProvider(model, endpoint, token string) error {
+	b.savedCloud = struct{ model, endpoint, token string }{model: model, endpoint: endpoint, token: token}
+	for i := range b.aiState.Providers {
+		if b.aiState.Providers[i].Class == domainai.ProviderClassOpenAICompatible {
+			b.aiState.Providers[i].Model = model
+			b.aiState.Providers[i].Endpoint = endpoint
+			b.aiState.Providers[i].Selected = true
+			b.aiState.Providers[i].Configured = true
+			b.aiState.Providers[i].Status = "ready"
+		}
+	}
+	return nil
+}
+func (b *aiTestBackend) SaveLocalProvider(downloadURL string) error { b.savedLocalURL = downloadURL; return nil }
+func (b *aiTestBackend) DownloadLocalModel(downloadURL string) error { b.downloadedLocalURL = downloadURL; return nil }
+func (b *aiTestBackend) StartLocalModel() error { b.startedLocal = true; return nil }
+func (b *aiTestBackend) StopLocalModel() error { b.stoppedLocal = true; return nil }
+func (b *aiTestBackend) ListCloudModels(endpoint, token string) ([]string, error) { b.cloudModels = []string{"gpt-test", "gpt-other"}; return b.cloudModels, nil }
+
 func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 	for i := range b.aiState.Providers {
 		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
@@ -1233,3 +1258,70 @@ func TestModelAddsPortForwardRuleThroughSharedSettings(t *testing.T) {
 	rule:=m.settings.PortForwardRules[0]
 	if rule.LocalPort!="8080" || rule.RemoteHost!="db.internal" || rule.RemotePort!="5432" || rule.HostID!="prod-1" || !rule.Enabled { t.Fatalf("unexpected rule: %+v",rule) }
 }
+
+func TestModelConfiguresCloudAIProviderThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{Providers: []domainai.ProviderDescriptor{
+		{ID: "cloud", Name: "Cloud", Class: domainai.ProviderClassOpenAICompatible, Model: "old", Endpoint: "https://old.example/v1", Selected: true, Configured: true},
+	}}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	if cmd != nil { t.Fatal("expected local configuration form") }
+	m = next.(Model)
+	if m.aiProviderForm == nil || m.aiProviderForm.class != domainai.ProviderClassOpenAICompatible { t.Fatal("expected cloud provider form") }
+	m.aiProviderForm.model = "gpt-new"
+	m.aiProviderForm.endpoint = "https://api.example/v1"
+	m.aiProviderForm.token = "secret"
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil { t.Fatal("expected cloud save command") }
+	m = next.(Model)
+	if result := cmd(); result == nil { t.Fatal("expected cloud save result") } else { next, _ = m.Update(result); m = next.(Model) }
+	if backend.savedCloud.model != "gpt-new" || backend.savedCloud.endpoint != "https://api.example/v1" || backend.savedCloud.token != "secret" {
+		t.Fatalf("unexpected cloud provider save: %+v", backend.savedCloud)
+	}
+}
+
+func TestModelListsCloudModelsThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{Providers: []domainai.ProviderDescriptor{
+		{ID: "cloud", Name: "Cloud", Class: domainai.ProviderClassOpenAICompatible, Endpoint: "https://api.example/v1", Selected: true},
+	}}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	if cmd == nil { t.Fatal("expected cloud model list command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if len(m.aiCloudModels) != 2 || m.aiCloudModels[0] != "gpt-test" { t.Fatalf("unexpected cloud models: %+v", m.aiCloudModels) }
+}
+
+func TestModelRunsLocalAIProviderLifecycleThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{Providers: []domainai.ProviderDescriptor{
+		{ID: "local", Name: "Local", Class: domainai.ProviderClassLocalOpenAI, DownloadURL: "https://models.example/qwen.gguf", Status: "stopped", Selected: true},
+	}}}
+	m := NewModel().WithBackend(backend)
+	m.activeTab = 5
+	next, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlE})
+	m = next.(Model)
+	next, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlD})
+	if cmd == nil { t.Fatal("expected local download command") }
+	m = next.(Model)
+	result := cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if backend.downloadedLocalURL != "https://models.example/qwen.gguf" { t.Fatalf("unexpected download URL: %q", backend.downloadedLocalURL) }
+
+	next, cmd = m.Update(tea.KeyMsg{Type: tea.KeyCtrlR})
+	if cmd == nil { t.Fatal("expected local start command") }
+	m = next.(Model)
+	result = cmd()
+	next, _ = m.Update(result)
+	m = next.(Model)
+	if !backend.startedLocal { t.Fatal("expected local model start") }
+}
+ 

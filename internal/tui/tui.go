@@ -179,6 +179,9 @@ type Model struct {
 	aiBackend        AIBackend
 	aiProviderIndex  int
 	aiToolIndex      int
+	aiProviderForm   *aiProviderConfigForm
+	aiCloudModels    []string
+	aiProviderStatus string
 	runtimeBackend   RuntimeSessionBackend
 	runtimeSessions  map[string]appservice.RuntimeSessionView
 	pendingHostKey   string
@@ -367,6 +370,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider %s selected.", msg.providerID)})
 	case aiProviderSelectError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI provider selection failed: %v", msg.err)})
+	case aiProviderConfigDone:
+		m.aiProviderStatus = "AI provider configuration saved."
+		m.aiCloudModels = nil
+	case aiProviderConfigError:
+		m.aiProviderStatus = fmt.Sprintf("AI provider configuration failed: %v", msg.err)
+	case aiProviderModelsDone:
+		m.aiCloudModels = append([]string(nil), msg.models...)
+		if len(msg.models) == 0 { m.aiProviderStatus = "No models returned by API." } else { m.aiProviderStatus = fmt.Sprintf("Loaded %d cloud model(s).", len(msg.models)) }
+	case aiProviderModelsError:
+		m.aiProviderStatus = fmt.Sprintf("Cloud model loading failed: %v", msg.err)
+	case aiProviderLocalActionDone:
+		m.aiProviderStatus = fmt.Sprintf("Local model %s completed.", msg.action)
+	case aiProviderLocalActionError:
+		m.aiProviderStatus = fmt.Sprintf("Local model operation failed: %v", msg.err)
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
@@ -550,20 +567,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 4 && m.portForwardForm == nil { m.portForwardForm = newPortForwardForm(); return m, nil }
 		case tea.KeyCtrlD:
 			if m.activeTab == 0 && m.profileForm == nil { if cmd:=m.deleteActiveProfile(); cmd!=nil { return m,cmd } }
+			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
+				if cmd := m.downloadAIProviderModel(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 		case tea.KeyCtrlE:
 			if m.activeTab == 0 && m.profileForm == nil && len(m.profiles) > 0 && m.activeProfile >= 0 && m.activeProfile < len(m.profiles) {
 				m.profileForm = newSessionProfileEditForm(m.profiles[m.activeProfile])
 				return m, nil
 			}
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+			if m.activeTab == 5 && m.aiProviderForm == nil && strings.TrimSpace(m.input) == "" {
+				if m.openAIProviderConfig() { return m, nil }
+			}
+		case tea.KeyCtrlS:
+			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
+				if cmd := m.submitAIProviderConfig(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 		case tea.KeyCtrlK:
 			if m.activeTab == 5 {
 				if cmd := m.clearAIChat(); cmd != nil { return m, cmd }
 				return m, nil
 			}
 		case tea.KeyCtrlL:
+			if m.activeTab == 5 && m.aiProviderForm != nil && !m.aiProviderForm.isLocal() {
+				if cmd := m.loadAIProviderModels(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 			if m.activeTab == 4 && m.secureStorageBackend != nil { m.secureStorageBackend.LockSecureStorage(); m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus(); m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage locked."}); return m, nil }
 		case tea.KeyCtrlR:
+			if m.activeTab == 5 && m.aiProviderForm != nil && m.aiProviderForm.isLocal() {
+				if cmd := m.runAIProviderLocalAction(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 			if m.activeTab == 0 && m.profileForm == nil { if cmd := m.reconnectActiveRuntime(); cmd != nil { return m, cmd } }
 		case tea.KeyCtrlX:
 			if m.profileForm == nil { if cmd := m.disconnectActiveRuntime(); cmd != nil { return m, cmd } }
@@ -593,6 +630,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeView = ""
 			m.selectPreviousTab()
 		case tea.KeyUp:
+			if m.aiProviderForm != nil && !m.aiProviderForm.isLocal() { m.aiProviderForm.field = (m.aiProviderForm.field + 2) % 3; break }
+			if m.aiProviderForm != nil && m.aiProviderForm.isLocal() { m.aiProviderForm.field = 0; break }
 			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+3)%4; break }
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+4)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile-1+len(m.profiles))%len(m.profiles); break }
@@ -600,6 +639,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex-1+m.aiToolCount())%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex - 1 + m.settingsCount()) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex - 1 + m.aiProviderCount()) % m.aiProviderCount() } else { m.selectPreviousSession() }
 		case tea.KeyDown:
+			if m.aiProviderForm != nil && !m.aiProviderForm.isLocal() { m.aiProviderForm.field = (m.aiProviderForm.field + 1) % 3; break }
+			if m.aiProviderForm != nil && m.aiProviderForm.isLocal() { m.aiProviderForm.field = 0; break }
 			if m.portForwardForm != nil { m.portForwardForm.field=(m.portForwardForm.field+1)%4; break }
 			if m.profileForm != nil { m.profileForm.field=(m.profileForm.field+1)%5; break }
 			if m.activeTab == 0 && len(m.profiles)>0 { m.activeProfile=(m.activeProfile+1)%len(m.profiles); break }
@@ -607,6 +648,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == 3 && m.aiToolCount() > 0 { m.aiToolIndex=(m.aiToolIndex+1)%m.aiToolCount(); break }
 			if m.activeTab == 4 { m.settingsIndex = (m.settingsIndex + 1) % m.settingsCount() } else if m.activeTab == 5 && strings.TrimSpace(m.input) == "" && m.aiProviderCount() > 0 { m.aiProviderIndex = (m.aiProviderIndex + 1) % m.aiProviderCount() } else { m.selectNextSession() }
 		case tea.KeyEnter:
+			if m.aiProviderForm != nil {
+				if cmd := m.submitAIProviderConfig(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 			if m.portForwardForm != nil {
 				f:=m.portForwardForm
 				if strings.TrimSpace(f.localPort)=="" || strings.TrimSpace(f.remoteHost)=="" || strings.TrimSpace(f.remotePort)=="" || strings.TrimSpace(f.hostID)=="" { m.messages=append(m.messages,ChatMessage{Role:"System",Content:"Port forwarding rule requires all fields."}); return m,nil }
@@ -649,10 +694,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.submitChatInput(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyEsc:
+			if m.aiProviderForm != nil { m.aiProviderForm=nil; m.aiCloudModels=nil; m.aiProviderStatus=""; return m,nil }
 			if m.portForwardForm != nil { m.portForwardForm=nil; return m,nil }
 			if m.masterPasswordPrompt { m.masterPasswordPrompt = false; m.masterPasswordInput = ""; return m, nil }
 			if m.profileForm != nil { m.profileForm = nil; return m, nil }
 		case tea.KeyBackspace:
+			if m.aiProviderForm != nil {
+				v := []rune(m.aiProviderForm.value())
+				if len(v) > 0 { m.aiProviderForm.setValue(string(v[:len(v)-1])) }
+				break
+			}
 			if m.portForwardForm != nil { v:=m.portForwardForm.value(); if len(v)>0 {m.portForwardForm.setValue(v[:len(v)-1])}; break }
 			if m.masterPasswordPrompt {
 				if len(m.masterPasswordInput) > 0 { m.masterPasswordInput = m.masterPasswordInput[:len(m.masterPasswordInput)-1] }
@@ -676,6 +727,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cmd := m.forkActiveSession(); cmd != nil { return m, cmd }
 			}
 		case tea.KeyRunes:
+			if m.aiProviderForm != nil {
+				for _, r := range msg.Runes { if r >= 32 { m.aiProviderForm.setValue(m.aiProviderForm.value()+string(r)) } }
+				break
+			}
 			if m.portForwardForm != nil { for _,r:=range msg.Runes {if r>=32 {m.portForwardForm.setValue(m.portForwardForm.value()+string(r))}}; break }
 			if m.masterPasswordPrompt {
 				for _, r := range msg.Runes { if r >= 32 { m.masterPasswordInput += string(r) } }
@@ -1486,13 +1541,19 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
 		b.WriteString("\n↑/↓ select   Enter change   F8 import SSH config   Ctrl+N add forwarding rule   Ctrl+L lock")
 	case 5:
+		if m.aiProviderForm != nil {
+			return m.renderAIProviderConfig(width, height, title, key)
+		}
 		b.WriteString("AI Providers\n\n")
 		b.WriteString(m.aiProviderView())
-		b.WriteString("\n\n↑/↓ select provider   Enter activate")
+		b.WriteString("\n\n↑/↓ select provider   Enter activate   Ctrl+E configure")
 		b.WriteString("\n\nChat\n")
 		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
 		b.WriteString("\n> "); b.WriteString(m.input)
 		b.WriteString("\n\nCtrl+K clear conversation")
+		if providers := m.aiProviders(); len(providers) > 0 && m.aiProviderIndex >= 0 && m.aiProviderIndex < len(providers) && providers[m.aiProviderIndex].Class == domainai.ProviderClassLocalOpenAI {
+			b.WriteString("\nCtrl+E configure   Ctrl+R start/stop local model")
+		}
 	}
 	return panelFixed(b.String(), width, height)
 }
