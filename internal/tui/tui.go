@@ -407,6 +407,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.aiCloudAuthPending { return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return aiCloudAuthPoll{sessionID: msg.session.ID} }) }
 	case aiCloudAuthPoll:
 		return m, m.pollCloudProviderAuth(msg.sessionID)
+	case aiCloudAuthPending:
+		return m, tea.Tick(time.Second, func(time.Time) tea.Msg {
+			return aiCloudAuthPoll{sessionID: msg.sessionID}
+		})
 	case aiCloudAuthDone:
 		m.aiCloudAuthPending = false
 		m.aiCloudAuthMessage = msg.message
