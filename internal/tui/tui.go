@@ -1632,7 +1632,9 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 			fmt.Sprintf("Prompt before AI actions: %s", boolLabel(m.settings.PromptBeforeAI)),
 			fmt.Sprintf("Allow cloud models:       %s", boolLabel(m.settings.AllowCloudModels)),
 			fmt.Sprintf("Theme:                    %s", nonEmpty(m.settings.Theme, "default")),
-			fmt.Sprintf("Secure storage:           %s", status),
+		}
+		if m.secureStorageBackend != nil {
+			lines = append(lines, fmt.Sprintf("Secure storage:           %s", status))
 		}
 		for i, line := range lines { marker := "  "; if i == m.settingsIndex { marker = "› " }; b.WriteString(marker + line + "\n") }
 		base := m.settingsPortForwardIndex() + 1
