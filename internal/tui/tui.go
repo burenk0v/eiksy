@@ -69,6 +69,10 @@ type AIBackend interface {
 	GetShellState() appservice.ShellState
 }
 
+type AIChatResetBackend interface {
+	ClearChat() error
+}
+
 type SessionProfileBackend interface {
 	ListSessionProfiles() []domainsessions.Profile
 	CreateSessionProfileInput(domainsessions.ProfileInput) error
@@ -362,6 +366,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
+	case aiClearDone:
+		m.messages = nil
+		m.toolCalls = nil
+	case aiClearError:
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI clear failed: %v", msg.err)})
 	case aiRefreshDone:
 		m.messages = append([]ChatMessage(nil), msg.messages...)
 	case commandPolicyUpdateDone:
@@ -530,6 +539,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
+		case tea.KeyCtrlK:
+			if m.activeTab == 5 {
+				if cmd := m.clearAIChat(); cmd != nil { return m, cmd }
+				return m, nil
+			}
 		case tea.KeyCtrlL:
 			if m.activeTab == 4 && m.secureStorageBackend != nil { m.secureStorageBackend.LockSecureStorage(); m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus(); m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage locked."}); return m, nil }
 		case tea.KeyCtrlR:
@@ -1312,6 +1326,8 @@ type secureStorageError struct{ err error }
 
 type aiSendDone struct{}
 type aiSendError struct{ err error }
+type aiClearDone struct{}
+type aiClearError struct{ err error }
 type aiRefreshDone struct{ messages []ChatMessage }
 
 type settingsUpdateDone struct{ settings domainsettings.AppSettings }
@@ -1458,6 +1474,7 @@ func (m Model) renderMainPanel(width, height int, title, key lipgloss.Style) str
 		b.WriteString("\n\nChat\n")
 		if len(m.messages) == 0 { b.WriteString("No AI messages yet.") } else { for _, message := range m.messages { fmt.Fprintf(&b, "%s: %s\n", message.Role, message.Content) } }
 		b.WriteString("\n> "); b.WriteString(m.input)
+		b.WriteString("\n\nCtrl+K clear conversation")
 	}
 	return panelFixed(b.String(), width, height)
 }
@@ -1521,6 +1538,18 @@ func Run(backend Backend) error {
 	}
 	_, err := program.Run()
 	return err
+}
+
+func (m *Model) clearAIChat() tea.Cmd {
+	backend, ok := m.backend.(AIChatResetBackend)
+	if !ok {
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: "AI conversation reset unavailable."})
+		return nil
+	}
+	return func() tea.Msg {
+		if err := backend.ClearChat(); err != nil { return aiClearError{err: err} }
+		return aiClearDone{}
+	}
 }
 
 func (m Model) aiToolCount() int {
