@@ -6,6 +6,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	agentai "eiksy/internal/ai"
 	appservice "eiksy/internal/app"
@@ -391,6 +392,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.aiProviderStatus = fmt.Sprintf("Local model %s completed.", msg.action)
 	case aiProviderLocalActionError:
 		m.aiProviderStatus = fmt.Sprintf("Local model operation failed: %v", msg.err)
+	case aiCloudAuthStarted:
+		m.aiCloudAuthSessionID = msg.session.ID
+		m.aiCloudAuthPending = msg.session.Status == "pending"
+		m.aiCloudAuthMessage = nonEmpty(msg.session.Message, "Waiting for browser authorization.")
+		if msg.session.AuthURL != "" {
+			if m.openBrowserURL == nil { m.openBrowserURL = openBrowserURL }
+			if err := m.openBrowserURL(msg.session.AuthURL); err != nil { m.aiCloudAuthPending = false; m.aiCloudAuthMessage = fmt.Sprintf("Unable to open browser: %v", err); return m, nil }
+		}
+		if m.aiCloudAuthPending { return m, tea.Tick(time.Second, func(time.Time) tea.Msg { return aiCloudAuthPoll{sessionID: msg.session.ID} }) }
+	case aiCloudAuthPoll:
+		return m, m.pollCloudProviderAuth(msg.sessionID)
+	case aiCloudAuthDone:
+		m.aiCloudAuthPending = false
+		m.aiCloudAuthMessage = msg.message
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: msg.message})
+	case aiCloudAuthError:
+		m.aiCloudAuthPending = false
+		m.aiCloudAuthMessage = fmt.Sprintf("%v", msg.err)
+		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("Browser authorization failed: %v", msg.err)})
 	case aiSendDone:
 	case aiSendError:
 		m.messages = append(m.messages, ChatMessage{Role: "System", Content: fmt.Sprintf("AI request failed: %v", msg.err)})
