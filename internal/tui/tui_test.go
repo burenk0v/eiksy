@@ -188,6 +188,11 @@ func (b *aiTestBackend) StartLocalModel() error { b.startedLocal = true; return 
 func (b *aiTestBackend) StopLocalModel() error { b.stoppedLocal = true; return nil }
 func (b *aiTestBackend) ListCloudModels(endpoint, token string) ([]string, error) { b.cloudModels = []string{"gpt-test", "gpt-other"}; return b.cloudModels, nil }
 
+func (b *aiTestBackend) ResolveCommandPolicyRequest(requestID, mode string) error {
+	b.aiState.CommandPolicy.PendingRequests = nil
+	return nil
+}
+
 func (b *aiTestBackend) SelectAIProvider(providerID string) error {
 	for i := range b.aiState.Providers {
 		b.aiState.Providers[i].Selected = b.aiState.Providers[i].ID == providerID
@@ -1325,3 +1330,16 @@ func TestModelRunsLocalAIProviderLifecycleThroughSharedBackend(t *testing.T) {
 	if !backend.startedLocal { t.Fatal("expected local model start") }
 }
  
+
+func TestModelResolvesPendingCommandRequestThroughSharedBackend(t *testing.T) {
+	backend := &aiTestBackend{aiState: domainai.WorkspaceState{CommandPolicy: domainai.CommandPolicy{
+		PendingRequests: []domainai.CommandRequest{{ID:"request-1", ToolID:"shell", Command:"uname -a", SessionID:"session-1"}},
+	}}}
+	m := NewModel().WithBackend(backend); m.activeTab=3
+	next, cmd := m.Update(tea.KeyMsg{Type:tea.KeyDown}); if cmd != nil { t.Fatal("expected approval selection without command") }; m=next.(Model)
+	if m.aiApprovalIndex != 1 { t.Fatalf("expected session action, got %d",m.aiApprovalIndex) }
+	next, cmd = m.Update(tea.KeyMsg{Type:tea.KeyEnter}); if cmd == nil { t.Fatal("expected approval command") }; m=next.(Model)
+	result:=cmd(); if result==nil { t.Fatal("expected approval result") }; next,_=m.Update(result); m=next.(Model)
+	if len(backend.aiState.CommandPolicy.PendingRequests)!=0 { t.Fatal("expected pending request to be cleared") }
+	if !strings.Contains(m.View(),"Command request resolved: session.") { t.Fatal("expected resolution confirmation") }
+}
