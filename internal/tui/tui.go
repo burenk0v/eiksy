@@ -523,8 +523,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			if m.activeTab == 2 && !m.sftpEdit && m.fileContent != "" && m.sftpEditPath != "" { m.startSFTPEditor(); return m, nil }
-		case tea.KeyCtrlM:
-			if m.activeTab == 4 && m.secureStorageBackend != nil { m.masterPasswordPrompt = true; m.masterPasswordInput = ""; return m, nil }
 		case tea.KeyCtrlL:
 			if m.activeTab == 4 && m.secureStorageBackend != nil { m.secureStorageBackend.LockSecureStorage(); m.secureStorageStatus = m.secureStorageBackend.GetSecureStorageStatus(); m.messages = append(m.messages, ChatMessage{Role: "System", Content: "Secure storage locked."}); return m, nil }
 		case tea.KeyCtrlR:
