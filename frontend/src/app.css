@@ -1598,3 +1598,13 @@ small {
 .startup-state-hint{margin-top:14px;color:var(--color-muted);line-height:1.5}
 .empty-workspace{min-height:0;height:100%;display:grid;place-items:center;padding:32px;box-sizing:border-box}
 .empty-workspace-card{max-width:520px;width:min(100%,520px);padding:28px;border:1px solid var(--border-card);border-radius:12px;background:var(--bg-card);box-shadow:0 18px 50px rgba(0,0,0,.24);box-sizing:border-box;text-align:center}
+
+/* The existing chat toggle is now the explicit SSH session-context opt-in. */
+.chat-attach-row > span {
+    font-size: 0;
+}
+
+.chat-attach-row > span::after {
+    content: "Include session in AI context";
+    font-size: 0.875rem;
+}
