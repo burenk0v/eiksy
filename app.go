@@ -154,7 +154,10 @@ func (a *App) StopLocalModel() { a.currentService().StopLocalModel() }
 func (a *App) ListCloudModels(endpoint, token string) ([]string, error) { return a.currentService().ListCloudModels(endpoint, token) }
 func (a *App) StartCloudProviderAuth(endpoint string) (app.CloudProviderAuthSession, error) { return a.currentService().StartCloudProviderAuth(endpoint) }
 func (a *App) GetCloudProviderAuthSession(sessionID string) (app.CloudProviderAuthSession, error) { return a.currentService().GetCloudProviderAuthSession(sessionID) }
-func (a *App) SendChatMessage(message, activeSessionID string) error { return a.currentService().SendChatMessage(a.ctx, message, activeSessionID) }
+func (a *App) SendChatMessage(message, activeSessionID string) error {
+	message, contextSessionID := prepareAIChatMessage(message, activeSessionID)
+	return a.currentService().SendChatMessage(a.ctx, message, contextSessionID)
+}
 func (a *App) ClearChat() error { return a.currentService().ClearChat() }
 func (a *App) UpdateCommandPolicy(policy ai.CommandPolicy) error { return a.currentService().UpdateCommandPolicy(policy) }
 
