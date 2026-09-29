@@ -2179,14 +2179,6 @@ class EiksyShell {
       terminalState.fitAddon.fit();
       terminalState.opened = true;
       terminalState.terminal.focus();
-      terminalState.terminal.onData((data: string) => {
-        void SendSSHInput(activeTab.id, data).catch((error) => {
-          this.setErrorMessage(
-            formatError("Unable to send terminal input", error),
-          );
-          this.render();
-        });
-      });
     }
     this.fitActiveTerminal();
   }
@@ -2214,6 +2206,14 @@ class EiksyShell {
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(new WebLinksAddon());
     terminal.writeln("Connecting...");
+    terminal.onData((data: string) => {
+      void SendSSHInput(tabID, data).catch((error) => {
+        this.setErrorMessage(
+          formatError("Unable to send terminal input", error),
+        );
+        this.render();
+      });
+    });
 
     const unsubscribe = EventsOn(
       `terminal:output:${tabID}`,
